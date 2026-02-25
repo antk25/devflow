@@ -1,0 +1,14 @@
+{
+  "name": "mcp-qwen-review",
+  "version": "1.1.0",
+  "description": "MCP server that wraps Qwen Code CLI for code review, planning, and contract generation",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.25.0"
+  }
+}

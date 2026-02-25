@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "qwen-review": {
+      "command": "node",
+      "args": ["__PROJECT_ROOT__/mcp-servers/qwen-review/index.js"]
+    },
+    "serena": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "claude-code", "--project", "__PROJECT_ROOT__"]
+    }
+  }
+}

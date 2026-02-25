@@ -1,0 +1,54 @@
+{
+  "version": "2.0",
+  "description": "Registry of projects managed by Claude Orchestrator",
+  "obsidian_vault": "",
+  "projects": {
+    "claude-orchestrator": {
+      "path": "/home/youruser/projects/claude-orchestrator",
+      "type": "single",
+      "description": "AI-powered development orchestration system (this project)",
+      "serena_project": null,
+      "created": "2025-01-23",
+      "tags": ["meta", "orchestrator"],
+      "repositories": {
+        "main": "/home/youruser/projects/claude-orchestrator"
+      }
+    },
+    "my-webapp": {
+      "path": "/home/youruser/projects/my-webapp",
+      "type": "fullstack",
+      "description": "Example fullstack project (PHP backend + TypeScript frontend)",
+      "serena_project": "my-webapp",
+      "created": "2025-01-25",
+      "tags": ["php", "symfony", "typescript", "fullstack"],
+      "branch_prefix": "JIRA-",
+      "docker": {
+        "start": "make -C /home/youruser/projects/my-webapp/backend dc.up-d",
+        "stop": "make -C /home/youruser/projects/my-webapp/backend dc.down"
+      },
+      "repositories": {
+        "backend": "/home/youruser/projects/my-webapp/backend",
+        "frontend": "/home/youruser/projects/my-webapp/frontend"
+      },
+      "testing": {
+        "backend": {
+          "type": "api",
+          "base_url": "http://localhost:8000",
+          "commands": {
+            "unit": "cd {{repo}} && ./vendor/bin/phpunit",
+            "e2e": "curl -s {{base_url}}/api/health | jq ."
+          }
+        },
+        "frontend": {
+          "type": "browser",
+          "base_url": "http://localhost:3000",
+          "commands": {
+            "unit": "cd {{repo}} && npm test",
+            "e2e": "cd {{repo}} && npx playwright test"
+          }
+        }
+      }
+    }
+  },
+  "active": "claude-orchestrator"
+}

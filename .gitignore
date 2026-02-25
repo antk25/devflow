@@ -1,0 +1,34 @@
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# User-specific runtime data (contains local paths, session history, task queue)
+# Use *.example files as templates for initial setup
+.claude/data/projects.json
+.claude/data/sessions.json
+.claude/data/queue.json
+.claude/data/tasks.json
+
+# User-specific configuration (contains absolute paths to hooks, MCP servers)
+# Run ./scripts/setup.sh to generate from templates
+.mcp.json
+.claude/settings.json
+
+# Git worktrees created by /develop
+.claude/worktrees/
+
+# Serena MCP cache
+.serena/
+
+# Qwen orchestrator backup (legacy)
+.qwen/
+
+# LanceDB (local RAG database)
+lancedb/
+
+# Node modules
+node_modules/
+
+# Editor configs
+.zed/
+.vscode/
+.idea/
