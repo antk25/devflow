@@ -1,5 +1,5 @@
 #!/bin/bash
-# start.sh — Dev Orchestrator launcher
+# start.sh — DevFlow launcher
 # Shows interactive project selection menu, then launches Claude Code.
 #
 # Usage:

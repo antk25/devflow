@@ -1,17 +1,17 @@
 {
   "version": "2.0",
-  "description": "Registry of projects managed by Claude Orchestrator",
+  "description": "Registry of projects managed by DevFlow",
   "obsidian_vault": "",
   "projects": {
-    "claude-orchestrator": {
-      "path": "/home/youruser/projects/claude-orchestrator",
+    "devflow": {
+      "path": "/home/youruser/projects/devflow",
       "type": "single",
       "description": "AI-powered development orchestration system (this project)",
       "serena_project": null,
       "created": "2025-01-23",
       "tags": ["meta", "orchestrator"],
       "repositories": {
-        "main": "/home/youruser/projects/claude-orchestrator"
+        "main": "/home/youruser/projects/devflow"
       }
     },
     "my-webapp": {
@@ -50,5 +50,5 @@
       }
     }
   },
-  "active": "claude-orchestrator"
+  "active": "devflow"
 }

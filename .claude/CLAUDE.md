@@ -1,11 +1,11 @@
-# Dev Orchestrator - Claude Code Native
+# DevFlow - Claude Code Native
 
 ## Startup Greeting
 
 **IMPORTANT:** When starting a new conversation in this project, ALWAYS greet the user with a brief welcome showing available commands:
 
 ```
-🎯 **Dev Orchestrator**
+🎯 **DevFlow**
 
 Just describe your task — I'll pick the right workflow automatically.
 Or use a command directly:
@@ -80,7 +80,7 @@ Low confidence (ask user):
 
 ## Overview
 
-Dev Orchestrator is an AI-powered development orchestration system built natively on Claude Code. It coordinates specialized agents to plan, implement, test, and review software development tasks.
+DevFlow is an AI-powered development orchestration system built natively on Claude Code. It coordinates specialized agents to plan, implement, test, and review software development tasks.
 
 **Key Features:**
 - Multi-repository support (separate frontend/backend repos)

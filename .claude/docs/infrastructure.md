@@ -18,7 +18,7 @@ The orchestrator uses a local RAG (mcp-local-rag) for storing and retrieving pro
 │   └── languages/             # Language/framework references
 ├── my-app/                    # Project-specific docs
 ├── my-api/                    # Project-specific docs
-└── claude-orchestrator/       # Project-specific docs
+└── devflow/                  # Project-specific docs
 ```
 
 **Available tools:**

@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "Setting up Claude Orchestrator..."
+echo "Setting up DevFlow..."
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
@@ -107,9 +107,9 @@ with open('$PROJECTS_FILE') as f:
 
 root = '$PROJECT_ROOT'
 
-# Update the claude-orchestrator entry with actual path
-if 'claude-orchestrator' in data.get('projects', {}):
-    p = data['projects']['claude-orchestrator']
+# Update the devflow entry with actual path
+if 'devflow' in data.get('projects', {}):
+    p = data['projects']['devflow']
     p['path'] = root
     p['repositories'] = {'main': root}
 
@@ -117,7 +117,7 @@ with open('$PROJECTS_FILE', 'w') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write('\n')
 
-print(f'  [updated] claude-orchestrator path -> {root}')
+print(f'  [updated] devflow path -> {root}')
 " 2>/dev/null || echo "  [skip] Could not update paths (python3 required)"
 fi
 
