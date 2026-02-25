@@ -22,8 +22,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_DIR="$(dirname "$SCRIPT_DIR")"
-SESSIONS_FILE="$ORCHESTRATOR_DIR/.claude/data/sessions.json"
+DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
+SESSIONS_FILE="$DEVFLOW_DIR/.claude/data/sessions.json"
 
 BRANCH="${1:-}"
 LOOP_NAME="${2:-}"

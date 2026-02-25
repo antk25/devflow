@@ -13,8 +13,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECTS_FILE="$ORCHESTRATOR_DIR/.claude/data/projects.json"
+DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECTS_FILE="$DEVFLOW_DIR/.claude/data/projects.json"
 
 if [ ! -f "$PROJECTS_FILE" ]; then
     echo "ERROR: projects.json not found at $PROJECTS_FILE" >&2

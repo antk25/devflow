@@ -19,9 +19,6 @@
 # Serena MCP cache
 .serena/
 
-# Qwen orchestrator backup (legacy)
-.qwen/
-
 # LanceDB (local RAG database)
 lancedb/
 

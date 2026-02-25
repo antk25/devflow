@@ -4,8 +4,8 @@
 # Claude reads this output and activates Serena, loads memories, etc.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-PROJECTS_FILE="$ORCHESTRATOR_DIR/.claude/data/projects.json"
+DEVFLOW_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+PROJECTS_FILE="$DEVFLOW_DIR/.claude/data/projects.json"
 
 if [ ! -f "$PROJECTS_FILE" ]; then
     exit 0
