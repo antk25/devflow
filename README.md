@@ -1,311 +1,328 @@
 # Dev Orchestrator
 
-AI-powered development orchestration built natively on Claude Code.
+Система оркестрации разработки, построенная нативно на [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Координирует специализированных AI-агентов для планирования, реализации, тестирования и ревью задач — от постановки до готовой ветки с атомарными коммитами.
 
-## Overview
+## Что умеет
 
-Dev Orchestrator coordinates specialized AI agents to plan, implement, test, and review software development tasks. It supports multi-repository projects, E2E testing, and fully autonomous development workflows.
+- **Полностью автономный режим** — от описания задачи до финального коммита без подтверждений
+- **Умная маршрутизация** — просто опиши задачу, оркестратор сам выберет workflow
+- **Мульти-репозиторий** — проекты с раздельным frontend/backend
+- **Двухветочная стратегия** — грязная work-ветка + чистая ветка с атомарными коммитами
+- **Валидация архитектуры** — автоматическая проверка и исправление нарушений паттернов
+- **E2E тестирование** — curl для API, Playwright для UI
+- **Код-ревью** — локальные изменения, GitHub PR, GitLab MR
+- **Пакетная очередь** — запланировать задачи на день и выполнить пакетом
+- **Интеграция с Obsidian** — контрактная разработка (C-DAD) через vault
 
-## Prerequisites
+---
 
-**Required:**
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (v2.0+) with API key configured
-- Node.js (v20+)
-- Python 3.10+
-- Git
+## Требования
 
-**Required MCP servers** (project-level, configured automatically by `setup.sh`):
-| Server | Purpose | Install method |
-|--------|---------|----------------|
-| [Serena](https://github.com/oraios/serena) | Symbolic code navigation, persistent memories | `uvx` (requires [uv](https://docs.astral.sh/uv/getting-started/installation/)) |
-| qwen-review | Dual code review (Claude + Qwen) | Bundled, `npm install` |
+### Обязательные
 
-**Optional MCP servers** (user-level, install into `~/.claude.json` via `claude mcp add`):
-| Server | Purpose | Install command |
-|--------|---------|----------------|
-| [context7](https://github.com/upstash/context7) | Up-to-date library documentation | `claude mcp add context7 -- npx -y @upstash/context7-mcp` |
-| [playwright](https://github.com/anthropics/mcp-playwright) | E2E browser testing | `claude mcp add playwright -- npx -y @playwright/mcp@latest` |
-| [chrome-devtools](https://github.com/nicholasgriffintn/chrome-devtools-mcp) | Browser debugging & performance | `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest` |
-| [local-rag](https://github.com/jcassee/mcp-local-rag) | RAG knowledge base for project docs | `claude mcp add local-rag -- npx -y mcp-local-rag` |
+| Зависимость | Версия | Назначение |
+|-------------|--------|------------|
+| [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) | 2.0+ | Основная платформа |
+| [Node.js](https://nodejs.org/) | 20+ | MCP серверы, npm-скрипты |
+| [Python](https://www.python.org/) | 3.10+ | Скрипты сессий и конфигурации |
+| [uv](https://docs.astral.sh/uv/getting-started/installation/) | 0.4+ | Установка Serena через `uvx` |
+| Git | 2.30+ | Управление версиями |
 
-> Without optional servers the orchestrator works fine — features that depend on them are gracefully skipped.
+### MCP серверы (проектные)
 
-## Quick Start
+Конфигурируются автоматически через `setup.sh`:
+
+| Сервер | Назначение | Метод установки |
+|--------|------------|-----------------|
+| [Serena](https://github.com/oraios/serena) | Символьная навигация, персистентная память | `uvx` (автоматически) |
+| qwen-review | Двойное код-ревью (Claude + Qwen) | Встроен, `npm install` |
+
+### MCP серверы (опциональные, пользовательские)
+
+Устанавливаются в `~/.claude.json` через `claude mcp add`. Без них оркестратор работает — зависящие фичи пропускаются.
+
+| Сервер | Назначение | Команда установки |
+|--------|------------|-------------------|
+| [context7](https://github.com/upstash/context7) | Актуальная документация библиотек | `claude mcp add context7 -- npx -y @upstash/context7-mcp` |
+| [playwright](https://github.com/anthropics/mcp-playwright) | E2E тестирование в браузере | `claude mcp add playwright -- npx -y @playwright/mcp@latest` |
+| [chrome-devtools](https://github.com/nicholasgriffintn/chrome-devtools-mcp) | Отладка и профилирование браузера | `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest` |
+| [local-rag](https://github.com/jcassee/mcp-local-rag) | RAG база знаний для документации | `claude mcp add local-rag -- npx -y mcp-local-rag` |
+
+---
+
+## Быстрый старт
 
 ```bash
 git clone <repo-url> claude-orchestrator
 cd claude-orchestrator
-./scripts/setup.sh    # generates .mcp.json, .claude/settings.json, empty data files
-claude                # launch Claude Code
+./scripts/setup.sh    # генерирует .mcp.json, .claude/settings.json, пустые data-файлы
+claude                # запускает Claude Code
 ```
 
-You'll see:
-```
-🎯 Dev Orchestrator
+При запуске увидите:
 
-Commands:
-• /develop <feature> - Autonomous development (smart routing)
-• /fix <bug> - Quick bug fix (no planning)
-• /refactor <scope> - Code refactoring
-• /investigate <issue> - Deep problem analysis (no changes)
-• /review [--pr 123] - Code review (local or PR/MR)
-• /plan, /implement - Manual workflow
-• /project list|switch|add - Project management
-• /help - Full documentation
+```
+Dev Orchestrator
+
+Просто опишите задачу — я выберу правильный workflow.
+Или используйте команду напрямую:
+
+/develop · /fix · /refactor · /explore · /investigate · /review
+/plan · /implement · /finalize · /audit · /note · /queue
+/next · /project · /help
 
 Ready to build!
 ```
 
-## Features
+---
 
-- **Autonomous development** - Full pipeline with no confirmations
-- **Multi-repository support** - Separate frontend/backend repos
-- **E2E testing** - curl for API, Playwright for UI
-- **PR/MR review** - Review teammate's code from GitHub/GitLab
-- **Problem investigation** - Deep analysis without changes
-- **Architecture validation** - Auto-fix pattern violations
+## Какую команду выбрать?
 
-## Commands
+Можно не выбирать — просто опишите задачу. Оркестратор автоматически определит тип и запустит нужный workflow.
 
-### Autonomous Development
+| Ситуация | Команда | Почему |
+|----------|---------|--------|
+| Новая фича | `/develop` | Полный пайплайн: план, реализация, тесты, ревью, атомарные коммиты |
+| Идея без чёткого плана | `/explore` | Исследование подходов, без изменений |
+| Баг (причина ясна) | `/fix` | Быстро, без планирования |
+| Баг (причина неясна) | `/investigate` | Анализ и гипотезы, без изменений |
+| Улучшение кода | `/refactor` | Пошагово, с сохранением поведения |
+| Ревью своих изменений | `/review` | Перед коммитом |
+| Ревью PR коллеги | `/review --pr 123` | Внешнее код-ревью |
+| Грязная git-история | `/finalize` | Очистка work-ветки перед PR |
+| Пакет задач на день | `/queue` | Добавить задачи, выполнить пакетом |
+| Документация устарела | `/audit` | Сравнение docs с кодом |
+| Заметки в Obsidian | `/note` | Сохранить/прочитать контракты и исследования |
+| Ручной контроль | `/plan` + `/implement` | Пошагово с одобрением |
 
-```bash
-/develop Add user authentication with JWT
+---
+
+## Основные команды
+
+### /develop — Автономная разработка
+
+Полный пайплайн от описания задачи до готовой ветки:
+
+```
+/develop Добавить аутентификацию через JWT
+/develop Реализовать экспорт данных в CSV
 ```
 
-Runs the full pipeline automatically:
+**Пайплайн:**
 ```
-create branch → plan → implement → validate → fix → E2E test → commit → review → fix → summary
-```
-
-**Smart routing:** Detects workflow type from keywords:
-- "fix", "bug", "error" → routes to `/fix`
-- "refactor", "clean up" → routes to `/refactor`
-
-### Quick Bug Fix
-
-```bash
-/fix Login button not responding
-/fix TypeError in user profile
+ветка → план → реализация → валидация архитектуры → E2E тесты → ревью → финализация
 ```
 
-Streamlined pipeline (no planning):
+**Двухветочная стратегия:**
 ```
-create branch → search → implement → test → commit → summary
-```
-
-### Problem Investigation
-
-```bash
-/investigate Login fails intermittently
-/investigate Why is the API response slow?
-/investigate --deep Memory leak in dashboard
+feature/auth-work  ← все итерации (15 грязных коммитов) — резервная копия
+feature/auth       ← чистая ветка (3 атомарных коммита) — пушите эту
 ```
 
-Deep analysis without changes:
+### /fix — Быстрое исправление
+
 ```
-search → analyze → hypotheses → solutions report
+/fix Кнопка логина не реагирует
+/fix TypeError в профиле пользователя
 ```
 
-**Output includes:**
-- Root cause analysis with evidence
-- Hypotheses ranked by confidence
-- Solution options with effort/risk estimates
+**Пайплайн:** `ветка → поиск → исправление → тест → коммит`
 
-### Code Refactoring
+### /investigate — Анализ проблемы
 
-```bash
+Глубокий анализ **без изменений в коде**:
+
+```
+/investigate Логин не работает в Safari
+/investigate Почему API отвечает медленно?
+```
+
+**Результат:** гипотезы с уверенностью, корневая причина, варианты решений с оценкой сложности.
+
+### /refactor — Рефакторинг
+
+```
 /refactor src/services/auth.ts
-/refactor Payment service
 /refactor --extract UserValidator from UserService
 ```
 
-Structured refactoring:
-```
-create branch → analyze → refactor (step by step) → validate → test → commit → summary
-```
+**Пайплайн:** `ветка → анализ → пошаговый рефакторинг → валидация → тесты → коммиты`
 
-### Code Review
+### /review — Код-ревью
 
-```bash
-/review                          # Staged changes
+```
+/review                          # Staged-изменения
 /review --pr 123                 # GitHub PR
-/review --mr 45                  # GitLab MR
-/review --branch feature/auth    # Branch vs main
-/review --pr 123 --comment       # Post comments to PR
-/review --focus security         # Security-focused
+/review --branch feature/auth    # Ветка vs main
+/review --focus security         # Фокус на безопасности
 ```
 
-### Manual Workflow
-
-```bash
-/plan Add shopping cart functionality
-/implement 1
-/implement 2
-/review
-```
-
-### Project Management
-
-```bash
-/project list                    # List registered projects
-/project switch <name>           # Switch context
-/project add <path>              # Register new project
-/project info                    # Current project details
-```
-
-## Choosing the Right Command
-
-| Situation | Command | Why |
-|-----------|---------|-----|
-| New feature | `/develop` | Full planning and review |
-| Bug fix (clear cause) | `/fix` | Fast, no planning overhead |
-| Bug (unclear cause) | `/investigate` | Analysis first, no changes |
-| Code improvement | `/refactor` | Preserves behavior, step-by-step |
-| Review your changes | `/review` | Before commit |
-| Review teammate's PR | `/review --pr 123` | External code review |
-| Manual control | `/plan` → `/implement` | Step-by-step |
-
-## Architecture
+### /explore — Исследование подхода
 
 ```
-claude-orchestrator/
-├── .claude/
-│   ├── CLAUDE.md                    # Main context & routing rules
-│   ├── settings.json.example        # Permissions & hooks template
-│   ├── data/
-│   │   ├── projects.json.example    # Project registry template
-│   │   ├── sessions.json.example    # Session tracking template
-│   │   └── queue.json.example       # Task queue template
-│   ├── agents/                      # Agent system prompts
-│   │   ├── pm.md                    # Project Manager
-│   │   ├── architect.md             # System Architect
-│   │   ├── js-developer.md          # JS/TS Developer
-│   │   ├── php-developer.md         # PHP Developer
-│   │   ├── tester.md                # QA Engineer
-│   │   ├── debugger.md              # Debugging Specialist
-│   │   ├── tracer.md                # Business Logic Analyst
-│   │   ├── reviewer.md              # Code Reviewer (opus)
-│   │   └── architecture-guardian.md # Pattern Validator
-│   ├── hooks/                       # Claude Code hooks
-│   │   ├── auto-approve.sh          # Auto-approve safe tool calls
-│   │   ├── project-restore.sh       # Restore project context on start
-│   │   └── rag-reindex-check.sh     # Check RAG knowledge base updates
-│   └── skills/                      # Slash command definitions
-│       ├── develop/SKILL.md         # /develop — autonomous pipeline
-│       ├── fix/SKILL.md             # /fix — quick bug fix
-│       ├── refactor/SKILL.md        # /refactor — code improvement
-│       ├── investigate/SKILL.md     # /investigate — deep analysis
-│       ├── explore/SKILL.md         # /explore — research approaches
-│       ├── review/SKILL.md          # /review — code review
-│       ├── plan/SKILL.md            # /plan — manual planning
-│       ├── implement/SKILL.md       # /implement — manual implementation
-│       ├── finalize/SKILL.md        # /finalize — clean commit history
-│       ├── note/SKILL.md            # /note — Obsidian integration
-│       ├── queue/SKILL.md           # /queue — batch task execution
-│       ├── project/SKILL.md         # /project — registry management
-│       ├── audit/SKILL.md           # /audit — docs vs code check
-│       ├── next/SKILL.md            # /next — task transition
-│       └── help/SKILL.md            # /help — show commands
-├── scripts/                         # Shell utilities
-│   ├── setup.sh                     # Initial setup (run after clone)
-│   ├── create-branch.sh             # Branch creation with conventions
-│   ├── session-checkpoint.sh        # Session phase tracking
-│   ├── read-project-config.sh       # Project config reader
-│   ├── git-context.sh               # Commit style analyzer
-│   ├── run-tests.sh                 # Universal test runner
-│   ├── e2e-check.sh                 # E2E test runner
-│   ├── check-loop.sh                # Loop detection
-│   └── require-contract.sh          # C-DAD contract gate
-├── mcp-servers/
-│   └── qwen-review/                 # Bundled MCP server for dual review
-├── .mcp.json.example                # MCP server config template
-├── start.sh                         # Project launcher (interactive menu)
-└── README.md
+/explore Как лучше реализовать уведомления?
+/explore Варианты кеширования для каталога
 ```
 
-## Agents
+Исследует кодовую базу, сравнивает подходы, **не вносит изменений**.
 
-| Agent | Role | Use Cases |
-|-------|------|-----------|
-| **PM** | Project Manager | Requirements analysis, task breakdown |
-| **Architect** | System Architect | Architecture design, ADRs |
-| **JS Developer** | JavaScript/TypeScript | React, Vue, Node.js, Next.js |
+### /finalize — Финализация коммитов
+
+```
+/finalize                        # Текущая ветка
+/finalize feature/auth-work      # Конкретная ветка
+```
+
+Создаёт чистую ветку с атомарными коммитами из грязной work-ветки.
+
+### /plan + /implement — Ручной режим
+
+```
+/plan Добавить корзину покупок     # PM создаёт план
+/implement 1                      # Реализовать задачу #1
+/implement 2                      # Реализовать задачу #2
+/review                           # Ревью
+/finalize                         # Очистка коммитов
+```
+
+### /queue — Пакетная очередь
+
+```
+/queue add develop Добавить тёмную тему
+/queue add fix Исправить валидацию email
+/queue list
+/queue run                       # Выполнить все задачи
+/queue status                    # Результаты
+```
+
+---
+
+## Агенты
+
+Система использует специализированных агентов для разных фаз:
+
+| Агент | Роль | Когда используется |
+|-------|------|-------------------|
+| **PM** | Менеджер проекта | Анализ требований, декомпозиция задач |
+| **Architect** | Системный архитектор | ADR, технические решения |
+| **JS Developer** | JavaScript/TypeScript | React, Vue, Node.js, TypeScript |
 | **PHP Developer** | PHP | Laravel, Symfony |
-| **Tester** | QA Engineer | Unit, integration, E2E tests |
-| **Reviewer** | Code Reviewer | Security, performance, quality |
-| **Architecture Guardian** | Pattern Validator | Validates code, requests fixes |
+| **Tester** | QA-инженер | Unit, integration, E2E тесты |
+| **Debugger** | Отладчик | Поиск корневых причин, диагностика |
+| **Tracer** | Аналитик бизнес-логики | Трассировка потоков данных перед реализацией |
+| **Reviewer** | Код-ревьюер (opus) | Безопасность, производительность, качество |
+| **Architecture Guardian** | Валидатор паттернов | Проверка на соответствие паттернам проекта |
 
-## Project Configuration
+Агент выбирается автоматически по расширениям файлов, фреймворку и типу задачи.
 
-Projects support multi-repository setups:
+---
+
+## Git-стратегия
+
+| Команда | Work-ветка | Финальная ветка | Коммиты |
+|---------|------------|-----------------|---------|
+| `/develop` | `feature/xxx-work` | `feature/xxx` | Атомарные (по стилю проекта) |
+| `/fix` | — | `fix/xxx` | Один коммит |
+| `/refactor` | — | `refactor/xxx` | По шагам |
+| `/investigate` | — | — | Без изменений |
+| `/review` | — | — | Без изменений |
+
+**Безопасность:**
+- `git push` **заблокирован** — вы всегда пушите вручную
+- `gh` (GitHub CLI) **заблокирован** — PR создаёте сами
+- Все изменения остаются локальными
+
+Стиль коммитов анализируется из git-истории проекта и копируется (Conventional Commits, тикеты, plain text).
+
+---
+
+## Конфигурация проекта
+
+Проекты регистрируются через `/project add <path>` и хранятся в `.claude/data/projects.json`:
 
 ```json
 {
-  "name": "my-fullstack-app",
-  "path": "/home/user/projects/my-app",
-  "type": "fullstack",
-  "repositories": {
-    "backend": "/home/user/projects/my-app/backend",
-    "frontend": "/home/user/projects/my-app/frontend"
-  },
-  "testing": {
-    "backend": {
-      "type": "api",
-      "base_url": "http://localhost:8000",
-      "commands": {
-        "unit": "cd {{repo}} && ./vendor/bin/phpunit",
-        "e2e": "curl -s {{base_url}}/api/health | jq ."
-      }
+  "my-app": {
+    "path": "/home/user/projects/my-app",
+    "type": "fullstack",
+    "serena_project": "my-app",
+    "branch_prefix": "JIRA-",
+    "repositories": {
+      "backend": "/home/user/projects/my-app/backend",
+      "frontend": "/home/user/projects/my-app/frontend"
     },
-    "frontend": {
-      "type": "browser",
-      "base_url": "http://localhost:3000",
-      "commands": {
-        "unit": "cd {{repo}} && npm test",
-        "e2e": "cd {{repo}} && npx playwright test"
+    "testing": {
+      "backend": {
+        "type": "api",
+        "base_url": "http://localhost:8000",
+        "commands": {
+          "unit": "cd {{repo}} && ./vendor/bin/phpunit",
+          "e2e": "curl -s {{base_url}}/api/health | jq ."
+        }
+      },
+      "frontend": {
+        "type": "browser",
+        "base_url": "http://localhost:3000",
+        "commands": {
+          "unit": "cd {{repo}} && npm test",
+          "e2e": "cd {{repo}} && npx playwright test"
+        }
       }
     }
   }
 }
 ```
 
-## Git Workflow
+Каждый проект может определить паттерны в `.claude/patterns.md` — оркестратор использует их при валидации кода.
 
-| Command | Branch Prefix | Commit Prefix | Creates Branch |
-|---------|---------------|---------------|----------------|
-| `/develop` | `feature/` | `feat:` | Yes |
-| `/fix` | `fix/` | `fix:` | Yes |
-| `/refactor` | `refactor/` | `refactor:` | Yes |
-| `/investigate` | - | - | No (read-only) |
-| `/review` | - | - | No (read-only) |
+---
 
-**Safety:** `git push` is always manual - you control when to push.
+## Структура проекта
 
-## Autonomous Mode
+```
+claude-orchestrator/
+├── .claude/
+│   ├── CLAUDE.md                    # Контекст и правила маршрутизации
+│   ├── settings.json.example        # Шаблон разрешений и хуков
+│   ├── data/
+│   │   ├── projects.json.example    # Шаблон реестра проектов
+│   │   ├── sessions.json.example    # Шаблон отслеживания сессий
+│   │   └── queue.json.example       # Шаблон очереди задач
+│   ├── agents/                      # Системные промпты агентов
+│   ├── hooks/                       # Хуки Claude Code
+│   │   ├── auto-approve.sh          # Автоодобрение безопасных вызовов
+│   │   ├── project-restore.sh       # Восстановление контекста при старте
+│   │   └── rag-reindex-check.sh     # Проверка обновлений RAG базы
+│   └── skills/                      # Определения slash-команд
+├── scripts/
+│   ├── setup.sh                     # Первоначальная настройка
+│   ├── create-branch.sh             # Создание веток с конвенциями
+│   ├── session-checkpoint.sh        # Отслеживание фаз сессий
+│   └── ...                          # Утилиты для тестов, git, контрактов
+├── mcp-servers/
+│   └── qwen-review/                 # Встроенный MCP сервер
+├── .mcp.json.example                # Шаблон конфигурации MCP
+├── start.sh                         # Лаунчер проектов
+└── README.md
+```
 
-The `/develop`, `/fix`, and `/refactor` commands run without confirmations:
+---
 
-- No file edit confirmations
-- No command confirmations
-- Automatic architecture validation and fix
-- Automatic E2E testing and fix
-- Automatic code review and fix
+## Устранение неполадок
 
-**Safety is maintained through:**
-- `git push` blocked in settings.json
-- All changes stay local until you push
-- Full summary provided at the end
+**Всё ещё запрашивает подтверждения?**
+1. Перезапустите Claude Code — изменения `settings.json` требуют перезапуска
+2. Проверьте `chmod +x .claude/hooks/auto-approve.sh`
+3. Крайний вариант: `claude --dangerously-skip-permissions`
 
-## Integration
+**Git-операции не работают?**
+- Git-команды должны запускаться из директории репозитория, а не из оркестратора
 
-- **Git** - Auto branches, auto commits
-- **GitHub/GitLab** - PR/MR review
-- **Playwright** - E2E browser testing
-- **Jest/PHPUnit** - Unit testing
-- **ESLint/PHPStan** - Static analysis
-- **Serena MCP** - Symbolic code navigation
+**E2E тесты падают?**
+- Оркестратор фиксирует ошибку, пытается исправить (до 2 попыток), затем продолжает с ревью
 
-## License
+---
+
+## Лицензия
 
 MIT
