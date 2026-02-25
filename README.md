@@ -27,6 +27,7 @@
 | [Python](https://www.python.org/) | 3.10+ | Скрипты сессий и конфигурации |
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | 0.4+ | Установка Serena через `uvx` |
 | Git | 2.30+ | Управление версиями |
+| [gum](https://github.com/charmbracelet/gum) | — | Интерактивное меню `start.sh` (не нужен при вызове `./start.sh <project>`) |
 
 ### MCP серверы (проектные)
 
