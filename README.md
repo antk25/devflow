@@ -6,11 +6,37 @@ AI-powered development orchestration built natively on Claude Code.
 
 Dev Orchestrator coordinates specialized AI agents to plan, implement, test, and review software development tasks. It supports multi-repository projects, E2E testing, and fully autonomous development workflows.
 
+## Prerequisites
+
+**Required:**
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (v2.0+) with API key configured
+- Node.js (v20+)
+- Python 3.10+
+- Git
+
+**Required MCP servers** (project-level, configured automatically by `setup.sh`):
+| Server | Purpose | Install method |
+|--------|---------|----------------|
+| [Serena](https://github.com/oraios/serena) | Symbolic code navigation, persistent memories | `uvx` (requires [uv](https://docs.astral.sh/uv/getting-started/installation/)) |
+| qwen-review | Dual code review (Claude + Qwen) | Bundled, `npm install` |
+
+**Optional MCP servers** (user-level, install into `~/.claude.json` via `claude mcp add`):
+| Server | Purpose | Install command |
+|--------|---------|----------------|
+| [context7](https://github.com/upstash/context7) | Up-to-date library documentation | `claude mcp add context7 -- npx -y @upstash/context7-mcp` |
+| [playwright](https://github.com/anthropics/mcp-playwright) | E2E browser testing | `claude mcp add playwright -- npx -y @playwright/mcp@latest` |
+| [chrome-devtools](https://github.com/nicholasgriffintn/chrome-devtools-mcp) | Browser debugging & performance | `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest` |
+| [local-rag](https://github.com/jcassee/mcp-local-rag) | RAG knowledge base for project docs | `claude mcp add local-rag -- npx -y mcp-local-rag` |
+
+> Without optional servers the orchestrator works fine — features that depend on them are gracefully skipped.
+
 ## Quick Start
 
 ```bash
-cd /path/to/claude-orchestrator
-claude
+git clone <repo-url> claude-orchestrator
+cd claude-orchestrator
+./scripts/setup.sh    # generates .mcp.json, .claude/settings.json, empty data files
+claude                # launch Claude Code
 ```
 
 You'll see:
@@ -145,29 +171,56 @@ create branch → analyze → refactor (step by step) → validate → test → 
 ```
 claude-orchestrator/
 ├── .claude/
-│   ├── CLAUDE.md                    # Main context
-│   ├── settings.json                # Permissions
+│   ├── CLAUDE.md                    # Main context & routing rules
+│   ├── settings.json.example        # Permissions & hooks template
 │   ├── data/
-│   │   ├── tasks.json               # Current tasks
-│   │   └── projects.json            # Project registry
-│   ├── agents/
+│   │   ├── projects.json.example    # Project registry template
+│   │   ├── sessions.json.example    # Session tracking template
+│   │   └── queue.json.example       # Task queue template
+│   ├── agents/                      # Agent system prompts
 │   │   ├── pm.md                    # Project Manager
 │   │   ├── architect.md             # System Architect
 │   │   ├── js-developer.md          # JS/TS Developer
 │   │   ├── php-developer.md         # PHP Developer
 │   │   ├── tester.md                # QA Engineer
-│   │   ├── reviewer.md              # Code Reviewer
+│   │   ├── debugger.md              # Debugging Specialist
+│   │   ├── tracer.md                # Business Logic Analyst
+│   │   ├── reviewer.md              # Code Reviewer (opus)
 │   │   └── architecture-guardian.md # Pattern Validator
-│   └── skills/
-│       ├── develop/SKILL.md         # /develop
-│       ├── fix/SKILL.md             # /fix
-│       ├── refactor/SKILL.md        # /refactor
-│       ├── investigate/SKILL.md     # /investigate
-│       ├── review/SKILL.md          # /review
-│       ├── plan/SKILL.md            # /plan
-│       ├── implement/SKILL.md       # /implement
-│       ├── project/SKILL.md         # /project
-│       └── help/SKILL.md            # /help
+│   ├── hooks/                       # Claude Code hooks
+│   │   ├── auto-approve.sh          # Auto-approve safe tool calls
+│   │   ├── project-restore.sh       # Restore project context on start
+│   │   └── rag-reindex-check.sh     # Check RAG knowledge base updates
+│   └── skills/                      # Slash command definitions
+│       ├── develop/SKILL.md         # /develop — autonomous pipeline
+│       ├── fix/SKILL.md             # /fix — quick bug fix
+│       ├── refactor/SKILL.md        # /refactor — code improvement
+│       ├── investigate/SKILL.md     # /investigate — deep analysis
+│       ├── explore/SKILL.md         # /explore — research approaches
+│       ├── review/SKILL.md          # /review — code review
+│       ├── plan/SKILL.md            # /plan — manual planning
+│       ├── implement/SKILL.md       # /implement — manual implementation
+│       ├── finalize/SKILL.md        # /finalize — clean commit history
+│       ├── note/SKILL.md            # /note — Obsidian integration
+│       ├── queue/SKILL.md           # /queue — batch task execution
+│       ├── project/SKILL.md         # /project — registry management
+│       ├── audit/SKILL.md           # /audit — docs vs code check
+│       ├── next/SKILL.md            # /next — task transition
+│       └── help/SKILL.md            # /help — show commands
+├── scripts/                         # Shell utilities
+│   ├── setup.sh                     # Initial setup (run after clone)
+│   ├── create-branch.sh             # Branch creation with conventions
+│   ├── session-checkpoint.sh        # Session phase tracking
+│   ├── read-project-config.sh       # Project config reader
+│   ├── git-context.sh               # Commit style analyzer
+│   ├── run-tests.sh                 # Universal test runner
+│   ├── e2e-check.sh                 # E2E test runner
+│   ├── check-loop.sh                # Loop detection
+│   └── require-contract.sh          # C-DAD contract gate
+├── mcp-servers/
+│   └── qwen-review/                 # Bundled MCP server for dual review
+├── .mcp.json.example                # MCP server config template
+├── start.sh                         # Project launcher (interactive menu)
 └── README.md
 ```
 
@@ -252,11 +305,6 @@ The `/develop`, `/fix`, and `/refactor` commands run without confirmations:
 - **Jest/PHPUnit** - Unit testing
 - **ESLint/PHPStan** - Static analysis
 - **Serena MCP** - Symbolic code navigation
-
-## Requirements
-
-- Claude Code CLI installed
-- API key configured
 
 ## License
 
