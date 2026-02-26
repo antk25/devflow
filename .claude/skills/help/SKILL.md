@@ -33,6 +33,7 @@ When this skill is invoked, output the following help message:
 | `/audit [scope]` | **Documentation audit** — compare docs with codebase reality |
 | `/project <cmd>` | Manage projects (list, switch, add, info) |
 | `/note <cmd>` | **Obsidian notes** — save, read, search, tz, contract, list |
+| `/recall <query>` | **Session memory** — search past sessions, recall context |
 | `/help` | Show this help |
 
 ## Workflows

@@ -188,8 +188,7 @@ fi
 # --- Launch Claude Code ---
 
 PROJECT_PATH=$(get_project_field "$SELECTED" "path")
-echo "Launching Claude Code in $PROJECT_PATH..."
+echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
 echo ""
 
-cd "$PROJECT_PATH"
 exec claude

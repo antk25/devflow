@@ -12,7 +12,7 @@ Or use a command directly:
 
 • `/develop` · `/fix` · `/refactor` · `/explore` · `/investigate` · `/review`
 • `/plan` · `/implement` · `/finalize` · `/audit` · `/note` · `/queue`
-• `/next` · `/project` · `/help`
+• `/recall` · `/next` · `/project` · `/help`
 
 Ready to build!
 ```
@@ -135,6 +135,7 @@ When using Task tool to spawn agents, use these identifiers:
 | Save dev notes | `/note save` | Persist research/decisions to Obsidian |
 | Read TZ from Obsidian | `/note tz` | Load spec and route to workflow |
 | Review feature contract | `/note contract <branch>` | Read/approve contract in Obsidian |
+| Recall past session | `/recall <query>` | Search session logs, find context |
 | Done with task, starting next | `/next` | Wrap up context, keep project |
 | Manual control | `/plan` → `/implement` → `/finalize` | Step-by-step with approval |
 
