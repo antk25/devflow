@@ -1,134 +1,63 @@
-# Project Patterns Template
+<!-- Keep under 100 lines. Show examples, not rules. -->
+# Project Patterns
 
-Copy this file to `.claude/patterns.md` in your project and customize for your specific conventions.
-
----
+Copy this file to `.claude/patterns.md` in your project and customize.
 
 ## Git Conventions
 
-### Branch Naming
 ```
-# Pattern: <type>/<description>
-# Examples:
+# Branches: <type>/<description>
 feature/user-authentication
 fix/login-redirect-bug
 refactor/payment-service
-```
 
-### Commit Messages
-```
-# Pattern: <type>(<scope>): <description>
-# Examples:
+# Commits: <type>(<scope>): <description>
 feat(auth): add JWT token validation
 fix(ui): correct button alignment on mobile
 refactor(api): extract validation logic to service
-test(auth): add login flow integration tests
-docs(readme): update installation instructions
-
 # Types: feat, fix, refactor, test, docs, chore, style, perf
 ```
-
----
 
 ## Directory Structure
 
 ```
 src/
-├── components/       # UI components (PascalCase)
-├── hooks/           # Custom React hooks (useXxx)
-├── services/        # Business logic and API calls
-├── utils/           # Pure utility functions
-├── types/           # TypeScript type definitions
-├── constants/       # Application constants
-└── styles/          # Global styles
+├── components/       # UI components (PascalCase: UserProfile.tsx)
+├── hooks/            # Custom React hooks (camelCase: useAuth.ts)
+├── services/         # Business logic and API calls (camelCase: authService.ts)
+├── utils/            # Pure utility functions (camelCase: formatDate.ts)
+├── types/            # TypeScript type definitions (PascalCase: User.ts)
+├── constants/        # Application constants (SCREAMING_SNAKE_CASE)
+└── styles/           # Global styles (camelCase: styles.module.css)
 ```
-
----
-
-## Naming Conventions
-
-| Type | Convention | Example |
-|------|------------|---------|
-| Components | PascalCase | `UserProfile.tsx` |
-| Hooks | camelCase, use-prefix | `useAuth.ts` |
-| Services | camelCase | `authService.ts` |
-| Utils | camelCase | `formatDate.ts` |
-| Types/Interfaces | PascalCase | `User.ts` |
-| Constants | SCREAMING_SNAKE_CASE | `API_BASE_URL` |
-| CSS Modules | camelCase | `styles.module.css` |
-
----
-
-## Code Patterns
-
-### Component Structure
-```typescript
-// 1. Imports (external → internal → relative → types → styles)
-// 2. Types/Interfaces
-// 3. Component function
-// 4. Hooks at the top
-// 5. Handlers
-// 6. Return JSX
-```
-
-### Error Handling
-```typescript
-// Use try-catch for async operations
-// Propagate errors to error boundaries
-// Log errors with context
-```
-
-### State Management
-```
-// Describe your state management approach
-// e.g., React Context, Redux, Zustand
-```
-
----
-
-## Forbidden Patterns
-
-- No `any` types in TypeScript
-- No inline styles (use CSS modules or styled-components)
-- No direct DOM manipulation in React components
-- No business logic in components (extract to services/hooks)
-- No hardcoded strings (use constants or i18n)
-
----
-
-## Required Patterns
-
-- All async functions must have error handling
-- All components must have TypeScript props interface
-- All API calls must go through service layer
-- All forms must have validation
-
----
 
 ## Reference Implementations
 
-Place canonical examples of your most common patterns here. Developer agents will use these as the **exact template** to follow when creating new code of the same type.
+Place 2-4 canonical examples of your most common patterns here.
+Developer agents will use these as the **exact template** to follow.
 
-**Tip:** Only include 2-4 golden samples for your most common patterns. These should be real, working code from your project (not hypothetical examples).
+**Tip:** Use real, working code from your project — not hypothetical examples.
 
 ### Service (example)
 ```
 # Paste your canonical service implementation here
-# e.g., the best example of a service class in your project
 # File: src/services/ExampleService.ts (or app/Services/ExampleService.php)
+#
+# Code pattern notes (imports → types → class → methods):
+#   1. Imports: external → internal → relative → types → styles
+#   2. Error handling: try-catch for async, propagate to error boundaries
+#   3. State management: describe your approach (Context, Redux, Zustand, etc.)
 ```
 
 ### Controller (example)
 ```
 # Paste your canonical controller implementation here
-# e.g., a well-structured controller that follows all project conventions
 # File: src/controllers/ExampleController.ts (or app/Http/Controllers/ExampleController.php)
 ```
 
 ### Test (example)
 ```
 # Paste your canonical test file here
-# e.g., a test that demonstrates proper setup, assertions, and cleanup
 # File: tests/ExampleService.test.ts (or tests/Feature/ExampleTest.php)
 ```
 
