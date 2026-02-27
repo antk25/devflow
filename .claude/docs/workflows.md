@@ -10,7 +10,7 @@ Detailed documentation for all orchestrator workflows. Skills read this file whe
 
 Autonomous implementation pipeline (stops on work branch for user review):
 ```
-create work branch → [deep trace] → plan → [contract → user review] → implement (atomic commits) → validate → fix → E2E test → review → STOP
+create work branch → [deep trace] → plan → [contract → user review] → [test-first] → implement (atomic commits) → validate → fix → E2E test → dual review (Claude + Qwen) → knowledge capture → STOP
                           ↑                                                                                                                ↓
                  (for business logic)                                                                                       user reviews result
                                                                                                                                            ↓

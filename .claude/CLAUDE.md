@@ -148,6 +148,8 @@ If no patterns.md exists, the orchestrator will:
 2. Analyze existing code for patterns
 3. Check git history for commit/branch conventions
 
+Keep patterns.md under 100 lines. Prefer reference code examples over written rules.
+
 See `.claude/patterns.template.md` for the template.
 
 ## Conventions
@@ -169,6 +171,10 @@ When changing a property type (e.g., `string` → `int`), trace the change throu
 4. **Check boundary layers** (HTTP controllers, API Platform providers/processors) — they often need explicit casts from string URL params to `int`
 
 **Key insight:** URL parameters are always strings. The `(int)` cast belongs at the HTTP boundary (Provider/Processor), NOT in domain or application layers.
+
+### Test Isolation Policy
+
+Developer agents are **prohibited** from creating, editing, or deleting test files. Only the Tester agent can write tests. If tests fail during `/develop`, `/fix`, or `/refactor`, developer agents must fix the **implementation** code — never the tests. A post-implementation verification (Phase 3.5) reverts any test file changes made by developer agents.
 
 ### Git Workflow (Autonomous Mode)
 
