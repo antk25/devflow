@@ -59,6 +59,12 @@ When the plan involves 2+ layers (API + DB, Handler + Event, etc.) or is a multi
 - All agents (Developer, Tester, Guardian, Reviewer) receive the contract as source of truth
 - Contract status tracks: `draft` → `approved` → `implemented`
 
+**Test-first from contract (Phase 2.7):** When a contract exists, the Tester agent generates tests from the contract BEFORE implementation (red-green-refactor). Developer agents receive only pass/fail results — they never see test source code (test isolation policy).
+
+**Dual review (Phase 7):** Code review runs Claude Code Reviewer and Qwen Code Review in parallel. Findings are merged with deduplication and tagged by source (`[Claude]`, `[Qwen]`, `[Claude + Qwen]`).
+
+**Knowledge capture (Phase 9):** After review, the pipeline automatically saves discovered patterns and gotchas to Serena memories, and generates Architecture Decision Records (ADRs) when new patterns or technology choices are detected.
+
 Use `/note contract <branch>` to read a contract later.
 
 **Multi-repo projects:** Creates branches in all affected repositories and handles git operations per-repo.
