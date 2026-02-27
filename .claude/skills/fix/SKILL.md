@@ -148,6 +148,10 @@ Task(
 
   <endif>
 
+## TEST ISOLATION RULES (MANDATORY)
+Do NOT create, edit, delete, or read any test files (files matching: *Test.php, *.test.ts, *.spec.ts, **/tests/**, **/test/**).
+Fix only implementation code. If tests fail, fix the implementation — not the tests.
+
 ## Instructions
 - Apply the minimal fix to resolve the issue
 - Don't refactor unrelated code

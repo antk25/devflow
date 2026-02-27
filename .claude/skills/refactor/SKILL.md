@@ -174,6 +174,10 @@ Task(
 
   <endif>
 
+## TEST ISOLATION RULES (MANDATORY)
+Do NOT modify any test files (files matching: *Test.php, *.test.ts, *.spec.ts, **/tests/**, **/test/**).
+If tests fail after your refactoring, undo your changes — do NOT change tests.
+
 - Apply ONLY this refactoring step
 - Preserve behavior exactly
 - Update all references
