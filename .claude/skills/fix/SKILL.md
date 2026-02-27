@@ -156,7 +156,14 @@ Fix only implementation code. If tests fail, fix the implementation — not the 
 - Apply the minimal fix to resolve the issue
 - Don't refactor unrelated code
 - Ensure the fix doesn't break existing functionality
-- Use absolute paths starting with <repo_path>",
+- Use absolute paths starting with <repo_path>
+
+## Improvement Observations (optional)
+While fixing the bug, if you notice issues in surrounding code OUTSIDE the scope of this fix, note them at the END of your response as a JSON block:
+```json:improvement_observations
+[{\"category\": \"tech_debt|potential_bug|performance|security|style\", \"title\": \"Brief description\", \"files\": [\"path/to/file.ext\"], \"description\": \"Details\", \"priority\": \"high|medium|low\", \"estimate\": \"30 min|1-2 hours|2-4 hours\"}]
+```
+Only report genuinely notable issues. If nothing stands out, omit this block entirely.",
   subagent_type: "<JS Developer|PHP Developer>"
 )
 ```
@@ -248,6 +255,15 @@ Run a quick verification that the fix didn't break other tests:
 
 ### Commits
 - `abc1234` - fix: login button click handler
+
+### Observations
+<if developer returned json:improvement_observations block with items>
+While fixing the bug, the following issues were noticed in surrounding code:
+- **<title>** (<category>, <priority>) — <description> (`<file>`)
+- ...
+<else>
+(omit this section entirely if no observations were returned)
+<endif>
 
 ### Next Steps
 ```bash

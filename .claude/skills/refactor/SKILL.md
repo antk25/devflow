@@ -182,10 +182,19 @@ If tests fail after your refactoring, undo your changes — do NOT change tests.
 - Preserve behavior exactly
 - Update all references
 - Use absolute paths starting with <repo_path>
-- Do NOT fix bugs or add features (refactoring only)",
+- Do NOT fix bugs or add features (refactoring only)
+
+## Improvement Observations (optional)
+While refactoring, if you notice issues in surrounding code OUTSIDE the scope of this step, note them at the END of your response as a JSON block:
+```json:improvement_observations
+[{\"category\": \"tech_debt|potential_bug|performance|security|style\", \"title\": \"Brief description\", \"files\": [\"path/to/file.ext\"], \"description\": \"Details\", \"priority\": \"high|medium|low\", \"estimate\": \"30 min|1-2 hours|2-4 hours\"}]
+```
+Only report genuinely notable issues. If nothing stands out, omit this block entirely.",
   subagent_type: "<JS Developer|PHP Developer>"
 )
 ```
+
+**After each step**, parse the developer's response for the `json:improvement_observations` block. If present, append items to the `refactor_observations` list (accumulates across all steps).
 
 After EACH step:
 1. Run affected tests:
@@ -313,6 +322,15 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 | `abc123` | refactor(payment): extract PaymentValidator |
 | `def456` | refactor(payment): consolidate error handling |
 | `ghi789` | refactor(payment): improve naming |
+
+### Observations
+<if refactor_observations list has items>
+While refactoring, the following issues were noticed in surrounding code:
+- **<title>** (<category>, <priority>) — <description> (`<file>`)
+- ...
+<else>
+(omit this section entirely if no observations were collected across all steps)
+<endif>
 
 ### Next Steps
 ```bash
