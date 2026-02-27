@@ -960,149 +960,52 @@ If review finds critical issues, use loop detection script:
 
 **Checkpoint:**
 ```bash
-./scripts/session-checkpoint.sh <branch> phase_9_finalize
+./scripts/session-checkpoint.sh <branch> phase_9_summary
 ```
 
-### Phase 9: Finalize - Create Clean Branch
+### Phase 9: Stop & Summary
 
-**CRITICAL:** This phase creates the final branch with atomic, logical commits.
+**IMPORTANT:** Do NOT finalize or create a clean branch. The workflow stops on the work branch so the user can review the result and decide on next steps (refactor, adjust, or finalize manually).
 
-**For EACH repository in project.repositories:**
+**Mark session as review:** Read sessions.json, set session `status: "review"`, `updated_at` to now, write back.
 
-**With worktrees:** The main workspace is already on `main` (or whatever branch it was on), so creating the final branch is simpler — no need to switch away from the work branch.
-
-#### Step 1: Analyze Changes
-
-```bash
-# Use worktree path for the work branch content
-WORKTREE_PATH=<from session worktree_paths>
-REPO_PATH=<original repo path>
-
-# Get all changes from work branch compared to main
-git -C "$WORKTREE_PATH" diff main...HEAD --stat
-git -C "$WORKTREE_PATH" diff main...HEAD
-git -C "$WORKTREE_PATH" log main..HEAD --oneline
-```
-
-#### Step 2: Group Changes Logically
-
-Analyze the diff and group changes into logical units:
-
-| Group | Files | Commit Type |
-|-------|-------|-------------|
-| New models/entities | User.php, UserRepository.php | `feat:` |
-| New API endpoints | AuthController.php, routes.php | `feat:` |
-| New UI components | LoginForm.tsx, AuthContext.tsx | `feat:` |
-| Refactoring | extracted utilities, renamed | `refactor:` |
-| Tests | *.test.ts, *.spec.php | `test:` |
-| Config changes | .env.example, config/*.php | `chore:` |
-
-**Rules for grouping:**
-- Each commit should be atomic (single logical change)
-- Each commit should leave codebase in working state
-- Follow project's commit message convention (from git log analysis)
-- Typical feature has 2-5 atomic commits
-
-#### Step 3: Create Final Branch
-
-```bash
-# Main workspace is already on main (worktree isolation)
-cd $REPO_PATH
-
-# Create clean branch from main
-git checkout -b feature/user-authentication
-
-# Now apply changes as atomic commits
-```
-
-#### Step 4: Apply Atomic Commits
-
-For each logical group, use patch approach:
-
-```bash
-# Option A: Cherry-pick specific commits (if work branch has clean commits)
-git cherry-pick <commit-hash>
-
-# Option B: Apply changes as new commits (preferred)
-# Checkout files from work branch
-git checkout feature/user-authentication-work -- path/to/file1 path/to/file2
-git add path/to/file1 path/to/file2
-git commit -m "feat(auth): add User model and repository"
-
-# Repeat for each logical group
-git checkout feature/user-authentication-work -- path/to/file3
-git add path/to/file3
-git commit -m "feat(auth): add login endpoint"
-```
-
-**Commit message format:** Analyze project's existing commits and match style:
-- Conventional: `feat(scope): description`
-- Simple: `Add feature description`
-- Ticket-based: `[PROJ-123] Description`
-
-#### Step 5: Verify Final Branch
-
-```bash
-cd /path/to/repo
-
-# Ensure all changes are applied
-git diff feature/user-authentication-work --stat
-# Should show no differences (or only formatting)
-
-# Run tests to verify
-npm test  # or appropriate test command
-```
-
-#### Step 6: Keep Work Branch as Backup
-
-```bash
-# Do NOT delete work branch - keep as backup
-# User can delete manually later if desired
-git branch  # Shows both branches
-```
-
-**Checkpoint:**
-```bash
-./scripts/session-checkpoint.sh <branch> phase_10_summary
-```
-
-### Phase 10: Final Summary
-
-**Mark session complete:** Read sessions.json, set session `status: "completed"`, `updated_at` to now, write back.
-
-**Update contract status:** If `contract_path` exists, read the contract file from Obsidian and update frontmatter `status: approved` → `status: implemented`. This signals in Obsidian that the contract has been fulfilled.
+**Update contract status:** If `contract_path` exists, read the contract file from Obsidian and update frontmatter `status: approved` → `status: in_review`. This signals in Obsidian that the implementation is ready for review.
 
 **Desktop notification:**
 ```bash
-./scripts/notify.sh "Development Complete" "<feature> — branches ready"
+./scripts/notify.sh "Development Ready for Review" "<feature> — work branch ready"
+```
+
+**Prepare diff summary for user:**
+
+```bash
+# For each repository
+WORKTREE_PATH=<from session worktree_paths>
+
+# Get changes summary
+git -C "$WORKTREE_PATH" diff main...HEAD --stat
+git -C "$WORKTREE_PATH" log main..HEAD --oneline
 ```
 
 Present results to user:
 
 ```markdown
-## ✅ Development Complete: [Feature Name]
+## 🔍 Ready for Review: [Feature Name]
 
-### Branches
+### Work Branch
 
-| Repo | Final Branch | Work Branch (backup) |
-|------|--------------|----------------------|
-| backend | `feature/auth` | `feature/auth-work` |
-| frontend | `feature/auth` | `feature/auth-work` |
+| Repo | Work Branch | Worktree Path |
+|------|-------------|---------------|
+| backend | `feature/auth-work` | `/path/to/.claude/worktrees/...` |
+| frontend | `feature/auth-work` | `/path/to/.claude/worktrees/...` |
 
-### Atomic Commits (Final Branch)
+### Changes Summary
 
-**backend:** (`feature/auth`)
-1. `abc1234` - feat(auth): add User model and repository
-2. `def5678` - feat(auth): add login and logout endpoints
-3. `ghi9012` - test(auth): add unit tests for auth service
+**backend:** (`feature/auth-work`)
+<git log main..HEAD --oneline output>
 
-**frontend:** (`feature/auth`)
-1. `jkl3456` - feat(auth): add LoginForm and AuthContext
-2. `mno7890` - test(auth): add component tests
-
-### Work Branch History
-- backend: 15 commits (iterations, fixes, WIP)
-- frontend: 8 commits (iterations, fixes, WIP)
+**frontend:** (`feature/auth-work`)
+<git log main..HEAD --oneline output>
 
 ### Files Changed
 - backend: 5 created, 2 modified
@@ -1110,7 +1013,7 @@ Present results to user:
 
 ### Feature Contract
 <if contract_path exists>
-✅ Contract: `<contract_path>` (status: implemented)
+📋 Contract: `<contract_path>` (status: in_review)
 <else>
 ⏭️ No contract generated (simple task)
 <endif>
@@ -1127,25 +1030,18 @@ Present results to user:
 - ⚠️ Consider adding rate limiting
 
 ### Next Steps
-1. Review final commits:
-   - `cd /path/to/backend && git log main..feature/auth --oneline`
-   - `cd /path/to/frontend && git log main..feature/auth --oneline`
-2. Review full diff:
+Review the changes, then choose:
+1. **Happy with the result?** → `/finalize` to create clean branch with atomic commits
+2. **Need refactoring?** → `/refactor <what to improve>`
+3. **Need fixes?** → `/fix <what to fix>`
+4. **Review the diff:**
    - `cd /path/to/backend && git diff main`
    - `cd /path/to/frontend && git diff main`
-3. Push when ready:
-   - `cd /path/to/backend && git push -u origin feature/auth`
-   - `cd /path/to/frontend && git push -u origin feature/auth`
-4. (Optional) Delete work branches after merge:
-   - `git branch -d feature/auth-work`
-5. (Optional) Remove worktrees:
-   - `git -C /path/to/backend worktree remove .claude/worktrees/feature-auth-work`
-   - `git -C /path/to/frontend worktree remove .claude/worktrees/feature-auth-work`
 ```
 
 ### Worktrees
-List active worktrees created during this session. By default, worktrees are kept as backup.
-To remove: `git -C <repo_path> worktree remove <worktree_path>`
+List active worktrees created during this session. The work branch stays active for further iteration.
+To switch to worktree: `cd <worktree_path>`
 
 ## Error Handling
 
@@ -1190,7 +1086,7 @@ If implementation fails after 3 attempts:
 3. **Explicit paths** - Always use absolute paths to repos
 4. **E2E testing** - Always attempt E2E verification
 5. **Work branch commits** - Commit freely during development (messy OK)
-6. **Atomic final commits** - Finalize phase creates clean, logical commits
+6. **Stop on work branch** - Do NOT finalize; user reviews and runs `/finalize` when ready
 7. **Fix automatically** - Architecture, test, and review issues
 8. **Keep backup** - Never delete work branch
 9. **Report at end** - Single comprehensive summary

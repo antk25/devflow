@@ -8,24 +8,21 @@ Detailed documentation for all orchestrator workflows. Skills read this file whe
 /develop <feature description>
 ```
 
-Autonomous implementation pipeline:
+Autonomous implementation pipeline (stops on work branch for user review):
 ```
-create work branch → [deep trace] → plan → [contract → user review] → implement (atomic commits) → validate → fix → E2E test → summary
-                          ↑                                                                              ↓
-                 (for business logic)                                                      user reviews commits & code
-                                                                                                         ↓
-                                                                                      user requests fixes (if needed)
-                                                                                                         ↓
-                                                                                           /review → fix (if needed)
-                                                                                                         ↓
-                                                                                   /finalize → clean branch with merged commits
+create work branch → [deep trace] → plan → [contract → user review] → implement (atomic commits) → validate → fix → E2E test → review → STOP
+                          ↑                                                                                                                ↓
+                 (for business logic)                                                                                       user reviews result
+                                                                                                                                           ↓
+                                                                                                              /refactor, /fix, manual edits (if needed)
+                                                                                                                                           ↓
+                                                                                                              /finalize → clean branch with atomic commits
 ```
 
-**Two-Branch Strategy:**
-- `DEV-XXX-work` — atomic logical commits during development, user reviews & fixes here
-- `DEV-XXX` — final clean commits (merged: tests joined with implementation commits where possible)
-
-Work branch is kept as backup. You push only the clean branch.
+**Branch Strategy:**
+- `DEV-XXX-work` — atomic logical commits during development, user reviews & iterates here
+- `/develop` does NOT create a final clean branch — it stops on the work branch
+- When ready, user runs `/finalize` to create `DEV-XXX` clean branch with merged commits
 
 **Work branch commit strategy:**
 Each logical unit of work gets its own commit during development. Examples:

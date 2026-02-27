@@ -122,14 +122,14 @@ When using Task tool to spawn agents, use these identifiers:
 
 | Situation | Command | Why |
 |-----------|---------|-----|
-| New feature | `/develop` | Full planning, review, clean commits |
+| New feature | `/develop` | Full planning, review — stops on work branch for review |
 | Vague feature idea | `/explore` | Research, propose approaches, then decide |
 | Bug fix (clear cause) | `/fix` | Fast, no planning overhead |
 | Bug (unclear cause) | `/investigate` | Analysis first, no changes |
 | Code improvement | `/refactor` | Preserves behavior, step-by-step |
 | Review your changes | `/review` | Before commit |
 | Review teammate's PR | `/review --pr 123` | External code review |
-| Messy git history | `/finalize` | Clean up before PR |
+| Ready to finalize after `/develop` | `/finalize` | Create clean branch with atomic commits |
 | Batch work | `/queue` | Plan day's work, run as batch |
 | Docs out of date | `/audit` | Compare docs with code reality |
 | Save dev notes | `/note save` | Persist research/decisions to Obsidian |
@@ -176,7 +176,7 @@ Commands that modify code handle git automatically:
 
 | Command | Work Branch | Final Branch | Commit Style |
 |---------|-------------|--------------|--------------|
-| `/develop` | `feature/xxx-work` | `feature/xxx` | atomic (from project) |
+| `/develop` | `feature/xxx-work` | — (stops on work branch) | iterative |
 | `/fix` | - | `fix/xxx` | single commit |
 | `/refactor` | - | `refactor/xxx` | per step |
 | `/explore` | - | - | No changes |
