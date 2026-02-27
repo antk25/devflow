@@ -261,7 +261,6 @@ After implementation, the orchestrator verifies the feature works:
 ## Data Storage
 
 Task and project data is stored in `.claude/data/`:
-- `tasks.json` - Current tasks and their status
 - `projects.json` - Project registry and active project
 - `queue.json` - Batch task queue and execution history
 - `sessions.json` - Session tracking, loop detection, and checkpoints

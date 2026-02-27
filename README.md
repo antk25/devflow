@@ -291,15 +291,25 @@ devflow/
 │   │   └── queue.json.example       # Шаблон очереди задач
 │   ├── agents/                      # Системные промпты агентов
 │   ├── hooks/                       # Хуки Claude Code
-│   │   ├── auto-approve.sh          # Автоодобрение безопасных вызовов
-│   │   ├── project-restore.sh       # Восстановление контекста при старте
-│   │   └── rag-reindex-check.sh     # Проверка обновлений RAG базы
+│   │   ├── auto-approve.sh          # Автоодобрение безопасных вызовов (PreToolUse)
+│   │   ├── project-restore.sh       # Восстановление контекста при старте (SessionStart)
+│   │   ├── rag-reindex-check.sh     # Проверка обновлений RAG базы (SessionStart)
+│   │   ├── precompact-snapshot.sh   # Снимок контекста перед сжатием (PreCompact)
+│   │   └── session-end-summarize.sh # Логирование сессии (SessionEnd)
 │   └── skills/                      # Определения slash-команд
 ├── scripts/
 │   ├── setup.sh                     # Первоначальная настройка
 │   ├── create-branch.sh             # Создание веток с конвенциями
 │   ├── session-checkpoint.sh        # Отслеживание фаз сессий
-│   └── ...                          # Утилиты для тестов, git, контрактов
+│   ├── session-log.py               # Логирование сессий для /recall
+│   ├── read-project-config.sh       # Чтение конфигурации проекта
+│   ├── run-tests.sh                 # Запуск тестов проекта
+│   ├── e2e-check.sh                 # Проверка E2E тестов
+│   ├── check-loop.sh                # Детекция зацикливания
+│   ├── git-context.sh               # Git-контекст для агентов
+│   ├── require-contract.sh          # Проверка необходимости контракта
+│   ├── notify.sh                    # Системные уведомления
+│   └── test-reaction.sh             # Реакция на результаты тестов
 ├── mcp-servers/
 │   └── qwen-review/                 # Встроенный MCP сервер
 ├── .mcp.json.example                # Шаблон конфигурации MCP

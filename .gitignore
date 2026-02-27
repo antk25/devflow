@@ -6,7 +6,6 @@
 .claude/data/projects.json
 .claude/data/sessions.json
 .claude/data/queue.json
-.claude/data/tasks.json
 
 # User-specific configuration (contains absolute paths to hooks, MCP servers)
 # Run ./scripts/setup.sh to generate from templates
@@ -21,6 +20,9 @@
 
 # LanceDB (local RAG database)
 lancedb/
+
+# Python bytecode cache
+__pycache__/
 
 # Node modules
 node_modules/
