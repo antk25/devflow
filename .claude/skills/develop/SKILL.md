@@ -165,7 +165,7 @@ done
 
 3. **Read project documentation** (if files exist per `PROJECT_CONFIG.files`):
    - `.claude/CLAUDE.md` — conventions
-   - `.claude/patterns.md` — architecture patterns
+   - `.claude/patterns.md` — architecture patterns (if > 100 lines, log warning: "patterns.md exceeds 100 lines — consider trimming to examples only")
    - `CONTRIBUTING.md` — contribution guidelines
 
 4. **Query RAG knowledge base** for project context (run both queries in parallel):
@@ -615,6 +615,70 @@ CONTRACT_DECISION=$(./scripts/require-contract.sh <branch> "$PLAN_SUMMARY")
 
 ---
 
+### Phase 2.7: Test-First from Contract
+
+**WHEN:** Only runs if `feature_contract` is not empty (a contract was generated in Phase 2.5).
+**SKIP:** If no contract was generated, proceed directly to Phase 3.
+
+This phase generates tests from the contract BEFORE implementation, following the red-green-refactor cycle.
+
+**Step 1: Generate Tests from Contract**
+
+Spawn Tester agent with the contract:
+
+```
+Task(
+  description: "Generate tests from contract: <feature>",
+  prompt: "Generate tests based on this feature contract. The implementation does NOT exist yet — these tests should define the EXPECTED behavior.
+
+  ## Feature Contract
+  <feature_contract>
+
+  ## Repository
+  <repo_path>
+
+  ## Instructions
+  1. Read the contract sections (API, DTO, Events, Database) carefully
+  2. For each contracted behavior, generate a test:
+     - API endpoints → integration/functional tests (HTTP request → expected response)
+     - DTOs → unit tests (construction, validation, serialization)
+     - Events → unit tests (event is dispatched with correct payload)
+     - Database → migration test or schema assertions
+  3. Follow existing test patterns in the project (check existing test files for style)
+  4. Tests MUST fail at this point (no implementation yet) — this is expected
+  5. Use absolute paths starting with <repo_path>
+
+  Return a summary of generated test files and test count.",
+  subagent_type: "Tester"
+)
+```
+
+**Step 2: Commit Tests**
+
+```bash
+cd <worktree_path>
+git add <generated test files>
+git commit -m "<format per convention>: add contract-based tests for <feature>"
+```
+
+**Step 3: Verify Tests Fail (Red Phase)**
+
+```bash
+./scripts/run-tests.sh <repo_name> unit <TestFilter>
+```
+
+- If tests **FAIL** (expected) → continue to Phase 3. This confirms tests are meaningful.
+- If tests **PASS** (unexpected) → log warning: "Tests pass before implementation — tests may be too weak or testing existing behavior." Continue anyway.
+
+**CRITICAL:** Do NOT pass test file contents to the developer agent in Phase 3. The developer receives only test results (pass/fail + error messages), enforcing test isolation.
+
+**Checkpoint:**
+```bash
+./scripts/session-checkpoint.sh <branch> phase_3_implement test_files_generated='<count>'
+```
+
+---
+
 ### Phase 3: Implement Tasks
 
 For each task in the plan:
@@ -673,6 +737,19 @@ Task(
 
   <endif>
 
+  ## TEST ISOLATION RULES (MANDATORY)
+  You are a DEVELOPER agent. You are PROHIBITED from:
+  1. Creating, editing, or deleting ANY test files (files matching: *Test.php, *.test.ts, *.spec.ts, **/tests/**, **/test/**)
+  2. Reading test files — you will receive ONLY test results (pass/fail + error messages)
+  3. Modifying test config files (jest.config.*, phpunit.xml, vitest.config.*, playwright.config.*)
+
+  Fix your IMPLEMENTATION code to make tests pass. Do NOT modify tests.
+
+  <if feature_contract is not empty, append:>
+  Contract-based tests have already been generated (Phase 2.7). You will NOT see test source code.
+  After implementation, tests run automatically — you see only pass/fail results.
+  <endif>
+
   IMPORTANT: All file operations must use absolute paths starting with <repo_path>
   IMPORTANT: All git commands must be run from <repo_path>",
   subagent_type: "<JS Developer|PHP Developer|Architect>"
@@ -690,6 +767,29 @@ Task(
 ```
 
 **Checkpoint** (after all tasks):
+```bash
+./scripts/session-checkpoint.sh <branch> phase_3.5_test_isolation
+```
+
+### Phase 3.5: Test Isolation Verification
+
+After all implementation tasks are complete, verify that dev agents did not touch test files:
+
+```bash
+TEST_FILES_TOUCHED=$(git -C <worktree_path> diff main --name-only | grep -E '(Test\.|\.test\.|\.spec\.|/tests/|/test/)' || true)
+```
+
+**If `TEST_FILES_TOUCHED` is not empty:**
+1. Revert only the test file changes:
+   ```bash
+   git -C <worktree_path> checkout main -- <each test file>
+   ```
+2. Record a lesson learned: "Developer agent modified test files despite isolation rules"
+3. Log warning: "Test isolation violation detected — reverted changes to: <files>"
+
+**If empty:** Continue to Phase 4.
+
+**Checkpoint:**
 ```bash
 ./scripts/session-checkpoint.sh <branch> phase_4_validate
 ```
@@ -824,7 +924,8 @@ For EACH repository with unit tests configured:
    ```
 2. If `TEST_REACTION: PASSED` → continue to Phase 7
 3. If `TEST_REACTION: FAILED`:
-   - Spawn developer agent to fix the failing tests (include test output)
+   - Spawn **developer agent** to fix the **implementation code** (include test output). The developer agent MUST NOT modify test files — only fix implementation to make tests pass.
+   - If tests were generated from a contract (Phase 2.7), and test expectations are wrong, spawn **Tester agent** to fix the tests instead.
    - After fix, check for loops:
      ```bash
      DECISION=$(./scripts/check-loop.sh <branch> test_fix "<OUTPUT_HASH>")
@@ -873,7 +974,7 @@ Task(
 )
 ```
 
-**Step 2: Spawn Reviewer** with pattern context:
+**Step 2a: Claude Code Reviewer** (always runs):
 
 ```
 Task(
@@ -934,11 +1035,46 @@ Task(
 )
 ```
 
+**Step 2b: Qwen Code Review** (always runs, skip with `--no-qwen`):
+
+**Run IN PARALLEL with Step 2a** using the MCP tool:
+
+```
+mcp__qwen-review__qwen_code_review(
+  diff: "<git diff main...HEAD from each affected repo>",
+  context: "<combine pattern_context + rag_context + feature_contract>
+
+  IMPORTANT: The 'Project Patterns' section below was verified against the actual codebase.
+  Do NOT flag code as an issue if it follows these established patterns.
+  Only flag deviations from patterns, genuine bugs, or security/performance issues.
+
+  <pattern_context>"
+)
+```
+
+**IMPORTANT:** Launch Step 2a (Task) and Step 2b (MCP call) in the same message to run them in parallel. Both return independently. Collect both results before proceeding to Step 3.
+
+**Key principle:** Reviewers receive ONLY the diff + spec/contract. They do NOT receive the developer agent's prompt or implementation instructions.
+
+**If Qwen MCP tool is unavailable** (server not running, tool not found), log a warning and continue with Claude-only review. Do not fail the pipeline.
+
+**Step 3: Merge Review Findings**
+
+Merge both reviews into a unified report:
+
+1. **Deduplicate:** If both reviewers flag the same issue (same file + same problem), keep the more detailed description and tag `[Claude + Qwen]`
+2. **Unique findings:** Issues found by only one reviewer are tagged `[Claude]` or `[Qwen]`
+3. **Severity:** If reviewers disagree on severity, use the higher severity
+4. **Agreement boosts confidence:** Issues flagged by both reviewers should be prioritized for fixing
+
+The merged review is what gets passed to Phase 8 (fix critical issues)
+```
+
 ### Phase 8: Fix Critical Issues
 
 If review finds critical issues, use loop detection script:
 
-1. Spawn developer agent to fix critical issues (include review findings)
+1. Spawn developer agent to fix critical issues (include review findings). **Do NOT modify test files** — fix implementation code only.
 2. After fix, check for loops:
    ```bash
    HASH=$(cd <repo_path> && git diff HEAD~1 --stat | md5sum | cut -d' ' -f1)
@@ -967,7 +1103,78 @@ If review finds critical issues, use loop detection script:
 
 **IMPORTANT:** Do NOT finalize or create a clean branch. The workflow stops on the work branch so the user can review the result and decide on next steps (refactor, adjust, or finalize manually).
 
-**Mark session as review:** Read sessions.json, set session `status: "review"`, `updated_at` to now, write back.
+**Step 1: Mark session as review:** Read sessions.json, set session `status: "review"`, `updated_at` to now, write back.
+
+**Step 2: Update Serena Memories** (if Serena project is active):
+
+Capture knowledge gained during this development session:
+
+1. Check `mcp__serena__list_memories()` for existing memories to update (avoid duplicates)
+2. **Patterns:** If architecture validation or review revealed project patterns, write/update:
+   - `mcp__serena__write_memory(memory_name: "patterns/<category>", content: "<pattern description with file references>")`
+   - Categories: `architecture`, `testing`, `api`, `events`, `database`
+3. **Gotchas:** If there were architecture violations, test failures, or review issues that required fixes, write:
+   - `mcp__serena__write_memory(memory_name: "gotchas/<topic>", content: "<what went wrong, why, and how it was fixed>")`
+4. Each memory should be < 500 characters, with references to specific files
+
+Store the list of updated memories as `updated_memories` for the summary.
+
+**Step 3: Auto-ADR** (conditional):
+
+Generate an Architecture Decision Record if ANY of these conditions are met:
+- A **new architectural pattern** was established (not seen in existing code before)
+- A **technology choice** was made (new library, framework, approach)
+- The **data flow changed** significantly (new events, new entity relationships)
+- A **feature contract** was generated (Phase 2.5)
+
+If none of these conditions are met, skip ADR generation.
+
+```
+Task(
+  description: "Auto-ADR: <feature>",
+  prompt: "Evaluate whether this feature warrants an Architecture Decision Record (ADR).
+
+  Feature: <feature description>
+  Changes: <git diff --stat summary>
+  Review findings: <summary of review issues>
+  Architecture violations: <summary of Guardian findings, if any>
+  Contract: <contract existed: yes/no>
+
+  If the answer is NO (minor change, no new patterns, no tech choices), respond with exactly:
+  NO_ADR_NEEDED
+
+  If YES, generate an ADR in this format (max 30 lines):
+
+  # ADR-NNN: <Title>
+
+  ## Status
+  Accepted
+
+  ## Context
+  <2-3 sentences: what was the situation?>
+
+  ## Decision
+  <2-3 sentences: what was decided?>
+
+  ## Consequences
+  <2-3 bullet points: what are the implications?>
+
+  ## References
+  - <affected files or contract path>",
+  subagent_type: "Architect",
+  model: "haiku"
+)
+```
+
+**If NOT `NO_ADR_NEEDED`:**
+1. Determine next ADR number:
+   ```bash
+   NEXT_ADR=$(ls <project_path>/.claude/data/adrs/adr-*.md 2>/dev/null | wc -l)
+   NEXT_ADR=$((NEXT_ADR + 1))
+   ```
+2. Create directory if needed: `mkdir -p <project_path>/.claude/data/adrs/`
+3. Write ADR file: `<project_path>/.claude/data/adrs/adr-$(printf '%03d' $NEXT_ADR)-<slug>.md`
+4. Store as `adr_path` for the summary
 
 **Update contract status:** If `contract_path` exists, read the contract file from Obsidian and update frontmatter `status: approved` → `status: in_review`. This signals in Obsidian that the implementation is ready for review.
 
@@ -1028,6 +1235,21 @@ Present results to user:
 ### Code Review
 ✅ Passed (1 warning noted)
 - ⚠️ Consider adding rate limiting
+
+### Knowledge Captured
+<if updated_memories is not empty>
+**Serena memories updated:**
+- `patterns/<category>` — <brief description>
+- `gotchas/<topic>` — <brief description>
+<else>
+No new memories captured.
+<endif>
+
+<if adr_path exists>
+**ADR generated:** `<adr_path>`
+<else>
+No ADR needed.
+<endif>
 
 ### Next Steps
 Review the changes, then choose:
