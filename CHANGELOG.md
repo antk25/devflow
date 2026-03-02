@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-02
+
+### Added
+- **`/resume` skill** (DF-2): Resume interrupted `/develop`, `/fix`, or `/refactor` sessions. Finds sessions by branch name or picks the most recent interrupted one. Validates git state, displays phase progress, and dispatches to the original skill's pipeline with `--resume` flag. Supports `list` mode to show all interrupted sessions.
+- **Interrupted session detection at startup**: `project-restore.sh` hook checks for interrupted/stale sessions and displays `INTERRUPTED_SESSION` info in the greeting. Claude shows a resume prompt automatically.
+- **`mark-interrupted` / `check-interrupted` CLI commands** in `session-log.py`: Mark stale running sessions as interrupted (5-min staleness window), check for interrupted sessions filtered by project (1-hr staleness for running). Atomic JSON writes via tempfile + `os.replace` prevent corruption.
+
 ## [0.2.0] - 2026-02-27
 
 ### Added
@@ -30,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/antk25/devflow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/antk25/devflow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/antk25/devflow/releases/tag/v0.1.0
