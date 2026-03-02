@@ -40,3 +40,9 @@ print(f\"docker_start={docker_start}\")
 " 2>/dev/null)
 
 echo "$project_info"
+
+# Check for interrupted sessions
+interrupted=$(python3 "$DEVFLOW_DIR/scripts/session-log.py" check-interrupted --project "$active" --limit 5 2>/dev/null)
+if [ -n "$interrupted" ]; then
+    echo "$interrupted"
+fi

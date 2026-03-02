@@ -12,7 +12,7 @@ Or use a command directly:
 
 • `/develop` · `/fix` · `/refactor` · `/explore` · `/investigate` · `/review`
 • `/plan` · `/implement` · `/finalize` · `/audit` · `/note` · `/queue`
-• `/recall` · `/next` · `/project` · `/help`
+• `/resume` · `/recall` · `/next` · `/project` · `/help`
 
 Ready to build!
 ```
@@ -26,6 +26,11 @@ A `SessionStart` hook runs `project-restore.sh` which outputs the active project
 1. Read the output fields: `name`, `type`, `serena`, `path`
 2. If `serena` is not empty, call `mcp__serena__activate_project(project=<serena>)`
 3. Include the active project name in your startup greeting: `**Active project:** <name>`
+4. If `INTERRUPTED_SESSION` is present in the output, show in greeting:
+   ```
+   ⚠️ Interrupted session: <branch> (<phase>)
+      Resume with: /resume
+   ```
 
 This ensures project context is automatically restored after `/clear`.
 
@@ -135,6 +140,7 @@ When using Task tool to spawn agents, use these identifiers:
 | Save dev notes | `/note save` | Persist research/decisions to Obsidian |
 | Read TZ from Obsidian | `/note tz` | Load spec and route to workflow |
 | Review feature contract | `/note contract <branch>` | Read/approve contract in Obsidian |
+| Session crashed/interrupted | `/resume` | Continue from where it stopped |
 | Recall past session | `/recall <query>` | Search session logs, find context |
 | Done with task, starting next | `/next` | Wrap up context, keep project |
 | Manual control | `/plan` → `/implement` → `/finalize` | Step-by-step with approval |
@@ -190,6 +196,7 @@ Commands that modify code handle git automatically:
 | `/review` | - | - | No changes |
 | `/audit` | - | - | docs commit (if --fix) |
 | `/note` | - | - | No changes (writes to vault) |
+| `/resume` | (existing work branch) | - | continues from interrupted |
 | `/queue` | (per item) | (per item) | delegates to invoked skill |
 
 - Branch naming convention read from project

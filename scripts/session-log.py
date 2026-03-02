@@ -8,6 +8,8 @@ Usage:
   session-log.py snapshot <transcript_path> <session_id>
   session-log.py search <query> [--project <name>] [--limit <n>]
   session-log.py list [--project <name>] [--days <n>]
+  session-log.py mark-interrupted
+  session-log.py check-interrupted [--project <name>]
 """
 
 import json
@@ -16,6 +18,7 @@ import os
 import re
 import subprocess
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from argparse import ArgumentParser
@@ -454,6 +457,175 @@ def cmd_list(args):
     list_sessions(project=args.project, days=args.days)
 
 
+def get_sessions_file() -> Path:
+    """Get path to sessions.json from devflow project."""
+    script_dir = Path(__file__).resolve().parent
+    devflow_dir = script_dir.parent
+    return devflow_dir / ".claude" / "data" / "sessions.json"
+
+
+def get_active_project() -> str:
+    """Get active project name from projects.json."""
+    script_dir = Path(__file__).resolve().parent
+    devflow_dir = script_dir.parent
+    projects_file = devflow_dir / ".claude" / "data" / "projects.json"
+    try:
+        with open(projects_file) as f:
+            data = json.load(f)
+        return data.get("active", "")
+    except Exception:
+        return ""
+
+
+def _atomic_write_json(filepath: Path, data: dict):
+    """Write JSON atomically: write to temp file, then rename."""
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_path, str(filepath))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def mark_interrupted_sessions(stale_minutes: int = 5) -> list[str]:
+    """Mark stale 'running' sessions as 'interrupted'.
+
+    Only marks sessions whose updated_at is older than stale_minutes.
+    This prevents marking sessions actively running in other terminals.
+    Returns list of affected branch keys.
+    """
+    sessions_file = get_sessions_file()
+    if not sessions_file.exists():
+        return []
+
+    with open(sessions_file) as f:
+        data = json.load(f)
+
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    affected = []
+
+    for key, session in data.get("sessions", {}).items():
+        if session.get("status") != "running":
+            continue
+        # Skip sessions with status_override (manually managed)
+        if session.get("status_override"):
+            continue
+        # Staleness check: only mark if not recently updated
+        # Use updated_at first, fall back to started_at for sessions that never got an update
+        ts = session.get("updated_at") or session.get("started_at") or ""
+        if ts and stale_minutes > 0:
+            try:
+                ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                age_seconds = (now_dt - ts_dt).total_seconds()
+                if age_seconds < stale_minutes * 60:
+                    continue  # Still fresh, likely running in another terminal
+            except (ValueError, TypeError):
+                pass  # Can't parse date, mark it
+        session["status"] = "interrupted"
+        session["updated_at"] = now
+        affected.append(key)
+
+    if affected:
+        _atomic_write_json(sessions_file, data)
+
+    return affected
+
+
+def check_interrupted_sessions(project: str = None, stale_hours: int = 1) -> list[dict]:
+    """Check for interrupted/stale-running sessions. Returns list of session summaries.
+
+    For 'running' sessions, only includes them if updated_at is older than stale_hours
+    (indicating they are likely abandoned, not actively running in another terminal).
+    For 'interrupted' sessions, always includes them.
+    """
+    sessions_file = get_sessions_file()
+    if not sessions_file.exists():
+        return []
+
+    with open(sessions_file) as f:
+        data = json.load(f)
+
+    if not project:
+        project = get_active_project()
+
+    now_dt = datetime.now(timezone.utc)
+    results = []
+    for key, session in data.get("sessions", {}).items():
+        status = session.get("status", "")
+        if status not in ("running", "interrupted"):
+            continue
+        # Skip sessions with status_override
+        if session.get("status_override"):
+            continue
+        # Filter by project if specified
+        if project and session.get("project") != project:
+            continue
+        # For 'running' sessions, apply staleness check
+        if status == "running" and stale_hours > 0:
+            updated = session.get("updated_at", "")
+            if updated:
+                try:
+                    updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                    age_seconds = (now_dt - updated_dt).total_seconds()
+                    if age_seconds < stale_hours * 3600:
+                        continue  # Still fresh, likely active in another terminal
+                except (ValueError, TypeError):
+                    pass
+
+        results.append({
+            "branch": key,
+            "skill": session.get("skill", ""),
+            "feature": session.get("feature", ""),
+            "project": session.get("project", ""),
+            "status": status,
+            "current_phase": session.get("current_phase", ""),
+            "completed_phases": len(session.get("completed_phases", [])),
+            "updated_at": session.get("updated_at", ""),
+        })
+
+    # Sort by updated_at descending
+    results.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    return results
+
+
+def cmd_mark_interrupted(args):
+    affected = mark_interrupted_sessions()
+    if affected:
+        for branch in affected:
+            print(f"INTERRUPTED: {branch}")
+        print(f"Marked {len(affected)} session(s) as interrupted.")
+    else:
+        print("No running sessions to mark.")
+
+
+def cmd_check_interrupted(args):
+    results = check_interrupted_sessions(project=args.project)
+    if not results:
+        # Output nothing — hook checks for empty output
+        sys.exit(0)
+
+    # Limit output to avoid truncation in hooks
+    limit = getattr(args, "limit", 5)
+    results = results[:limit]
+
+    # Output structured info for the hook to parse
+    for r in results:
+        raw_phase = r["current_phase"]
+        phase = raw_phase.replace("phase_", "").replace("_", " ").title() if raw_phase else "Unknown"
+        print(f"INTERRUPTED_SESSION={r['branch']}")
+        print(f"  skill={r['skill']}")
+        print(f"  feature={r['feature']}")
+        print(f"  phase={phase}")
+        print(f"  completed={r['completed_phases']}")
+
+
 def main():
     parser = ArgumentParser(description="DevFlow Session Logger")
     subparsers = parser.add_subparsers(dest="command")
@@ -483,6 +655,19 @@ def main():
     p_list.add_argument("--project", default=None)
     p_list.add_argument("--days", type=int, default=7)
     p_list.set_defaults(func=cmd_list)
+
+    # mark-interrupted
+    p_mark = subparsers.add_parser("mark-interrupted",
+                                   help="Mark running sessions as interrupted")
+    p_mark.set_defaults(func=cmd_mark_interrupted)
+
+    # check-interrupted
+    p_check = subparsers.add_parser("check-interrupted",
+                                    help="Check for interrupted sessions")
+    p_check.add_argument("--project", default=None)
+    p_check.add_argument("--limit", type=int, default=5,
+                         help="Max sessions to output (default: 5)")
+    p_check.set_defaults(func=cmd_check_interrupted)
 
     args = parser.parse_args()
     if not args.command:
