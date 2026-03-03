@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-03
+
+### Added
+- **Background queue execution** (DF-3): `scripts/queue-bg.sh` — launch `/queue run` in a detached tmux session (`start`/`stop`/`status` subcommands). Queue items execute autonomously while you work.
+- **Morning report** (DF-3): `scripts/queue-report.sh` — generates a summary of overnight queue results (completed, failed, skipped) with branch names and error details.
+- **Per-task notifications** (DF-3): Queue skill sends desktop notifications (`notify-send`) on each task completion/failure during background runs.
+- **`devflow-status` CLI** (DF-4): `scripts/devflow-status.sh` — one-shot dashboard displaying active session (phase progress bar, duration, loops), queue status, and recent sessions. Subcommands: `session`, `queue`, `recent [N]`. Designed for `watch -n2`. Bash + embedded Python, no external dependencies.
+- **tmux status bar** (DF-4): `scripts/tmux-status.sh` — compact one-line output (`⏳ /develop Implement 47% [Q:2/5]`) for tmux `status-right`. No ANSI colors, max ~50 chars.
+
+### Removed
+- **devflow-tui** (DF-4): Removed Textual-based TUI monitor (`devflow-tui/`). Replaced by simpler `devflow-status` CLI and tmux integration that require no Python venv or external dependencies.
+
 ## [0.3.0] - 2026-03-02
 
 ### Added
@@ -37,7 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/antk25/devflow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/antk25/devflow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/antk25/devflow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/antk25/devflow/releases/tag/v0.1.0
