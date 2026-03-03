@@ -1,0 +1,56 @@
+/* DevFlow TUI Theme */
+
+Screen {
+    background: $surface;
+}
+
+Header {
+    dock: top;
+    background: $primary;
+}
+
+Footer {
+    dock: bottom;
+}
+
+/* Dashboard */
+
+DashboardScreen VerticalScroll {
+    height: 1fr;
+}
+
+ActiveSessionPanel {
+    background: $panel;
+    margin: 0 0 1 0;
+    padding: 1;
+    height: auto;
+}
+
+/* Session list */
+
+SessionList DataTable {
+    margin: 0 1;
+}
+
+/* Queue */
+
+QueueList {
+    margin: 0 0 1 0;
+}
+
+/* Details screen */
+
+SessionDetailsScreen VerticalScroll {
+    height: 1fr;
+}
+
+SessionDetailsScreen DataTable {
+    margin: 0 1;
+    height: auto;
+    max-height: 20;
+}
+
+Rule {
+    margin: 0 1;
+    color: $primary-lighten-2;
+}
