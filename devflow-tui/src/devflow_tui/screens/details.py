@@ -16,8 +16,8 @@ class SessionDetailsScreen(Screen):
     """Detailed view of a single session."""
 
     BINDINGS = [
-        Binding("escape", "pop_screen", "Back"),
-        Binding("q", "pop_screen", "Back"),
+        Binding("escape", "go_back", "Back"),
+        Binding("q", "go_back", "Back"),
     ]
 
     DEFAULT_CSS = """
@@ -52,6 +52,9 @@ class SessionDetailsScreen(Screen):
     def __init__(self, session: Session, **kwargs) -> None:
         super().__init__(**kwargs)
         self._session = session
+
+    def action_go_back(self) -> None:
+        self.app.pop_screen()
 
     def compose(self) -> ComposeResult:
         s = self._session
