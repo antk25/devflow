@@ -44,13 +44,13 @@ class QueueList(Widget):
         yield Static("", id="queue-content")
 
     def on_mount(self) -> None:
-        self._render()
+        self._update_content()
 
     def update_queue(self, queue_data: QueueData) -> None:
         self._queue = queue_data
-        self._render()
+        self._update_content()
 
-    def _render(self) -> None:
+    def _update_content(self) -> None:
         try:
             content = self.query_one("#queue-content", Static)
         except LookupError:

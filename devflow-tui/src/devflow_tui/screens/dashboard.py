@@ -45,18 +45,18 @@ class ActiveSessionPanel(Vertical):
         yield Static("", id="active-meta", classes="session-meta")
 
     def on_mount(self) -> None:
-        self._render()
+        self._update_content()
 
     def update_session(self, session: Session | None) -> None:
         self._session = session
-        self._render()
+        self._update_content()
         try:
             bar = self.query_one("#phase-bar", PhaseBar)
             bar.update_session(session)
         except LookupError:
             pass
 
-    def _render(self) -> None:
+    def _update_content(self) -> None:
         s = self._session
         try:
             title_w = self.query_one("#active-title", Static)
