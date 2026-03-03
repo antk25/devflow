@@ -4,7 +4,7 @@ description: Batch task queue for current project
 user_invocable: true
 arguments:
   - name: command
-    description: "Command: add, list, run, remove, clear, status"
+    description: "Command: add, list, run, run --background, stop, remove, clear, status, report"
     required: true
   - name: args
     description: "Arguments for the command (task spec, item IDs, flags)"
@@ -26,11 +26,16 @@ All tasks run within the **current active project** (set via `./start.sh` before
 /queue list --all
 /queue run
 /queue run 3                              # resume from item #3
+/queue run --background                   # run in detached tmux session
+/queue stop                               # stop background run
+/queue status                             # show progress + background info
+/queue report                             # show last morning report
+/queue report --save                      # save report to Obsidian
+/queue report --last                      # show last saved report from Obsidian
 /queue remove 2
 /queue remove 2 3 5
 /queue clear
 /queue clear --all
-/queue status
 ```
 
 ## Instructions
@@ -56,6 +61,8 @@ Add a task to the queue.
      "version": "1.0",
      "queue": [],
      "last_run": null,
+     "background_run": null,
+     "last_report": null,
      "next_id": 1
    }
    ```
@@ -152,11 +159,14 @@ Execute all pending tasks sequentially.
 
 **Syntax:**
 ```
-/queue run               # run all pending
+/queue run               # run all pending (foreground)
 /queue run <id>          # resume from specific item
+/queue run --background  # run in detached tmux session
 ```
 
-**Steps:**
+**If `--background` flag is present:** jump to the [run --background](#command-run---background) section below.
+
+**Steps (foreground):**
 
 1. Read `.claude/data/queue.json`
 
@@ -200,12 +210,14 @@ Execute all pending tasks sequentially.
       - Try to detect branch name from the skill output and store in `item.branch`
       - Write `queue.json`
       - Display: `#N completed`
+      - **Notify:** `./scripts/notify.sh "Queue: #N done" "/skill description" normal`
 
    e. **On failure/error:**
       - Set `item.status = "failed"`, `item.completed_at = <now>`
       - Set `item.error = <error description>`
       - Write `queue.json`
       - Display: `#N failed: <error>`
+      - **Notify:** `./scripts/notify.sh "Queue: #N FAILED" "/skill description: <error>" critical`
       - **Continue to next item** — failed items do NOT block the queue
 
 7. **Update `last_run`:**
@@ -221,7 +233,7 @@ Execute all pending tasks sequentially.
    ```
    Write `queue.json`.
 
-8. **Desktop notification:**
+8. **Final desktop notification:**
    ```bash
    # If all succeeded:
    ./scripts/notify.sh "Queue Complete" "N/M tasks done"
@@ -243,6 +255,106 @@ Execute all pending tasks sequentially.
 
    ### Failed Items
    - #3: Error description here
+   ```
+
+10. **Generate morning report:**
+    ```bash
+    ./scripts/queue-report.sh
+    ```
+    Display the report output inline after the summary.
+
+    If `background_run.status == "running"` in `queue.json` (this is a background session), also auto-save:
+    ```bash
+    ./scripts/queue-report.sh --save
+    ```
+    After auto-save, update `background_run.status = "completed"` in `queue.json`.
+
+---
+
+### Command: `run --background`
+
+Run the queue in a detached tmux session. The queue executes autonomously while you continue working.
+
+**Syntax:**
+```
+/queue run --background
+```
+
+**Steps:**
+
+1. Read `.claude/data/queue.json`
+
+2. **Check for active background run:**
+   - Read `background_run` from `queue.json`
+   - If `background_run.status == "running"`:
+     - Verify tmux session exists: `tmux has-session -t devflow-queue 2>/dev/null`
+     - If exists: display error:
+       ```
+       Background run already active (started <started_at>).
+
+       Options:
+         tmux attach -t devflow-queue    # watch progress
+         /queue status                    # check progress
+         /queue stop                      # stop the run
+       ```
+       Exit.
+     - If tmux session dead: orphan cleanup — update `background_run.status = "stopped"`, continue
+
+3. Count pending items. If zero:
+   ```
+   No pending tasks in queue.
+   ```
+   Exit.
+
+4. **Launch background session:**
+   ```bash
+   ./scripts/queue-bg.sh start "Run /queue run. After completion, the morning report will be auto-generated."
+   ```
+
+5. **Display confirmation:**
+   ```markdown
+   ## Queue launched in background (N tasks)
+
+   **Monitoring:**
+   - `tmux attach -t devflow-queue` — watch live progress
+   - `/queue status` — check current progress
+   - `/queue stop` — stop the run
+
+   Notifications will appear after each task.
+   Morning report will be auto-saved on completion.
+   ```
+
+**Note:** The background Claude session inherits the user's permission settings from `~/.claude/settings.json`. If permissions are not pre-configured for autonomous operation, the session may block waiting for approval. Ensure your settings allow the required tool permissions before launching a background run.
+
+---
+
+### Command: `stop`
+
+Stop an active background queue run.
+
+**Syntax:**
+```
+/queue stop
+```
+
+**Steps:**
+
+1. Read `.claude/data/queue.json`
+
+2. Check `background_run.status`:
+   - If not `"running"`: display `No active background run.` and exit.
+
+3. **Stop the background session:**
+   ```bash
+   ./scripts/queue-bg.sh stop
+   ```
+
+4. **Display confirmation:**
+   ```
+   Background run stopped.
+
+   Current task (if running) was interrupted.
+   Remaining pending tasks are unchanged — run `/queue run` to resume.
    ```
 
 ---
@@ -295,7 +407,7 @@ Clear the queue.
 
 ### Command: `status`
 
-Show the last run results and current queue state.
+Show the last run results, background run info, and current queue state.
 
 **Syntax:**
 ```
@@ -305,37 +417,89 @@ Show the last run results and current queue state.
 **Steps:**
 
 1. Read `.claude/data/queue.json`
-2. Display `last_run` info (if exists), then current queue in zone-based format:
 
-```markdown
-## Queue Status
+2. **Check for active background run:**
+   - If `background_run.status == "running"`:
+     - Verify tmux session alive: `tmux has-session -t devflow-queue 2>/dev/null`
+     - If alive, display background info zone:
+       ```markdown
+       ### Background Run (active)
+       - **Session:** devflow-queue (`tmux attach -t devflow-queue`)
+       - **Started:** <started_at>
+       - **Progress:** X completed, Y failed, Z pending (N total)
+       ```
+       Count items by status from `queue` array to compute progress.
+     - If tmux dead: orphan cleanup — update `background_run.status = "stopped"`, show warning:
+       ```
+       Background run ended (tmux session no longer active).
+       ```
 
-### Last Run
-- **Started:** 2026-01-30 08:00
-- **Completed:** 2026-01-30 09:45
-- **Results:** 4 completed, 1 failed, 0 skipped (5 total)
+3. Display `last_run` info (if exists):
+   ```markdown
+   ### Last Run
+   - **Started:** 2026-01-30 08:00
+   - **Completed:** 2026-01-30 09:45
+   - **Results:** 4 completed, 1 failed, 0 skipped (5 total)
+   ```
 
-### Current Queue
+4. Display current queue in zone-based format:
+   ```markdown
+   ### Current Queue
 
-#### Needs Attention (1)
-| # | Skill | Description | Error |
-|---|-------|-------------|-------|
-| 3 | /refactor | Auth service | Architecture validation timeout |
+   #### Needs Attention (1)
+   | # | Skill | Description | Error |
+   |---|-------|-------------|-------|
+   | 3 | /refactor | Auth service | Architecture validation timeout |
 
-#### Ready (2)
-| # | Skill | Description |
-|---|-------|-------------|
-| 6 | /develop | Add notifications |
-| 7 | /fix | Cache invalidation |
+   #### Ready (2)
+   | # | Skill | Description |
+   |---|-------|-------------|
+   | 6 | /develop | Add notifications |
+   | 7 | /fix | Cache invalidation |
 
-#### Done (4)
-_Use `/queue list --all` for details_
+   #### Done (4)
+   _Use `/queue list --all` for details_
+   ```
+
+   If no `last_run`:
+   ```
+   No previous run recorded. Use `/queue run` to execute pending tasks.
+   ```
+
+---
+
+### Command: `report`
+
+Show or save the morning report from the last queue run.
+
+**Syntax:**
+```
+/queue report              # show last generated report
+/queue report --save       # generate and save to Obsidian vault
 ```
 
-If no `last_run`:
-```
-No previous run recorded. Use `/queue run` to execute pending tasks.
-```
+**Steps:**
+
+1. **`/queue report` (no flags):**
+   ```bash
+   ./scripts/queue-report.sh
+   ```
+   Display the script output. If no `last_run` data exists, the script will report an error.
+
+2. **`/queue report --save`:**
+   ```bash
+   ./scripts/queue-report.sh --save
+   ```
+   The script saves to `<obsidian_vault>/projects/<active_project>/reports/queue-report-YYYY-MM-DD-HHMM.md`.
+   Display the save confirmation path.
+
+   If Obsidian vault is not configured in `projects.json`, the script exits with a warning (non-fatal).
+
+3. **`/queue report --last`:**
+   ```bash
+   ./scripts/queue-report.sh --last
+   ```
+   Display the last saved report (from `last_report.saved_to` in `queue.json`).
 
 ---
 
@@ -370,11 +534,23 @@ No previous run recorded. Use `/queue run` to execute pending tasks.
     "failed": 1,
     "skipped": 0
   },
+  "background_run": {
+    "tmux_session": "devflow-queue",
+    "started_at": "2026-01-30T02:00:00Z",
+    "status": "running",
+    "stopped_at": null
+  },
+  "last_report": {
+    "generated_at": "2026-01-30T10:30:00Z",
+    "saved_to": "/path/to/obsidian/projects/my-app/reports/queue-report-2026-01-30-0800.md"
+  },
   "next_id": 2
 }
 ```
 
 **Status transitions:** `pending` → `running` → `completed` | `failed` | `skipped`
+
+**Background run status:** `running` → `completed` | `stopped`
 
 ---
 
@@ -384,11 +560,17 @@ No previous run recorded. Use `/queue run` to execute pending tasks.
 |------|----------|
 | Invalid skill name | Error message + list valid skills |
 | Empty queue on `run` | Display message, exit |
-| Failed item during `run` | Mark failed, continue to next |
+| Failed item during `run` | Mark failed, notify (critical), continue to next |
 | Interrupted run | Items left as `running` reset to `pending` on next `run` |
 | `queue.json` missing | Create empty file on first `add` or `list` |
 | Duplicate tasks | Allowed — user can dedup via `list` + `remove` |
 | Run with specific ID | Start from that ID, skip earlier pending items |
+| tmux not installed | `queue-bg.sh` exits with error: "tmux is required..." |
+| Background run already active | Error with hints (attach/status/stop) |
+| tmux session died (orphan) | `status` and `run --background` detect and cleanup stale state |
+| Obsidian vault not configured | `report --save` warns and exits 0 (non-fatal) |
+| No last_run data | `report` shows error, suggests running queue first |
+| `report` during active run | Shows partial results based on current queue.json state |
 
 ---
 
@@ -404,9 +586,25 @@ No previous run recorded. Use `/queue run` to execute pending tasks.
 /queue run
 ```
 
+### Run overnight
+```
+/queue run --background
+# ... next morning:
+/queue report
+```
+
+### Monitor background run
+```
+/queue status                        # quick check
+tmux attach -t devflow-queue         # watch live
+/queue stop                          # cancel if needed
+```
+
 ### Check results
 ```
 /queue status
+/queue report
+/queue report --save                 # persist to Obsidian
 /queue list --all
 ```
 

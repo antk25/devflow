@@ -96,9 +96,13 @@ The `/queue` skill lets you plan a batch of tasks for the **current project** an
 | `/queue add <skill> <desc>` | Add task for current project |
 | `/queue list [--all]` | Show queue (pending or all) |
 | `/queue run [id]` | Execute pending tasks (optionally from specific ID) |
+| `/queue run --background` | Execute in detached tmux session |
+| `/queue stop` | Stop active background run |
+| `/queue status` | Show last run results + background progress |
+| `/queue report` | Show morning report from last run |
+| `/queue report --save` | Save report to Obsidian vault |
 | `/queue remove <id> [id2...]` | Remove items by ID |
 | `/queue clear [--all]` | Clear pending (or all) items |
-| `/queue status` | Show last run results |
 
 ### Execution Behavior
 
@@ -107,7 +111,22 @@ The `/queue` skill lets you plan a batch of tasks for the **current project** an
 - **Failed items don't block** — execution continues to the next task
 - **Interrupted runs** — items left as `running` reset to `pending` on next `run`
 - Each item invokes the skill via the `Skill` tool, so all existing skill behaviors apply
+- **Per-task notifications** — `notify-send` after each task (critical urgency for failures)
+- **Morning report** — auto-generated after every queue run with summary, results, and branches for review
+
+### Background Mode
+
+Run the queue overnight in a detached tmux session:
+
+```bash
+/queue run --background          # launch in tmux
+tmux attach -t devflow-queue     # watch live progress
+/queue status                    # check from another session
+/queue stop                      # cancel if needed
+```
+
+The background session runs a full `/queue run` inside a dedicated Claude Code process. On completion, a morning report is auto-saved to the Obsidian vault at `projects/<project>/reports/`. Check results the next morning with `/queue report`.
 
 ### Data
 
-Queue data is stored in `.claude/data/queue.json`. Items track status (`pending` → `running` → `completed`/`failed`/`skipped`), timestamps, branches, and errors.
+Queue data is stored in `.claude/data/queue.json`. Items track status (`pending` → `running` → `completed`/`failed`/`skipped`), timestamps, branches, and errors. Background run state is tracked in `background_run`, and the last report location in `last_report`.
