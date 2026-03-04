@@ -197,6 +197,8 @@ Commands that modify code handle git automatically:
 | `/audit` | - | - | docs commit (if --fix) |
 | `/note` | - | - | No changes (writes to vault) |
 | `/resume` | (existing work branch) | - | continues from interrupted |
+| `/recall` | - | - | No changes (read-only search) |
+| `/next` | - | - | No changes (context wrap-up) |
 | `/queue` | (per item) | (per item) | delegates to invoked skill |
 
 - Branch naming convention read from project

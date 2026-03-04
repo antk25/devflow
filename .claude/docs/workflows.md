@@ -245,6 +245,64 @@ analyze work branch commits → merge related changes (impl + tests) → create 
 
 ---
 
+## Resume Interrupted Session (`/resume`)
+
+```
+/resume                          # Most recent interrupted session
+/resume feature/auth-work        # By branch name
+/resume list                     # Show all interrupted sessions
+```
+
+Resumes an interrupted `/develop`, `/fix`, or `/refactor` session from the last completed phase:
+```
+find session → validate git state → display phase progress → dispatch to original skill with --resume flag
+```
+
+**Session discovery:**
+- Finds sessions by branch name match or picks the most recent interrupted one
+- Validates that the work branch exists and matches the session record
+- Shows a progress bar of completed vs remaining phases
+
+**Interrupted session detection:**
+At startup, `project-restore.sh` hook checks for stale/interrupted sessions and outputs `INTERRUPTED_SESSION` info. Claude displays a resume prompt in the greeting automatically.
+
+**How sessions become "interrupted":**
+- `mark-interrupted` command in `session-log.py` flags sessions that were `running` for more than 5 minutes without updates
+- `check-interrupted` finds interrupted sessions filtered by project (1-hour staleness window for running sessions)
+
+---
+
+## Session Recall (`/recall`)
+
+```
+/recall JWT authorization        # Search by keywords
+/recall DEV-488                  # Search by task number
+```
+
+Searches past session logs (`session-log.py`) for matching entries. Returns session summaries with:
+- What was worked on and when
+- Which files were changed
+- Key decisions and problems encountered
+
+**Best for:** Restoring context when returning to a feature, finding how something was implemented before, reviewing past decisions.
+
+---
+
+## Next Task (`/next`)
+
+```
+/next                            # Wrap up current task context
+```
+
+Wraps up the current task context:
+- Saves session notes and observations
+- Updates queue status if running from queue
+- Keeps project active for the next task
+
+**Best for:** Transitioning between tasks without losing project context or restarting Claude Code.
+
+---
+
 ## E2E Testing
 
 After implementation, the orchestrator verifies the feature works:
