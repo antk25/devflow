@@ -121,6 +121,19 @@ When using Task tool to spawn agents, use these identifiers:
 - `Code Reviewer` - Code review (runs on opus model)
 - `Architecture Guardian` - Pattern validation
 
+## Project-Specific Agents
+
+Projects can define customized agents in `<project>/.claude/agents/`. These override the generic agent context with project-specific knowledge (stack, architecture, patterns, conventions).
+
+**Resolution order** (via `scripts/resolve-agent.sh`):
+1. `<project>/.claude/agents/<specific>.md` (e.g., `js-developer.md`, `php-developer.md`)
+2. `<project>/.claude/agents/developer.md` (generic developer)
+3. Falls back to DevFlow's generic agents (`.claude/agents/*.md`)
+
+**Agent templates** (`.claude/agents/templates/`) contain universal rules (test quality, security, architecture compliance) that apply to all projects. Project agents extend these with stack-specific knowledge.
+
+When spawning agents, skills check for project agents and prepend their content to the task prompt with `## Project-Specific Instructions (PRIORITY)` header.
+
 ## Choosing the Right Command
 
 **Note:** You don't need to memorize this table. Just describe your task and the orchestrator will auto-route to the right command (see [Auto-Routing](#auto-routing-smart-task-dispatch) section).

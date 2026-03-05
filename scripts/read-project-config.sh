@@ -68,6 +68,7 @@ files_check = {
     'has_patterns_md': os.path.isfile(os.path.join(project_path, '.claude', 'patterns.md')),
     'has_contributing': os.path.isfile(os.path.join(project_path, 'CONTRIBUTING.md')),
     'has_lessons_learned': os.path.isfile(os.path.join(project_path, '.claude', 'data', 'lessons-learned.md')),
+    'has_project_agents': os.path.isdir(os.path.join(project_path, '.claude', 'agents')),
 }
 output['files'] = files_check
 

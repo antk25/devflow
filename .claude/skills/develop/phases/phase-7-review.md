@@ -1,5 +1,12 @@
 # Phase 7: Code Review
 
+**First**, load project-specific reviewer context (if available):
+```bash
+AGENT_FILE=$(./scripts/resolve-agent.sh "<project_path>" "Code Reviewer")
+```
+- If found (exit 0), read the file and store as `project_reviewer_context`
+- If not found (exit 1), set `project_reviewer_context = ""`
+
 After all tasks complete, gather project pattern context and spawn Reviewer.
 
 ## Step 1: Gather Pattern Context
@@ -36,7 +43,16 @@ Task(
 ```
 Task(
   description: "Review implementation",
-  prompt: "Review code changes in:
+  prompt: "<if project_reviewer_context is not empty, prepend:>
+
+  ## Project-Specific Review Context (PRIORITY)
+  <project_reviewer_context>
+
+  ---
+
+  <endif>
+
+  Review code changes in:
 
   Repository: <repo_path>
   Changed files: <list>

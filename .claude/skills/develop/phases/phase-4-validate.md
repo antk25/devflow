@@ -1,11 +1,27 @@
 # Phase 4: Architecture Validation
 
+**First**, load project-specific guardian context (if available):
+```bash
+AGENT_FILE=$(./scripts/resolve-agent.sh "<project_path>" "Architecture Guardian")
+```
+- If found (exit 0), read the file and store as `project_guardian_context`
+- If not found (exit 1), set `project_guardian_context = ""`
+
 After each implementation, spawn Architecture Guardian:
 
 ```
 Task(
   description: "Validate architecture",
-  prompt: "Review the following changes for architecture compliance:
+  prompt: "<if project_guardian_context is not empty, prepend:>
+
+  ## Project-Specific Validation Rules (PRIORITY)
+  <project_guardian_context>
+
+  ---
+
+  <endif>
+
+  Review the following changes for architecture compliance:
 
   Repository: <repo_path>
   Changed files: [list]

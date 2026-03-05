@@ -14,12 +14,28 @@ mcp__local-rag__query_documents(query: "<project_name> <task_keywords> implement
 ```
 Filter results with score < 0.45. Format as `task_rag_context`.
 
+**Then**, load project-specific agent context (if available):
+```bash
+AGENT_FILE=$(./scripts/resolve-agent.sh "<project_path>" "<agent_type>")
+```
+- If the script returns a path (exit 0), read that file and store as `project_agent_context`
+- If not found (exit 1), set `project_agent_context = ""`
+
 **Then**, spawn appropriate developer agent:
 
 ```
 Task(
   description: "Implement: <task>",
-  prompt: "Implement this task in repository: <repo_path>
+  prompt: "<if project_agent_context is not empty, prepend:>
+
+  ## Project-Specific Instructions (PRIORITY — follow these over generic defaults)
+  <project_agent_context>
+
+  ---
+
+  <endif>
+
+  Implement this task in repository: <repo_path>
 
   Task: <task description>
 
