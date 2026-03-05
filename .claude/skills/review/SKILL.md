@@ -304,10 +304,26 @@ Only flag deviations from patterns, genuine bugs, or security/performance issues
 )
 ```
 
-**IMPORTANT:** Launch Step 4a (Task) and Step 4b (MCP call) in the same message to run them in parallel.
-Both return independently. Collect both results before proceeding to Step 5.
+#### Step 4c: ChatGPT Code Review (always runs, skip with `--no-chatgpt`)
 
-**If Qwen MCP tool is unavailable** (server not running, tool not found), log a warning and continue with Claude-only review. Do not fail the entire review.
+**Run IN PARALLEL with Step 4a and Step 4b** using the MCP tool:
+
+```
+mcp__chatgpt-review__gpt_code_review(
+  diff: "<diff from Step 2>",
+  context: "<pattern_context + rag_context + focus areas + feature contract>
+
+IMPORTANT: The 'Project Patterns' section below was verified against the actual codebase.
+Do NOT flag code as an issue if it follows these established patterns.
+Only flag deviations from patterns, genuine bugs, or security/performance issues.
+
+<pattern_context>"
+)
+```
+
+**IMPORTANT:** Launch Step 4a (Task), Step 4b (MCP call), and Step 4c (MCP call) in the SAME message to run all three in parallel. Collect all results before proceeding to Step 5.
+
+**If Qwen or ChatGPT MCP tool is unavailable** (server not running, tool not found), log a warning and continue with available reviewers. Do not fail the entire review.
 
 ### Step 5: Present Results
 
@@ -556,39 +572,48 @@ When called by `/develop`:
 
 Critical issues trigger automatic fix loop.
 
-## Dual Review Output Format
+## Triple Review Output Format
 
-When `--dual` is used, merge both reviews into a unified report. The orchestrator (you) reads both outputs and produces the merged report.
+All three reviewers (Claude, Qwen, ChatGPT) run by default. Merge all outputs into a unified report.
 
 **Merge rules:**
-1. **Deduplicate:** If both reviewers flag the same issue (same file + same problem), keep the more detailed description and note `[Claude + Qwen]` agreement
-2. **Unique findings:** Issues found by only one reviewer are tagged with their source: `[Claude]` or `[Qwen]`
-3. **Severity:** If reviewers disagree on severity, use the higher severity
-4. **Agreement boosts confidence:** Issues flagged by both reviewers should be prioritized
+1. **Deduplicate:** If multiple reviewers flag the same issue (same file + same problem), keep the most detailed description and tag with all sources (e.g., `[Claude + Qwen + ChatGPT]`)
+2. **Unique findings:** Issues found by only one reviewer are tagged: `[Claude]`, `[Qwen]`, or `[ChatGPT]`
+3. **Severity:** If reviewers disagree on severity, use the highest severity
+4. **Confidence scoring:**
+   - 3 reviewers agree → highest confidence, fix first
+   - 2 reviewers agree → high confidence
+   - 1 reviewer only → normal confidence
 
 ```markdown
-## Dual Code Review: Claude + Qwen
+## Triple Code Review: Claude + Qwen + ChatGPT
 
 ### Review Sources
 - **Claude** (Code Reviewer): ✅ Completed
-- **Qwen** (Qwen Code): ✅ Completed | ⚠️ Failed (Claude-only review below)
+- **Qwen** (Qwen Code): ✅ Completed | ⚠️ Failed
+- **ChatGPT** (Codex CLI): ✅ Completed | ⚠️ Failed
 
 ### Summary
 **Status**: ✅ Approved | ⚠️ Changes Requested | ❌ Needs Work
-**Agreement**: X of Y issues found by both reviewers
+**Agreement**: X of Y issues found by 2+ reviewers
 
 ---
 
 ### Critical Issues
 
-#### 1. [Issue Title] [Claude + Qwen]
-Both reviewers identified this issue, increasing confidence.
+#### 1. [Issue Title] [Claude + Qwen + ChatGPT]
+All three reviewers identified this issue — highest confidence.
 **File**: `path/to/file.ts:42`
 ...
 
-#### 2. [Issue Title] [Qwen]
-Found only by Qwen.
+#### 2. [Issue Title] [Claude + ChatGPT]
+Found by two reviewers.
 **File**: `path/to/file.ts:88`
+...
+
+#### 3. [Issue Title] [Qwen]
+Found only by Qwen.
+**File**: `path/to/file.ts:120`
 ...
 
 ---
@@ -604,36 +629,36 @@ Found only by Qwen.
 ---
 
 ### Positive Observations
-(merged from both reviewers)
+(merged from all reviewers)
 
 ---
 
 ### Reviewer Comparison
 
-| Category | Claude | Qwen | Agreed |
-|----------|--------|------|--------|
-| Critical | 1 | 2 | 1 |
-| Warnings | 3 | 2 | 2 |
-| Suggestions | 2 | 4 | 0 |
+| Category | Claude | Qwen | ChatGPT | All 3 | 2 of 3 |
+|----------|--------|------|---------|-------|--------|
+| Critical | 1 | 2 | 2 | 1 | 1 |
+| Warnings | 3 | 2 | 3 | 1 | 2 |
+| Suggestions | 2 | 4 | 1 | 0 | 1 |
 ```
 
-**For autonomous mode** (`/develop` calling `/review --dual`), return JSON with source tags:
+**For autonomous mode** (`/develop` calling review), return JSON with source tags:
 
 ```json
 {
   "status": "pass" | "fail",
-  "mode": "dual",
+  "mode": "triple",
   "critical": [
     {
       "file": "src/auth.ts",
       "line": 42,
       "issue": "SQL injection",
       "fix": "Use parameterized query",
-      "source": ["claude", "qwen"]
+      "source": ["claude", "qwen", "chatgpt"]
     }
   ],
   "warnings": [...],
-  "summary": "1 critical (agreed), 2 warnings"
+  "summary": "1 critical (all 3 agree), 2 warnings"
 }
 ```
 

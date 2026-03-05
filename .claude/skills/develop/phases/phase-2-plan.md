@@ -74,22 +74,50 @@ mcp__qwen-review__qwen_plan(
 )
 ```
 
-**IMPORTANT:** Launch Step 2a (Task) and Step 2b (MCP call) in the same message to run them in parallel. Both return independently. Collect both results before proceeding to Step 2c.
+## Step 2b2: ChatGPT Plan (always runs, skip with `--no-chatgpt`)
 
-**If Qwen MCP tool is unavailable** (server not running, tool not found), log a warning and continue with Claude-only plan. Do not fail the pipeline.
+**Run IN PARALLEL with Step 2a and Step 2b** using the MCP tool:
+
+```
+mcp__chatgpt-review__gpt_plan(
+  task: "<feature description>
+
+  Repository: <repo_path>",
+  context: "<combine all available context:>
+
+  <if deep_trace_results exists, append:>
+  ## Deep Trace Results
+  <deep_trace_results as JSON>
+  <endif>
+
+  <if rag_context is not empty, append:>
+  ## Project Knowledge Base Context
+  <rag_context>
+  <endif>
+
+  <if standardized_task exists with acceptance_criteria, append:>
+  ## Acceptance Criteria
+  <acceptance_criteria as numbered list>
+  <endif>"
+)
+```
+
+**IMPORTANT:** Launch Step 2a (Task), Step 2b (MCP call), and Step 2b2 (MCP call) in the SAME message to run all three in parallel. Collect all results before proceeding to Step 2c.
+
+**If Qwen or ChatGPT MCP tool is unavailable** (server not running, tool not found), log a warning and continue with available planners. Do not fail the pipeline.
 
 ## Step 2c: Merge Plans
 
-Merge both plans into a unified Dual Plan (see `templates/dual-plan-format.md` for the output format).
+Merge all plans (Claude, Qwen, ChatGPT) into a unified plan (see `templates/dual-plan-format.md` for the output format).
 
 **Merge rules:**
-1. **Deduplicate tasks:** If both planners propose the same task (same layer + same goal), keep the more detailed description and tag `[Claude + Qwen]`
-2. **Unique tasks:** Tasks proposed by only one planner are tagged `[Claude]` or `[Qwen]`
-3. **Edge cases:** Union of all edge cases from both, deduplicated, tagged by source
+1. **Deduplicate tasks:** If multiple planners propose the same task (same layer + same goal), keep the most detailed description and tag with all sources (e.g., `[Claude + Qwen + ChatGPT]`, `[Claude + ChatGPT]`)
+2. **Unique tasks:** Tasks proposed by only one planner are tagged `[Claude]`, `[Qwen]`, or `[ChatGPT]`
+3. **Edge cases:** Union of all edge cases from all planners, deduplicated, tagged by source
 4. **Dependencies:** If planners disagree on task order, prefer Claude's ordering (primary planner)
-5. **Complexity:** If planners disagree on complexity, note both estimates
+5. **Complexity:** If planners disagree on complexity, note all estimates
 
-The **merged plan** is what gets stored and used for subsequent phases. Claude is the primary planner — Qwen supplements with additional tasks and edge cases.
+The **merged plan** is what gets stored and used for subsequent phases. Claude is the primary planner — Qwen and ChatGPT supplement with additional tasks and edge cases.
 
 Store merged plan in memory, do NOT ask user to confirm plan.
 

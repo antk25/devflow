@@ -136,23 +136,43 @@ mcp__qwen-review__qwen_code_review(
 )
 ```
 
-**IMPORTANT:** Launch Step 2a (Task) and Step 2b (MCP call) in the same message to run them in parallel. Both return independently. Collect both results before proceeding to Step 3.
+## Step 2c: ChatGPT Code Review (always runs, skip with `--no-chatgpt`)
+
+**Run IN PARALLEL with Step 2a and Step 2b** using the MCP tool:
+
+```
+mcp__chatgpt-review__gpt_code_review(
+  diff: "<git diff main...HEAD from each affected repo>",
+  context: "<combine pattern_context + rag_context + feature_contract>
+
+  IMPORTANT: The 'Project Patterns' section below was verified against the actual codebase.
+  Do NOT flag code as an issue if it follows these established patterns.
+  Only flag deviations from patterns, genuine bugs, or security/performance issues.
+
+  <pattern_context>"
+)
+```
+
+**IMPORTANT:** Launch Step 2a (Task), Step 2b (MCP call), and Step 2c (MCP call) in the SAME message to run all three in parallel. Collect all results before proceeding to Step 3.
 
 **Key principle:** Reviewers receive ONLY the diff + spec/contract. They do NOT receive the developer agent's prompt or implementation instructions.
 
-**If Qwen MCP tool is unavailable** (server not running, tool not found), log a warning and continue with Claude-only review. Do not fail the pipeline.
+**If Qwen or ChatGPT MCP tool is unavailable** (server not running, tool not found), log a warning and continue with available reviewers. Do not fail the pipeline.
 
 ## Step 3: Merge Review Findings
 
-Merge both reviews into a unified report:
+Merge all reviews (Claude, Qwen, ChatGPT) into a unified report:
 
-1. **Deduplicate:** If both reviewers flag the same issue (same file + same problem), keep the more detailed description and tag `[Claude + Qwen]`
-2. **Unique findings:** Issues found by only one reviewer are tagged `[Claude]` or `[Qwen]`
-3. **Severity:** If reviewers disagree on severity, use the higher severity
-4. **Agreement boosts confidence:** Issues flagged by both reviewers should be prioritized for fixing
+1. **Deduplicate:** If multiple reviewers flag the same issue (same file + same problem), keep the most detailed description and tag with all sources (e.g., `[Claude + Qwen + ChatGPT]`, `[Claude + ChatGPT]`, `[Qwen + ChatGPT]`)
+2. **Unique findings:** Issues found by only one reviewer are tagged `[Claude]`, `[Qwen]`, or `[ChatGPT]`
+3. **Severity:** If reviewers disagree on severity, use the highest severity
+4. **Confidence scoring:**
+   - 3 reviewers agree → highest confidence, fix first
+   - 2 reviewers agree → high confidence
+   - 1 reviewer only → normal confidence
 
 **Route by severity:**
 - **Critical/High findings** → passed to Phase 8 (fix critical issues) as before
-- **Minor/Info findings** → parse `json:review_improvement_notes` blocks from both reviewers, merge, deduplicate, and append to `phase7_observations` list. These do NOT trigger Phase 8.
+- **Minor/Info findings** → parse `json:review_improvement_notes` blocks from all reviewers, merge, deduplicate, and append to `phase7_observations` list. These do NOT trigger Phase 8.
 
 The Critical/High merged review is what gets passed to Phase 8 (fix critical issues)

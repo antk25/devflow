@@ -79,22 +79,52 @@ mcp__qwen-review__qwen_contract(
 )
 ```
 
-**IMPORTANT:** Launch Step 1a (Task) and Step 1b (MCP call) in the same message to run them in parallel. Both return independently. Collect both results before proceeding to Step 1c.
+## Step 1b2: ChatGPT Contract (always runs, skip with `--no-chatgpt`)
 
-**If Qwen MCP tool is unavailable** (server not running, tool not found), log a warning and continue with Claude-only contract. Do not fail the pipeline.
+**Run IN PARALLEL with Step 1a and Step 1b** using the MCP tool:
+
+```
+mcp__chatgpt-review__gpt_contract(
+  task: "<feature description>",
+  plan: "<all task summaries from Phase 2, joined with newlines>",
+  context: "<combine all available context:>
+
+  Repository/ies: <repo paths>
+  Branch: <work_branch_name>
+
+  <if deep_trace_results exists, append:>
+  ## Deep Trace Results
+  <deep_trace_results as JSON>
+  <endif>
+
+  <if rag_context is not empty, append:>
+  ## Project Knowledge Base Context
+  <rag_context>
+  <endif>
+
+  Generate contract in C-DAD format (Markdown + YAML code blocks).
+  Write descriptions in Russian, code identifiers in English.
+  Include ONLY applicable sections: API, DTO, Events, Database, Components."
+)
+```
+
+**IMPORTANT:** Launch Step 1a (Task), Step 1b (MCP call), and Step 1b2 (MCP call) in the SAME message to run all three in parallel. Collect all results before proceeding to Step 1c.
+
+**If Qwen or ChatGPT MCP tool is unavailable** (server not running, tool not found), log a warning and continue with available sources. Do not fail the pipeline.
 
 ## Step 1c: Merge Contracts
 
-Merge both contracts into a unified Dual Contract (see `templates/dual-contract-format.md`).
+Merge all contracts (Claude, Qwen, ChatGPT) into a unified contract (see `templates/dual-contract-format.md`).
 
 **Merge rules:**
-1. **Sections:** Union of all sections from both contracts. If both have the same section (e.g., API), merge entries within it
-2. **YAML entries:** If both define the same endpoint/DTO/event/table, keep Claude's version as primary but annotate differences from Qwen as comments
-3. **Extra entries:** Fields/endpoints/columns proposed by only one are tagged `# [Claude]` or `# [Qwen]` as YAML comments
+1. **Sections:** Union of all sections from all contracts. If multiple have the same section (e.g., API), merge entries within it
+2. **YAML entries:** If multiple define the same endpoint/DTO/event/table, keep Claude's version as primary but annotate differences from others as comments
+3. **Extra entries:** Fields/endpoints/columns proposed by only one source are tagged `# [Claude]`, `# [Qwen]`, or `# [ChatGPT]` as YAML comments
 4. **Descriptions:** Use Claude's Russian descriptions as primary
-5. **Conflicts:** If YAML field types disagree, note both: `type: string # [Claude: string, Qwen: int] — verify`
+5. **Conflicts:** If YAML field types disagree, note all: `type: string # [Claude: string, Qwen: int, ChatGPT: string] — verify`
+6. **Agreement:** Entries agreed by all three sources are unmarked (highest confidence)
 
-The **merged contract** uses Claude as the base, enriched with Qwen's additions and annotated disagreements for the user to resolve during review.
+The **merged contract** uses Claude as the base, enriched with Qwen's and ChatGPT's additions and annotated disagreements for the user to resolve during review.
 
 Store merged result as `feature_contract`.
 

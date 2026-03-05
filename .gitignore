@@ -21,7 +21,8 @@
 # LanceDB (local RAG database)
 lancedb/
 
-# Python bytecode cache
+# Python
+.venv/
 __pycache__/
 
 # Node modules
