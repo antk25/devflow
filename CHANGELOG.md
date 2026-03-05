@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`/project agents`** command — analyzes the active project's codebase (stack, architecture, patterns, tests) and generates customized agents in `<project>/.claude/agents/`. Determines which agents are needed (developer, tester, guardian, reviewer) based on project complexity.
+
 ## [0.6.0] - 2026-03-05
 
 ### Added

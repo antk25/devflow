@@ -156,6 +156,7 @@ When spawning agents, skills check for project agents and prepend their content 
 | Session crashed/interrupted | `/resume` | Continue from where it stopped |
 | Recall past session | `/recall <query>` | Search session logs, find context |
 | Done with task, starting next | `/next` | Wrap up context, keep project |
+| Generate project agents | `/project agents` | Analyze code, create project-specific agents |
 | Manual control | `/plan` → `/implement` → `/finalize` | Step-by-step with approval |
 
 ## Project Patterns
