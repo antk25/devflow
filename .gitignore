@@ -27,6 +27,7 @@ __pycache__/
 
 # Node modules
 node_modules/
+mcp-servers/*/node_modules/
 
 # Editor configs
 .zed/

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-05
+
+### Added
+- **Triple review** — ChatGPT added as third reviewer alongside Claude and Qwen. All three run in parallel during `/develop` Phase 7 and `/review`. Findings merged with confidence scoring: 3 agree → highest confidence, 2 agree → high, 1 only → normal.
+- **ChatGPT MCP server** (`mcp-servers/chatgpt-review/`): MCP server providing `gpt_code_review`, `gpt_contract`, and `gpt_plan` tools via OpenAI API. Used by triple review, triple planning, and triple contract generation.
+- **Triple planning** — ChatGPT participates in `/develop` Phase 2 planning alongside Claude and Qwen. Plans merged with source tagging (`[Claude + Qwen + ChatGPT]`).
+- **Triple contract generation** — ChatGPT participates in `/develop` Phase 2.5 contract generation. Contracts merged with agreement annotations.
+
+### Changed
+- Review output format updated from "Dual Review" to "Triple Review" with confidence scoring table (`All 3 | 2 of 3` columns).
+
 ## [0.4.0] - 2026-03-03
 
 ### Added
@@ -49,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/antk25/devflow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/antk25/devflow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/antk25/devflow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/antk25/devflow/compare/v0.1.0...v0.2.0
