@@ -1,10 +1,10 @@
 ---
 name: project
-description: Manage project registry (list, add, info, remove)
+description: Manage project registry (list, add, info, remove, agents)
 user_invocable: true
 arguments:
   - name: command
-    description: "Command: list, add, info, remove"
+    description: "Command: list, add, info, remove, agents"
     required: true
   - name: target
     description: "Project name or path (for add/remove/info)"
@@ -22,6 +22,7 @@ Manages the project registry. To **switch** between projects, exit Claude Code a
 /project add <path> [name]       # Register a new project
 /project info [name]             # Show project details (default: active)
 /project remove <name>           # Remove project from registry
+/project agents                  # Generate project-specific agents for active project
 ```
 
 ## Instructions
@@ -43,6 +44,7 @@ Available commands:
 - `/project add <path>` — register a new project
 - `/project info` — detailed info about current project
 - `/project remove <name>` — unregister a project
+- `/project agents` — generate project-specific agents
 
 To switch projects, exit and run `./start.sh`
 ```
@@ -192,6 +194,175 @@ Electron-based desktop application...
 ## Removed: old-project
 
 Project removed from registry. Files were not deleted.
+```
+
+---
+
+### Command: `agents`
+
+Generate project-specific agents for the active project. Analyzes the codebase and creates customized agent files in `<project>/.claude/agents/`.
+
+**Step 1: Get active project**
+
+1. Read `.claude/data/projects.json` — get `active` project, its `path` and `type`
+2. If no active project, show error and stop
+
+**Step 2: Check existing agents**
+
+1. Check if `<project_path>/.claude/agents/` already exists
+2. If it does and contains `.md` files, show what exists and ask:
+
+```
+AskUserQuestion:
+  question: "Project already has agents. What to do?"
+  options:
+    - label: "Regenerate all"
+      description: "Delete existing and create from scratch"
+    - label: "Add missing"
+      description: "Only create agents that don't exist yet"
+    - label: "Cancel"
+      description: "Keep existing agents"
+```
+
+**Step 3: Analyze the project**
+
+Gather information from these sources (read only what exists):
+
+1. **Project config** — `<project_path>/.claude/CLAUDE.md`, `<project_path>/.claude/patterns.md`
+2. **Dependencies** — `package.json`, `composer.json`, `Cargo.toml`, `go.mod`, `requirements.txt`
+3. **Directory structure** — `ls` of project root and key directories (`src/`, `app/`, `lib/`, `tests/`, `test/`)
+4. **Serena memories** — if Serena project is active, read all available memories (overview, conventions, decisions)
+5. **Sample code** — read 2-3 representative files of each type found in the project:
+   - Entry points (controllers, providers, processors, route handlers, API endpoints)
+   - Business logic (services, handlers, use cases, commands, queries)
+   - Data access (repositories, DAOs, models, entities)
+   - Tests (pick one unit and one integration/functional test)
+   - Frontend components (if fullstack project)
+6. **Git history** — `git -C <project_path> log --oneline -20` for commit style
+7. **Test infrastructure** — how tests run (npm test, phpunit, docker exec, etc.)
+
+Compile a project profile:
+
+```
+Stack: [languages, frameworks, versions]
+Architecture: [DDD, MVC, Clean Architecture, Hexagonal, ...]
+Patterns: [CQRS, Event Sourcing, Repository, State, ...]
+Testing: [framework, test style, docker/local, helpers]
+API Style: [REST, GraphQL, API Platform, ...]
+Code Style: [naming conventions, formatting, typing]
+```
+
+Display the profile and ask for confirmation before generating:
+
+```
+AskUserQuestion:
+  question: "Profile correct? Proceed with agent generation?"
+  options:
+    - label: "Yes, generate"
+      description: "Create agents based on this profile"
+    - label: "Adjust"
+      description: "I'll correct the profile first"
+```
+
+**Step 4: Determine which agents to create**
+
+Based on the profile, decide which agents are needed:
+
+| Condition | Agent File | When to create |
+|-----------|-----------|----------------|
+| PHP project (single language) | `developer.md` | Always |
+| JS/TS project (single language) | `developer.md` | Always |
+| Fullstack (PHP + JS) | `php-developer.md` + `js-developer.md` | Always (both) |
+| Non-standard test infrastructure | `tester.md` | Custom TestCase, InMemory repos, docker tests, special fixtures/builders |
+| Strict layered architecture | `architecture-guardian.md` | DDD, Clean Architecture, explicit layer boundaries, import rules |
+| Domain-specific review rules | `reviewer.md` | Specific security patterns, mandatory annotations, forbidden cross-module deps |
+
+**Minimum** — always create at least `developer.md` (or language-specific variants for fullstack).
+Others — only if the analysis reveals project-specific rules beyond what universal templates already cover.
+
+**Step 5: Generate agent files**
+
+Read the universal templates first to know what NOT to duplicate:
+- `.claude/agents/templates/developer.template.md`
+- `.claude/agents/templates/tester.template.md` (if creating tester)
+- `.claude/agents/templates/architecture-guardian.template.md` (if creating guardian)
+- `.claude/agents/templates/reviewer.template.md` (if creating reviewer)
+
+**Generation rules:**
+
+1. **Concrete, not abstract** — use real code examples from the project, not generic patterns
+2. **Patterns, not documentation** — show HOW to write code, not WHAT the system does
+3. **CORRECT vs WRONG** — for critical rules, always show the anti-pattern
+4. **Compact** — max 150 lines per agent. Cut the obvious
+5. **Don't duplicate templates** — test quality rules, OWASP checklist, AAA pattern are already in templates
+6. **Use captivia agent as structural reference** — follow the same section structure:
+
+```markdown
+# <Project> <Language> Developer
+
+You are a <language> developer specialized in this project. Follow these patterns precisely.
+
+## Stack
+- Concrete versions: language, framework, ORM, database, tooling
+
+## Architecture: <pattern name>
+- Directory tree structure
+- Layer rules (what depends on what, what's forbidden)
+
+## <Key Pattern 1> (e.g., CQRS, Repository, State Machine)
+- CONCRETE code example from the project (or matching its style)
+- Correct annotations, naming, structure
+
+## <Key Pattern 2> (e.g., Event Bus, Message Queue)
+- CRITICAL rules highlighted with **CRITICAL** marker
+- CORRECT vs WRONG examples
+
+## Naming Conventions
+- Table: Type | Pattern | Example
+- Real examples from the project
+
+## Code Style
+- Only project-specific rules (not standard language conventions)
+
+## Testing
+- Test runner command
+- Test patterns (base TestCase, helpers, mocking approach)
+- Special infrastructure (InMemory repos, builders, fixtures)
+
+## <Domain-specific rules>
+- Migration rules, validation rules, etc. — only if project has specifics
+```
+
+**Step 6: Write files**
+
+1. Create `<project_path>/.claude/agents/` directory if it doesn't exist (use `mkdir -p`)
+2. Write each agent file
+3. Verify each agent is resolvable:
+
+```bash
+./scripts/resolve-agent.sh "<project_path>" "<agent_type>"
+```
+
+Run this for each created agent to confirm `resolve-agent.sh` finds it.
+
+**Step 7: Display summary**
+
+```markdown
+## Project Agents Created
+
+**Project:** <name>
+**Path:** <project_path>/.claude/agents/
+
+| Agent | File | Lines | Key Focus |
+|-------|------|-------|-----------|
+| PHP Developer | developer.md | 120 | Symfony DDD, CQRS, API Platform |
+| Tester | tester.md | 80 | FunctionalTestCase, InMemory repos |
+
+**Skipped** (covered by universal templates):
+- Architecture Guardian — no project-specific rules beyond patterns.md
+- Reviewer — no domain-specific review rules
+
+These agents will be automatically loaded by `/develop`, `/fix`, and `/refactor` when working on this project.
 ```
 
 ---
