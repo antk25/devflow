@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-05
+
+### Added
+- **Project-specific agents** — projects can define customized agents in `<project>/.claude/agents/` that override generic DevFlow agents with project-specific stack knowledge, architecture patterns, and conventions. Resolution order: specific agent (`js-developer.md`) → generic (`developer.md`) → DevFlow fallback.
+- **Agent templates** (`.claude/agents/templates/`): extracted universal rules (test quality, security, architecture compliance, autonomous mode) into reusable templates for developer, reviewer, tester, and architecture guardian agents.
+- **`resolve-agent.sh`** script: resolves the correct agent file for a given role and project path. Used by `/develop` phases 3, 4, 7 to load project agents before spawning.
+- **Captivia project agent** (`captivia/.claude/agents/developer.md`): first project-specific agent — covers Symfony DDD, CQRS with 4 message buses, API Platform state pattern, EventBus rules, testing conventions.
+
+### Changed
+- `/develop` Phase 3 (implement), Phase 4 (validate), Phase 7 (review) now load project-specific agents and prepend them to task prompts with `## Project-Specific Instructions (PRIORITY)` header.
+- `read-project-config.sh` now detects `has_project_agents` in project config output.
+- **Serena memories migrated**: captivia and rs project memories moved from DevFlow's Serena to their own project Serena directories. DevFlow Serena now contains only devflow-related memories.
+
 ## [0.5.0] - 2026-03-05
 
 ### Added
@@ -60,7 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/antk25/devflow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/antk25/devflow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/antk25/devflow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/antk25/devflow/compare/v0.2.0...v0.3.0
