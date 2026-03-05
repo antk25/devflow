@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-05
+
 ### Added
 - **`/project agents`** command — analyzes the active project's codebase (stack, architecture, patterns, tests) and generates customized agents in `<project>/.claude/agents/`. Determines which agents are needed (developer, tester, guardian, reviewer) based on project complexity.
 
@@ -76,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/antk25/devflow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/antk25/devflow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/antk25/devflow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/antk25/devflow/compare/v0.3.0...v0.4.0
