@@ -49,6 +49,7 @@ if not project:
 agent_config_defaults = {
     'recursive_agents': False,
     'max_depth': 3,
+    'review_debate': True,
 }
 agent_config = {**agent_config_defaults, **project.get('agent_config', {})}
 

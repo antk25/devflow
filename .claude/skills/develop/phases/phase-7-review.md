@@ -175,20 +175,169 @@ mcp__chatgpt-review__gpt_code_review(
 
 **If Qwen or ChatGPT MCP tool is unavailable** (server not running, tool not found), log a warning and continue with available reviewers. Do not fail the pipeline.
 
-## Step 3: Merge Review Findings
+## Step 3: Merge Review Findings (Preliminary)
 
-Merge all reviews (Claude, Qwen, ChatGPT) into a unified report:
+Collect all reviews into a preliminary findings list:
 
 1. **Deduplicate:** If multiple reviewers flag the same issue (same file + same problem), keep the most detailed description and tag with all sources (e.g., `[Claude + Qwen + ChatGPT]`, `[Claude + ChatGPT]`, `[Qwen + ChatGPT]`)
 2. **Unique findings:** Issues found by only one reviewer are tagged `[Claude]`, `[Qwen]`, or `[ChatGPT]`
 3. **Severity:** If reviewers disagree on severity, use the highest severity
-4. **Confidence scoring:**
-   - 3 reviewers agree → highest confidence, fix first
-   - 2 reviewers agree → high confidence
-   - 1 reviewer only → normal confidence
+
+This preliminary list is the input for the Debate Protocol (if enabled) or the final output (if `--no-debate`).
+
+## Step 4: Debate Protocol (default ON, skip with `--no-debate`)
+
+If `agent_config.review_debate` is false OR `--no-debate` flag is passed, skip to Step 7 (Final Verdict) and use the preliminary merged findings as-is with standard confidence scoring.
+
+### Step 4a: Challenge Round
+
+Each reviewer receives ALL findings from the other two reviewers and must respond to each:
+
+**Claude Reviewer challenge:**
+```
+Task(
+  description: "Challenge: review debate",
+  prompt: "You are participating in a review debate. You already reviewed this code.
+
+## Your Original Findings
+<Claude's findings from Step 2a>
+
+## Other Reviewers' Findings (respond to EACH)
+<Qwen + ChatGPT findings, tagged by source>
+
+For EACH finding from other reviewers, respond with exactly one of:
+
+- **AGREE** — You confirm this is a real issue. Optionally add supporting evidence.
+- **CHALLENGE** — You disagree. Explain WHY this is not a real issue (e.g., it follows project patterns, the code is actually correct, the context was misread).
+- **ESCALATE** — The issue is MORE serious than described. Explain why.
+
+Format your response as:
+
+### Finding: [file:line] [original title]
+**Verdict:** AGREE | CHALLENGE | ESCALATE
+**Reasoning:** [1-2 sentences]
+
+Do NOT re-state your original findings. Only respond to others' findings.",
+  subagent_type: "Code Reviewer"
+)
+```
+
+**Qwen challenge** (in parallel with Claude):
+```
+mcp__qwen-review__qwen_code_review(
+  diff: "<original diff>",
+  context: "DEBATE MODE: You already reviewed this code. Now respond to other reviewers' findings.
+
+## Your Original Findings
+<Qwen's findings from Step 2b>
+
+## Other Reviewers' Findings (respond to EACH)
+<Claude + ChatGPT findings, tagged by source>
+
+For EACH finding, respond: AGREE (confirm), CHALLENGE (disagree + why), or ESCALATE (more serious + why).
+Format: ### Finding: [file:line] [title] → Verdict: AGREE|CHALLENGE|ESCALATE → Reasoning: [1-2 sentences]"
+)
+```
+
+**ChatGPT challenge** (in parallel):
+```
+mcp__chatgpt-review__gpt_code_review(
+  diff: "<original diff>",
+  context: "DEBATE MODE: You already reviewed this code. Now respond to other reviewers' findings.
+
+## Your Original Findings
+<ChatGPT's findings from Step 2c>
+
+## Other Reviewers' Findings (respond to EACH)
+<Claude + Qwen findings, tagged by source>
+
+For EACH finding, respond: AGREE (confirm), CHALLENGE (disagree + why), or ESCALATE (more serious + why).
+Format: ### Finding: [file:line] [title] → Verdict: AGREE|CHALLENGE|ESCALATE → Reasoning: [1-2 sentences]"
+)
+```
+
+**Launch all three challenge calls in the SAME message** (parallel).
+
+### Step 5: Defense Round
+
+For each finding that received at least one CHALLENGE, the original reviewer gets a chance to defend or withdraw.
+
+**Claude defense** (for Claude's findings that were challenged):
+```
+Task(
+  description: "Defend: review debate",
+  prompt: "Your review findings were challenged by other reviewers. For each challenged finding, respond:
+
+## Challenged Findings
+
+<For each of Claude's findings that received CHALLENGE from Qwen or ChatGPT:>
+
+### [file:line] [title]
+**Your original finding:** <summary>
+**Challenge from [Qwen/ChatGPT]:** <their reasoning>
+
+**Your response** — choose one:
+- **DEFEND** — Your finding IS valid. Provide additional evidence (specific code references, documentation, security standards).
+- **WITHDRAW** — You accept the challenge. The finding is not a real issue.
+
+Do NOT defend findings that were not challenged.",
+  subagent_type: "Code Reviewer"
+)
+```
+
+**Qwen defense** (for Qwen's challenged findings):
+```
+mcp__qwen-review__qwen_code_review(
+  diff: "<original diff>",
+  context: "DEFENSE ROUND: Your findings were challenged. For each challenge, respond with DEFEND (provide evidence) or WITHDRAW (accept the challenge).
+
+<list of Qwen's challenged findings with challenger's reasoning>"
+)
+```
+
+**ChatGPT defense** (for ChatGPT's challenged findings):
+```
+mcp__chatgpt-review__gpt_code_review(
+  diff: "<original diff>",
+  context: "DEFENSE ROUND: Your findings were challenged. For each challenge, respond with DEFEND (provide evidence) or WITHDRAW (accept the challenge).
+
+<list of ChatGPT's challenged findings with challenger's reasoning>"
+)
+```
+
+**Launch all three defense calls in the SAME message** (parallel).
+
+**Optimization:** If no findings were challenged (all AGREE/ESCALATE), skip Step 5 entirely.
+
+### Step 6: Parse Debate Results
+
+For each finding, determine final status:
+
+| Scenario | Result |
+|----------|--------|
+| All AGREE (or AGREE + ESCALATE) | Keep finding, highest confidence |
+| CHALLENGE + DEFEND with evidence | Keep finding, note the debate |
+| CHALLENGE + WITHDRAW | **Remove finding** from final report |
+| CHALLENGE + DEFEND without new evidence | Keep but lower confidence |
+| ESCALATE by any reviewer | Increase severity one level |
+
+## Step 7: Final Verdict
+
+Compile the final review report:
+
+1. **Surviving findings** — findings that passed the debate (not withdrawn)
+2. **Confidence scoring** (updated from debate):
+   - Unanimous AGREE → highest confidence
+   - AGREE + DEFEND (won challenge) → high confidence
+   - Disputed (CHALLENGE + weak DEFEND) → medium confidence, flag for human review
+3. **Debate log** — for each finding, include a one-line debate summary:
+   - `[Claude + Qwen + ChatGPT: unanimous]`
+   - `[Claude: challenged by Qwen, defended with evidence]`
+   - `[Qwen: challenged by Claude, withdrawn]`
 
 **Route by severity:**
-- **Critical/High findings** → passed to Phase 8 (fix critical issues) as before
-- **Minor/Info findings** → parse `json:review_improvement_notes` blocks from all reviewers, merge, deduplicate, and append to `phase7_observations` list. These do NOT trigger Phase 8.
+- **Critical/High findings** → passed to Phase 8 (fix critical issues)
+- **Minor/Info findings** → parse `json:review_improvement_notes` blocks, merge, deduplicate, append to `phase7_observations`
+- **Withdrawn findings** → excluded entirely
 
-The Critical/High merged review is what gets passed to Phase 8 (fix critical issues)
+The final review report is what gets passed to Phase 8 (fix critical issues)

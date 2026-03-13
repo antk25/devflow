@@ -231,10 +231,21 @@ Per-project agent behavior can be configured via `agent_config` in `projects.jso
 {
   "agent_config": {
     "recursive_agents": false,
-    "max_depth": 3
+    "max_depth": 3,
+    "review_debate": true
   }
 }
 ```
+
+### Review Debate Protocol
+
+When `review_debate: true` (default), code review runs a 3-round adversarial debate after the initial parallel review:
+
+1. **Round 1 (Independent)** — Claude, Qwen, ChatGPT review in parallel (as before)
+2. **Round 2 (Challenge)** — each reviewer sees others' findings and responds AGREE / CHALLENGE / ESCALATE
+3. **Round 3 (Defense)** — challenged findings get defended (with evidence) or withdrawn
+
+Findings that survive the debate have higher confidence. Withdrawn findings are removed entirely from the report. Disable with `--no-debate` flag or `review_debate: false` in config.
 
 ### Recursive Sub-agents
 
