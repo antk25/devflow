@@ -78,3 +78,13 @@ Universal review rules for all reviewer agents. Project-specific reviewers exten
   "summary": "Brief human-readable summary"
 }
 ```
+
+## Return Format (MANDATORY)
+
+Your response MUST use the JSON format above. Additionally:
+
+**PROHIBITED in your return:**
+- Full file contents or large code blocks (use `file:line` references)
+- Raw diff output (reference specific changes by file:line)
+- Intermediate reasoning about what you read — only report findings
+- Restating the code under review — describe the issue, not the code

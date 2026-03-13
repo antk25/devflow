@@ -115,8 +115,23 @@ Task(
   - Keep descriptions concise (1-2 sentences)
   - Be specific about files and locations
 
+  <if agent_config.recursive_agents is true, append:>
+
+  ## Delegation (Recursive Sub-agents)
+  You may spawn sub-agents using the Task tool to delegate parts of your work.
+  Current depth: 1, max depth: <agent_config.max_depth>.
+  Only delegate when your task spans 3+ unrelated modules.
+  Sub-agents MUST follow the Return Format contract.
+
+  <endif>
+
   IMPORTANT: All file operations must use absolute paths starting with <repo_path>
-  IMPORTANT: All git commands must be run from <repo_path>",
+  IMPORTANT: All git commands must be run from <repo_path>
+
+  ## Return Format
+  Structure your response as: Answer (what was done), Key Files (path:line references),
+  Implementation Notes (non-obvious decisions), Improvement Observations (JSON block).
+  Do NOT include full file contents, raw grep output, or intermediate reasoning.",
   subagent_type: "<JS Developer|PHP Developer|Architect>"
 )
 ```

@@ -88,13 +88,20 @@ Use this to understand existing architecture and locate relevant code.
 5. Find integration points (APIs, events, queues, shared state)
 6. Note any constraints (database schema, external APIs, config)
 
+For complex cross-cutting analysis, consider writing and executing analysis scripts (Python/TS)
+instead of chaining grep calls — this keeps raw data out of context and produces structured results.
+
 Return:
 - List of relevant files with brief descriptions
 - Existing patterns found (with file:line references)
 - Domain model overview (entities and relationships involved)
 - Similar implementations found (if any)
 - Integration points and constraints
-- Any technical debt or limitations in related code",
+- Any technical debt or limitations in related code
+
+## Return Format
+Structure your response as: Answer, Key Files (path:line references), Code Snippets (only if essential).
+Do NOT include full file contents, raw grep output, or intermediate reasoning.",
   subagent_type: "Explore",
   model: "sonnet"
 )
@@ -137,7 +144,11 @@ Return:
 - Dependencies and coupling analysis
 - Feasibility assessment
 - Key risks and constraints
-- 2-3 distinct solution approaches with trade-offs",
+- 2-3 distinct solution approaches with trade-offs
+
+## Return Format
+Structure your response as: Answer, Key Files (path:line references), Approaches (structured).
+Do NOT include full file contents, raw grep output, or intermediate reasoning.",
   subagent_type: "Architect",
   model: "sonnet"
 )

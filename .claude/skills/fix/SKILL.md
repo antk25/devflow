@@ -114,10 +114,17 @@ Task(
 3. Analyze the root cause
 4. Propose a fix approach
 
+For complex cross-cutting analysis, consider writing and executing analysis scripts (Python/TS)
+instead of chaining grep calls.
+
 Return:
 - Affected files with line numbers
 - Root cause analysis
-- Proposed fix (brief)",
+- Proposed fix (brief)
+
+## Return Format
+Structure your response as: Answer, Key Files (path:line), Confidence (high/medium/low).
+Do NOT include full file contents or raw grep output.",
   subagent_type: "Explore",
   model: "sonnet"
 )
@@ -163,7 +170,20 @@ While fixing the bug, if you notice issues in surrounding code OUTSIDE the scope
 ```json:improvement_observations
 [{\"category\": \"tech_debt|potential_bug|performance|security|style\", \"title\": \"Brief description\", \"files\": [\"path/to/file.ext\"], \"description\": \"Details\", \"priority\": \"high|medium|low\", \"estimate\": \"30 min|1-2 hours|2-4 hours\"}]
 ```
-Only report genuinely notable issues. If nothing stands out, omit this block entirely.",
+Only report genuinely notable issues. If nothing stands out, omit this block entirely.
+
+  <if agent_config.recursive_agents is true, append:>
+
+  ## Delegation (Recursive Sub-agents)
+  You may spawn sub-agents using the Task tool if the fix spans 3+ unrelated modules.
+  Current depth: 1, max depth: <agent_config.max_depth>.
+
+  <endif>
+
+## Return Format
+Structure your response as: Answer (what was fixed), Key Files (path:line references),
+Implementation Notes (non-obvious decisions), Improvement Observations (JSON block if any).
+Do NOT include full file contents, raw grep output, or intermediate reasoning.",
   subagent_type: "<JS Developer|PHP Developer>"
 )
 ```

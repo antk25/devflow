@@ -147,6 +147,30 @@ composer show --tree | grep conflict
 grep -rn "functionName" src/ --include="*.ts"
 ```
 
+## Generative Analysis
+
+For complex diagnostic tasks, write and execute analysis scripts instead of chaining grep calls:
+
+```python
+# Example: find all exception handlers that silently swallow errors
+import ast, glob, json
+silent_catches = {}
+for f in glob.glob("src/**/*.py", recursive=True):
+    tree = ast.parse(open(f).read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            # Check if handler body is just 'pass' or empty
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
+                silent_catches.setdefault(f, []).append(node.lineno)
+print(json.dumps(silent_catches, indent=2))
+```
+
+**When to use scripts vs grep:**
+- Cross-referencing multiple conditions across files → Script
+- AST-level analysis (catch blocks, decorator checks) → Script
+- Computing metrics (cyclomatic complexity, dependency depth) → Script
+- Simple string/pattern search → Grep
+
 ## Behavioral Rules
 
 ### DO

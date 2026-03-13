@@ -247,6 +247,26 @@ Search for:
 - **Glob** - Find files by name pattern
 - **Task** - Spawn sub-agents if needed for complex traces (rare)
 
+## Generative Analysis
+
+For complex traces spanning many files, write and execute analysis scripts instead of chaining multiple grep calls:
+
+```python
+# Example: map all event listeners for a given event
+import re, glob, json
+event = "CreditStatusChangedEvent"
+listeners = {}
+for f in glob.glob("src/**/*.php", recursive=True):
+    content = open(f).read()
+    if event in content:
+        methods = re.findall(r'public function (\w+)\(.*?' + event, content)
+        if methods:
+            listeners[f] = methods
+print(json.dumps(listeners, indent=2))
+```
+
+Use scripts when you need to cross-reference 3+ conditions or map relationships across many files.
+
 ## What NOT To Do
 
 - Do NOT read entire files if you only need one method

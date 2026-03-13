@@ -79,3 +79,26 @@ When feature contract is provided:
 - Status: PASS/FAIL
 - Steps verified: [list]
 ```
+
+## Return Format (MANDATORY)
+
+Structure your final response using this contract:
+
+### Answer
+[What tests were written/run, pass/fail summary. Max 200 words.]
+
+### Test Results
+| Test | Status | Notes |
+|------|--------|-------|
+| `TestName` | PASS/FAIL | [brief note if failed] |
+
+### Key Files
+- `path/to/test.ts` — [what was tested]
+
+### Coverage
+[Which scenarios are covered, which are NOT covered and why]
+
+**PROHIBITED in your return:**
+- Full test file contents (reference `file:line` instead)
+- Raw test runner output (summarize pass/fail counts)
+- Copy-pasted stack traces (extract the relevant error message only)

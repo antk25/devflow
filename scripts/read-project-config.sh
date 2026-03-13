@@ -46,6 +46,12 @@ if not project:
     sys.exit(2)
 
 # Build output with all config an agent needs
+agent_config_defaults = {
+    'recursive_agents': False,
+    'max_depth': 3,
+}
+agent_config = {**agent_config_defaults, **project.get('agent_config', {})}
+
 output = {
     'name': project_name,
     'path': project.get('path', ''),
@@ -59,6 +65,7 @@ output = {
     'docker': project.get('docker', {}),
     'tags': project.get('tags', []),
     'obsidian_vault': data.get('obsidian_vault', ''),
+    'agent_config': agent_config,
 }
 
 # Check for project-level files that exist

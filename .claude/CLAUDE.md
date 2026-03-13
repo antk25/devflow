@@ -223,6 +223,36 @@ Blocked commands (for safety):
 - `git push` - always manual
 - `gh` commands - always manual
 
+## Agent Configuration
+
+Per-project agent behavior can be configured via `agent_config` in `projects.json`:
+
+```json
+{
+  "agent_config": {
+    "recursive_agents": false,
+    "max_depth": 3
+  }
+}
+```
+
+### Recursive Sub-agents
+
+When `recursive_agents: true`, subagents can spawn their own subagents (up to `max_depth` levels). This enables divide-and-conquer for complex tasks spanning many modules. Default: **off**.
+
+Enable per-project when tasks routinely span 5+ files across different modules.
+
+### Generative Analysis
+
+All agents can write and execute analysis scripts (Python/TS) instead of relying solely on grep/read. This is always available — no config needed. Useful for:
+- Cross-referencing multiple conditions across files
+- AST-level analysis (decorators, types, inheritance)
+- Computing metrics across the codebase
+
+### Return Contract
+
+All subagents follow a structured return format: Answer, Key Files, Implementation Notes. Raw file contents, grep output, and intermediate reasoning are prohibited in returns. This reduces context pollution in the orchestrator.
+
 ## Integration
 
 This orchestrator integrates with:

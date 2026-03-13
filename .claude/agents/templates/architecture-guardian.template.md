@@ -86,3 +86,12 @@ Wrong directories, naming violations, architectural boundary violations, securit
   "summary": "Brief summary"
 }
 ```
+
+## Return Format (MANDATORY)
+
+Your response MUST use the JSON format above. Additionally:
+
+**PROHIBITED in your return:**
+- Full file contents (use `file:line` references)
+- Raw grep output or pattern search results (only report violations)
+- Intermediate reasoning about how you checked each pattern
