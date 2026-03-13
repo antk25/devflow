@@ -112,7 +112,7 @@ The `settings.json` pre-approves common development commands:
 - Test runners (phpunit, jest, vitest, playwright)
 - Build tools (make, docker)
 - **curl** (for API testing)
-- All MCP tools (serena, playwright, etc.)
+- All MCP tools (playwright, local-rag, etc.)
 
 **Blocked (always requires manual):**
 - `git push` - you control when to push

@@ -1,7 +1,6 @@
 #!/bin/bash
 # Project Context Auto-Restore
 # Runs at SessionStart to output active project info for Claude to restore context.
-# Claude reads this output and activates Serena, loads memories, etc.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVFLOW_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
@@ -32,8 +31,6 @@ p = data['projects'].get('$active', {})
 print(f\"PROJECT_RESTORE\")
 print(f\"name=$active\")
 print(f\"type={p.get('type','')}\")
-serena = p.get('serena_project') or ''
-print(f\"serena={serena}\")
 print(f\"path={p.get('path','')}\")
 docker_start = (p.get('docker') or {}).get('start', '')
 print(f\"docker_start={docker_start}\")

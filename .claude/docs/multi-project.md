@@ -1,6 +1,6 @@
 # Multi-Project & Queue Reference
 
-Details on multi-project management, Serena integration, and batch task queue.
+Details on multi-project management and batch task queue.
 
 ## Multi-Project Support
 
@@ -23,7 +23,7 @@ The launcher:
 ### Why no in-session switching?
 
 Switching projects inside Claude Code is impractical because:
-- The old project's CLAUDE.md, Serena memories, and patterns pollute the context
+- The old project's CLAUDE.md, memories, and patterns pollute the context
 - A `/clear` is always needed after switching, which defeats the purpose
 - Interactive terminal tools (`gum`) don't work in Claude Code hooks (no TTY)
 
@@ -42,9 +42,7 @@ Inside Claude Code, `/project` manages the registry (without switching):
 
 ### Context Restoration
 
-On session start (including after `/clear`), the `SessionStart` hook reads `projects.json` and outputs `PROJECT_RESTORE` with the active project's metadata. Claude then:
-1. Activates the Serena project (if registered)
-2. Includes the project name in the startup greeting
+On session start (including after `/clear`), the `SessionStart` hook reads `projects.json` and outputs `PROJECT_RESTORE` with the active project's metadata. Claude then includes the project name in the startup greeting.
 
 ### Setting Up Projects
 
@@ -54,15 +52,6 @@ Register your projects with the orchestrator:
 /project add /home/user/projects/my-frontend
 /project add /home/user/projects/acme
 ```
-
-### Serena Integration
-
-Projects registered in Serena (via `.serena/config.yaml`) get additional benefits:
-- **Symbolic navigation** - find symbols, references, and definitions
-- **Persistent memories** - context survives across sessions
-- **Smart code search** - language-aware pattern matching
-
-The `SessionStart` hook automatically activates the corresponding Serena project when available.
 
 ---
 

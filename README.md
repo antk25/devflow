@@ -32,7 +32,6 @@
 | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) | 2.0+ | Основная платформа |
 | [Node.js](https://nodejs.org/) | 20+ | MCP серверы, npm-скрипты |
 | [Python](https://www.python.org/) | 3.10+ | Скрипты сессий и конфигурации |
-| [uv](https://docs.astral.sh/uv/getting-started/installation/) | 0.4+ | Установка Serena через `uvx` |
 | Git | 2.30+ | Управление версиями |
 | [gum](https://github.com/charmbracelet/gum) | — | Интерактивное меню `start.sh` (не нужен при вызове `./start.sh <project>`) |
 
@@ -42,7 +41,6 @@
 
 | Сервер | Назначение | Метод установки |
 |--------|------------|-----------------|
-| [Serena](https://github.com/oraios/serena) | Символьная навигация, персистентная память | `uvx` (автоматически) |
 | qwen-review | Тройное ревью (Qwen) | Встроен, `npm install` |
 | chatgpt-review | Тройное ревью (ChatGPT) | Встроен, `npm install` |
 
@@ -429,7 +427,6 @@ sources: [claude, qwen]
   "my-app": {
     "path": "/home/user/projects/my-app",
     "type": "fullstack",
-    "serena_project": "my-app",
     "branch_prefix": "JIRA-",
     "repositories": {
       "backend": "/home/user/projects/my-app/backend",

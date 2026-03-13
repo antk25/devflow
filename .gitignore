@@ -15,9 +15,6 @@
 # Git worktrees created by /develop
 .claude/worktrees/
 
-# Serena MCP cache
-.serena/
-
 # LanceDB (local RAG database)
 lancedb/
 

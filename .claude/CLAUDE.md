@@ -23,9 +23,8 @@ Ready to build!
 
 A `SessionStart` hook runs `project-restore.sh` which outputs the active project info. When you see `PROJECT_RESTORE` in hook output:
 
-1. Read the output fields: `name`, `type`, `serena`, `path`
-2. If `serena` is not empty, call `mcp__serena__activate_project(project=<serena>)`
-3. Include the active project name in your startup greeting: `**Active project:** <name>`
+1. Read the output fields: `name`, `type`, `path`
+2. Include the active project name in your startup greeting: `**Active project:** <name>`
 4. If `INTERRUPTED_SESSION` is present in the output, show in greeting:
    ```
    ⚠️ Interrupted session: <branch> (<phase>)
@@ -271,7 +270,6 @@ This orchestrator integrates with:
 - npm/composer for dependencies
 - Jest/PHPUnit for testing
 - ESLint/PHPStan for static analysis
-- Serena MCP for symbolic code navigation and memories
 - Local RAG (mcp-local-rag) for documentation and pattern retrieval
 
 ## Extended Documentation

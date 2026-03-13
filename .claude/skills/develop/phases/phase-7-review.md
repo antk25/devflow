@@ -13,7 +13,7 @@ After all tasks complete, gather project pattern context and spawn Reviewer.
 
 Same approach as `/review` Step 3b:
 
-1. Read Serena memories about conventions/patterns (if Serena project is active)
+1. Read project memories about conventions/patterns (from Claude Code auto-memory)
 2. Spawn Explore agent to find analogous code for changed file types
 3. Compile into `pattern_context` block
 

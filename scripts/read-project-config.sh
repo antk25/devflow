@@ -58,7 +58,6 @@ output = {
     'path': project.get('path', ''),
     'type': project.get('type', 'single'),
     'description': project.get('description', ''),
-    'serena_project': project.get('serena_project'),
     'branch_prefix': project.get('branch_prefix', ''),
     'commit_style': project.get('commit_style', {}),
     'repositories': project.get('repositories', {}),

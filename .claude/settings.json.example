@@ -39,7 +39,6 @@
       "Grep(*)",
       "Task(*)",
       "Bash(*)",
-      "mcp__serena__*",
       "mcp__playwright__*",
       "mcp__context7__*",
       "mcp__chrome-devtools__*",

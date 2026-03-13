@@ -128,6 +128,43 @@ The **merged contract** uses Claude as the base, enriched with Qwen's and ChatGP
 
 Store merged result as `feature_contract`.
 
+## Step 1d: Generate Acceptance Scenarios
+
+**ALWAYS runs** after contract merge (Step 1c). Acceptance scenarios define the expected behavior from the user's perspective using Given/When/Then format.
+
+Analyze the merged contract and the feature description to generate scenarios:
+
+1. **Determine scenario types based on feature scope:**
+   - Backend-only (API endpoints, exports, calculations) → **API scenarios** (HTTP request → expected response)
+   - Full-stack (UI + API) → **API scenarios** + **UI scenarios** (user actions → visible result)
+
+2. **Generate scenarios covering:**
+   - Happy path for each key behavior
+   - Permission/access control (who can and who cannot)
+   - Edge cases (empty data, missing relations, boundary values)
+   - For exports: file format, content structure, calculated values
+
+3. **Append to `feature_contract`** as a new section:
+
+```markdown
+---
+
+## Acceptance Scenarios
+
+### Scenario: <short descriptive name>
+**Type:** API / UI / API+UI
+**Given:** <preconditions — fixtures, DB state, user role>
+**When:** <action — HTTP request / UI interaction>
+**Then:** <expected result — status, data, file, UI element>
+```
+
+**Rules:**
+- Write scenarios in Russian (descriptions) with English for technical details (endpoints, field names)
+- Each scenario must be independently verifiable — no implicit dependencies between scenarios
+- For UI scenarios: describe what the user sees/clicks, not implementation details
+- For API scenarios: include specific HTTP method, path, request body, and expected response structure
+- Keep scenarios focused: one assertion per scenario (split complex flows into multiple scenarios)
+
 ## Step 2: Save Contract to Obsidian
 
 1. Read `obsidian_vault` from `.claude/data/projects.json`

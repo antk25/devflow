@@ -59,11 +59,11 @@ To switch projects, exit and run `./start.sh`
 ```markdown
 ## Registered Projects
 
-| Name | Type | Path | Serena | Docker |
-|------|------|------|--------|--------|
-| my-app | fullstack | /home/user/projects/acme/my-app | my-app | start/stop |
-| my-api | fullstack | /home/user/projects/acme/my-api | my-api | start/stop |
-| my-frontend | fullstack | /home/user/projects/my-frontend | my-frontend | - |
+| Name | Type | Path | Docker |
+|------|------|------|--------|
+| my-app | fullstack | /home/user/projects/acme/my-app | start/stop |
+| my-api | fullstack | /home/user/projects/acme/my-api | start/stop |
+| my-frontend | fullstack | /home/user/projects/my-frontend | - |
 
 **Active:** my-app
 ```
@@ -86,9 +86,8 @@ To switch projects, exit and run `./start.sh`
    - If fullstack: Look for git repos in backend/ and frontend/
    - If single: Use the main path
    - Store in `repositories` field
-5. Check if project is registered in Serena (use `mcp__serena__get_current_config`)
-6. Ask user for E2E testing configuration (optional)
-7. Add to projects.json (v2.0 format):
+5. Ask user for E2E testing configuration (optional)
+6. Add to projects.json (v2.0 format):
 
 ```json
 {
@@ -96,7 +95,6 @@ To switch projects, exit and run `./start.sh`
     "path": "/full/path",
     "type": "fullstack|single",
     "description": "Auto-detected or user-provided",
-    "serena_project": "name-if-in-serena or null",
     "created": "YYYY-MM-DD",
     "tags": [],
     "repositories": {
@@ -141,8 +139,6 @@ To switch projects, exit and run `./start.sh`
 - Backend API: curl at http://localhost:8000
 - Frontend UI: Playwright at http://localhost:3000
 
-**Serena:** registered as 'my-app'
-
 To switch to it, exit and run: `./start.sh my-app`
 ```
 
@@ -153,15 +149,13 @@ To switch to it, exit and run: `./start.sh my-app`
 1. If name not provided, use active project
 2. Read projects.json to get project metadata
 3. Read project's `.claude/CLAUDE.md` if exists
-4. If Serena project, list available memories
-5. Display comprehensive info:
+4. Display comprehensive info:
 
 ```markdown
 ## Project: my-frontend
 
 **Path:** /home/user/projects/my-frontend
 **Type:** typescript
-**Serena Project:** my-frontend
 **Created:** 2025-01-20
 **Tags:** electron, desktop
 
@@ -171,10 +165,6 @@ Electron-based desktop application...
 ### Docker
 - Start: `make dc.up-d`
 - Stop: `make dc.down`
-
-### Serena Memories
-- architecture.md
-- conventions.md
 
 ### Recent Activity
 [If tasks.json exists in project]
@@ -231,7 +221,7 @@ Gather information from these sources (read only what exists):
 1. **Project config** — `<project_path>/.claude/CLAUDE.md`, `<project_path>/.claude/patterns.md`
 2. **Dependencies** — `package.json`, `composer.json`, `Cargo.toml`, `go.mod`, `requirements.txt`
 3. **Directory structure** — `ls` of project root and key directories (`src/`, `app/`, `lib/`, `tests/`, `test/`)
-4. **Serena memories** — if Serena project is active, read all available memories (overview, conventions, decisions)
+4. **Claude Code memories** — read `~/.claude/projects/.../memory/MEMORY.md` for existing project memories (overview, conventions, decisions)
 5. **Sample code** — read 2-3 representative files of each type found in the project:
    - Entry points (controllers, providers, processors, route handlers, API endpoints)
    - Business logic (services, handlers, use cases, commands, queries)
@@ -380,7 +370,6 @@ Structure (v2.0):
       "path": "/absolute/path",
       "type": "fullstack|single",
       "description": "Project description",
-      "serena_project": "serena-name or null",
       "created": "YYYY-MM-DD",
       "tags": ["tag1", "tag2"],
       "docker": {

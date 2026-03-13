@@ -6,17 +6,21 @@
 
 Read sessions.json, set session `status: "review"`, `updated_at` to now, write back.
 
-## Step 2: Update Serena Memories (if Serena project is active)
+## Step 2: Update Claude Code Memories
 
-Capture knowledge gained during this development session:
+Capture knowledge gained during this development session using the auto-memory system (`~/.claude/projects/.../memory/`):
 
-1. Check `mcp__serena__list_memories()` for existing memories to update (avoid duplicates)
-2. **Patterns:** If architecture validation or review revealed project patterns, write/update:
-   - `mcp__serena__write_memory(memory_name: "patterns/<category>", content: "<pattern description with file references>")`
-   - Categories: `architecture`, `testing`, `api`, `events`, `database`
-3. **Gotchas:** If there were architecture violations, test failures, or review issues that required fixes, write:
-   - `mcp__serena__write_memory(memory_name: "gotchas/<topic>", content: "<what went wrong, why, and how it was fixed>")`
+1. Read `MEMORY.md` in the project memory directory to check for existing memories (avoid duplicates)
+2. **Patterns:** If architecture validation or review revealed project patterns, write/update memory files:
+   - File: `patterns_<category>.md` (categories: `architecture`, `testing`, `api`, `events`, `database`)
+   - Use frontmatter: `type: project`, `name: patterns/<category>`
+   - Content: pattern description with file references
+3. **Gotchas:** If there were architecture violations, test failures, or review issues that required fixes:
+   - File: `gotchas_<topic>.md`
+   - Use frontmatter: `type: feedback`, `name: gotchas/<topic>`
+   - Content: what went wrong, why, and how it was fixed
 4. Each memory should be < 500 characters, with references to specific files
+5. Update `MEMORY.md` index with pointers to new/updated memory files
 
 Store the list of updated memories as `updated_memories` for the summary.
 
@@ -203,7 +207,7 @@ Present results to user:
 
 ### Knowledge Captured
 <if updated_memories is not empty>
-**Serena memories updated:**
+**Memories updated:**
 - `patterns/<category>` — <brief description>
 - `gotchas/<topic>` — <brief description>
 <else>

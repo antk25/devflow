@@ -135,15 +135,12 @@ mcp__local-rag__query_documents(query: "<project_name> code style conventions pa
 - Format as `rag_context` (max ~2000 chars)
 - If no relevant results or RAG unavailable, skip silently
 
-#### Step 3b: Project Pattern Context (Serena + Analogous Code)
+#### Step 3b: Project Pattern Context (Memories + Analogous Code)
 
 **IMPORTANT:** This step prevents false-positive review findings by grounding reviewers in the project's actual conventions. Run this IN PARALLEL with Step 3a.
 
-**1. Read Serena memories** (if the active project has a Serena project):
-```
-mcp__serena__list_memories()
-```
-Read memories whose names suggest conventions/patterns (e.g., `code_style_and_conventions`, `architecture_patterns`, `gotchas`, `testing_guidelines`). Collect as `serena_patterns` (max ~2000 chars).
+**1. Read project memories** from Claude Code auto-memory (`~/.claude/projects/.../memory/`):
+Read `MEMORY.md` index and any memory files whose names suggest conventions/patterns (e.g., `patterns_*`, `gotchas_*`, `feedback_*`, `conventions_*`). Collect as `memory_patterns` (max ~2000 chars).
 
 **2. Find analogous code** in the codebase using an Explore agent:
 
@@ -181,7 +178,7 @@ Return a structured list of patterns, grouped by file type.",
 )
 ```
 
-**3. Compile pattern context** — merge RAG, Serena memories, and analogous code findings into a single `pattern_context` block. This will be passed to both reviewers.
+**3. Compile pattern context** — merge RAG, project memories, and analogous code findings into a single `pattern_context` block. This will be passed to both reviewers.
 
 Format:
 ```markdown
@@ -197,7 +194,7 @@ Format:
 <e.g., "XLSX export column enums are placed in Domain/*/Entities/ValueObject(s)/, not in Application layer. See CreditXLSXExportColumns, CreditSettlementXLSXExportColumns.">
 
 ### Other Patterns
-<any additional patterns from Serena memories or RAG>
+<any additional patterns from project memories or RAG>
 ```
 
 **CRITICAL INSTRUCTION FOR REVIEWERS:** Include this preamble in the pattern_context passed to reviewers:

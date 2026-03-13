@@ -95,7 +95,7 @@ Project context will be restored automatically.
 
 Tell the user to run `/clear`. After `/clear`:
 - CLAUDE.md reloads automatically (startup greeting)
-- SessionStart hook restores active project (Serena activation, memories)
+- SessionStart hook restores active project context
 - User can immediately start the next task
 
 ---

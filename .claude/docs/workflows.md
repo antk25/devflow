@@ -63,7 +63,7 @@ When the plan involves 2+ layers (API + DB, Handler + Event, etc.) or is a multi
 
 **Triple review with debate (Phase 7):** Code review runs Claude Code Reviewer, Qwen Code Review, and ChatGPT Code Review in parallel (Round 1). Then, if `review_debate` is enabled (default), a 3-round adversarial debate follows: Round 2 (Challenge) — each reviewer responds AGREE/CHALLENGE/ESCALATE to others' findings; Round 3 (Defense) — challenged findings get defended with evidence or withdrawn. Withdrawn findings are removed from the final report. Surviving findings are tagged by source and scored by debate outcome. Disable with `--no-debate`.
 
-**Knowledge capture (Phase 9):** After review, the pipeline automatically saves discovered patterns and gotchas to Serena memories, and generates Architecture Decision Records (ADRs) when new patterns or technology choices are detected.
+**Knowledge capture (Phase 9):** After review, the pipeline automatically saves discovered patterns and gotchas to Claude Code auto-memory, and generates Architecture Decision Records (ADRs) when new patterns or technology choices are detected.
 
 Use `/note contract <branch>` to read a contract later.
 
@@ -187,7 +187,7 @@ gather code → gather project patterns → triple review (Claude + Qwen + ChatG
 
 **Adversarial debate protocol** (default ON) — after initial review, reviewers challenge each other's findings (AGREE/CHALLENGE/ESCALATE), then defend or withdraw challenged findings. Eliminates false positives by requiring evidence-based consensus.
 
-**Project pattern awareness** — before spawning reviewers, gathers analogous code patterns from the codebase (via Serena memories + Explore agent). Reviewers are instructed not to flag code that follows established project conventions, preventing false positives.
+**Project pattern awareness** — before spawning reviewers, gathers analogous code patterns from the codebase (via project memories + Explore agent). Reviewers are instructed not to flag code that follows established project conventions, preventing false positives.
 
 **Supports external developer review** - PRs from teammates or open source.
 

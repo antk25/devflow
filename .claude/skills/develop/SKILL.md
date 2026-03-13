@@ -89,7 +89,7 @@ BUSINESS_LOGIC_KEYWORDS = [
 
 ## What It Does
 
-Config → Work Branch → (Trace) → Plan → Contract → (Tests) → Implement → Validate → E2E → Commit → Review → (Fix) → Summary
+Config → Work Branch → (Trace) → Plan → Contract + Acceptance Scenarios → (Acceptance Tests) → Implement → Validate → E2E → Commit → Review → (Fix) → Summary
 
 Key agents: PM, Tracer, Architect, JS/PHP Developer, Architecture Guardian, Tester, Code Reviewer.
 You control only the final `git push`.
@@ -143,7 +143,7 @@ Read file: .claude/skills/develop/phases/phase-N-name.md
 | 1.5 | `phases/phase-1.5-trace.md` | Business logic tasks |
 | 2 | `phases/phase-2-plan.md` | Always |
 | 2.5 | `phases/phase-2.5-contract.md` | Multi-layer features |
-| 2.7 | `phases/phase-2.7-test-first.md` | If contract generated |
+| 2.7 | `phases/phase-2.7-test-first.md` | If contract generated (acceptance + unit tests) |
 | 3 | `phases/phase-3-implement.md` | Always |
 | 3.5 | `phases/phase-3.5-test-isolation.md` | Always |
 | 4 | `phases/phase-4-validate.md` | Always |

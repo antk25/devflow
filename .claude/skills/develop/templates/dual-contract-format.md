@@ -62,6 +62,32 @@ dtos:
 ```
 ```
 
+**Acceptance Scenarios section (always present, after all technical sections):**
+
+```markdown
+---
+
+## Acceptance Scenarios
+
+### Scenario: <краткое название>
+**Type:** API / UI / API+UI
+**Given:** <предусловия — фикстуры, состояние БД, роль пользователя>
+**When:** <действие — HTTP-запрос / UI-взаимодействие>
+**Then:** <ожидаемый результат — статус, данные, файл, элемент на экране>
+
+### Scenario: <next scenario>
+...
+```
+
+**Rules for scenarios:**
+- Each scenario = one verifiable behavior (split complex flows)
+- API: include HTTP method, path, body, expected status + response structure
+- UI: describe user actions and visible results, not implementation
+- Cover: happy path, permissions (who can/cannot), edge cases
+- Write descriptions in Russian, technical details (endpoints, fields) in English
+
+---
+
 **Contract comparison footer (after all sections):**
 
 ```markdown
@@ -75,5 +101,6 @@ dtos:
 | DTOs | 3 | 2 | 2 |
 | Events | 1 | 1 | 1 |
 | DB tables | 1 | 1 | 0 |
+| Acceptance scenarios | 5 | — | — |
 | Conflicts to resolve | — | — | 2 |
 ```
