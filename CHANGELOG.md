@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Adversarial debate protocol** for code review — 3-round debate (Independent → Challenge → Defense) between Claude, Qwen, and ChatGPT reviewers. Challenged findings get defended with evidence or withdrawn, eliminating false positives. Enabled by default, disable with `--no-debate` or `review_debate: false` in `agent_config`.
+- **Recursive sub-agents** (toggleable) — subagents can spawn sub-subagents up to configurable `max_depth`. Enables divide-and-conquer for complex tasks. Disabled by default, enable per-project with `agent_config.recursive_agents: true`.
+- **Generative analysis** — agents can write and execute analysis scripts (Python/TS) instead of chaining grep calls. Added to developer, debugger, and tracer agent templates. Always available, no config needed.
+- **Structured return contract** — all subagents follow a mandatory return format (Answer, Key Files, Implementation Notes). Raw file contents, grep output, and intermediate reasoning prohibited in returns. Reduces context pollution in orchestrator.
+- **`agent_config`** in `projects.json` — per-project agent behavior configuration (`recursive_agents`, `max_depth`, `review_debate`). Defaults applied via `read-project-config.sh`.
+
+### Changed
+- `/develop` Phase 7 review now includes debate rounds (Steps 4-7) when `review_debate` is enabled.
+- `/review` skill now includes debate protocol (Step 5) with Challenge and Defense rounds.
+- All agent templates updated with Return Format section.
+- Developer template updated with Generative Analysis and Delegation sections.
+- Debugger and Tracer agents updated with Generative Analysis examples.
+
 ## [0.7.0] - 2026-03-05
 
 ### Added

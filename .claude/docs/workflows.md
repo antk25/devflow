@@ -10,7 +10,7 @@ Detailed documentation for all orchestrator workflows. Skills read this file whe
 
 Autonomous implementation pipeline (stops on work branch for user review):
 ```
-create work branch → [deep trace] → plan → [contract → user review] → [test-first] → implement (atomic commits) → validate → fix → E2E test → triple review (Claude + Qwen + ChatGPT) → knowledge capture → STOP
+create work branch → [deep trace] → plan → [contract → user review] → [test-first] → implement (atomic commits) → validate → fix → E2E test → triple review → [debate] → knowledge capture → STOP
                           ↑                                                                                                                ↓
                  (for business logic)                                                                                       user reviews result
                                                                                                                                            ↓
@@ -61,7 +61,7 @@ When the plan involves 2+ layers (API + DB, Handler + Event, etc.) or is a multi
 
 **Test-first from contract (Phase 2.7):** When a contract exists, the Tester agent generates tests from the contract BEFORE implementation (red-green-refactor). Developer agents receive only pass/fail results — they never see test source code (test isolation policy).
 
-**Triple review (Phase 7):** Code review runs Claude Code Reviewer, Qwen Code Review, and ChatGPT Code Review in parallel. Findings are merged with deduplication, tagged by source (`[Claude]`, `[Qwen]`, `[ChatGPT]`, `[Claude + Qwen + ChatGPT]`), and scored by confidence (3 agree → highest, 2 agree → high, 1 only → normal).
+**Triple review with debate (Phase 7):** Code review runs Claude Code Reviewer, Qwen Code Review, and ChatGPT Code Review in parallel (Round 1). Then, if `review_debate` is enabled (default), a 3-round adversarial debate follows: Round 2 (Challenge) — each reviewer responds AGREE/CHALLENGE/ESCALATE to others' findings; Round 3 (Defense) — challenged findings get defended with evidence or withdrawn. Withdrawn findings are removed from the final report. Surviving findings are tagged by source and scored by debate outcome. Disable with `--no-debate`.
 
 **Knowledge capture (Phase 9):** After review, the pipeline automatically saves discovered patterns and gotchas to Serena memories, and generates Architecture Decision Records (ADRs) when new patterns or technology choices are detected.
 
@@ -180,10 +180,12 @@ Best for:
 
 Comprehensive code review with support for external PRs/MRs:
 ```
-gather code → gather project patterns → triple review (Claude + Qwen + ChatGPT) → merged report
+gather code → gather project patterns → triple review (Claude + Qwen + ChatGPT) → [debate protocol] → final report
 ```
 
 **Triple review is always on** — Claude Code Reviewer, Qwen, and ChatGPT run in parallel on every review. Use `--no-qwen` and/or `--no-chatgpt` to skip individual reviewers.
+
+**Adversarial debate protocol** (default ON) — after initial review, reviewers challenge each other's findings (AGREE/CHALLENGE/ESCALATE), then defend or withdraw challenged findings. Eliminates false positives by requiring evidence-based consensus.
 
 **Project pattern awareness** — before spawning reviewers, gathers analogous code patterns from the codebase (via Serena memories + Explore agent). Reviewers are instructed not to flag code that follows established project conventions, preventing false positives.
 
@@ -195,6 +197,7 @@ gather code → gather project patterns → triple review (Claude + Qwen + ChatG
 - `--comment` - Post review comments to PR/MR
 - `--base develop` - Compare against non-main branch
 - `--no-qwen` - Skip Qwen, run Claude-only review
+- `--no-debate` - Skip debate protocol, use simple merge
 
 ---
 
@@ -448,3 +451,24 @@ Projects support multi-repository setups and E2E testing configuration:
 - `repositories` - paths to each git repository (required for multi-repo projects)
 - `testing` - E2E testing configuration per component
 - `branch_prefix` - prefix for feature branches (e.g., "DEV-")
+- `agent_config` - per-project agent behavior (see below)
+
+### Agent Configuration (`agent_config`)
+
+Optional per-project configuration for agent behavior. Defaults applied by `read-project-config.sh`:
+
+```json
+{
+  "agent_config": {
+    "recursive_agents": false,
+    "max_depth": 3,
+    "review_debate": true
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `recursive_agents` | `false` | Allow subagents to spawn sub-subagents |
+| `max_depth` | `3` | Maximum recursion depth for sub-agents |
+| `review_debate` | `true` | Enable adversarial debate in code review |

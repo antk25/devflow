@@ -130,7 +130,7 @@ Projects can define customized agents in `<project>/.claude/agents/`. These over
 2. `<project>/.claude/agents/developer.md` (generic developer)
 3. Falls back to DevFlow's generic agents (`.claude/agents/*.md`)
 
-**Agent templates** (`.claude/agents/templates/`) contain universal rules (test quality, security, architecture compliance) that apply to all projects. Project agents extend these with stack-specific knowledge.
+**Agent templates** (`.claude/agents/templates/`) contain universal rules (test quality, security, architecture compliance, return format contract, generative analysis, delegation) that apply to all projects. Project agents extend these with stack-specific knowledge.
 
 When spawning agents, skills check for project agents and prepend their content to the task prompt with `## Project-Specific Instructions (PRIORITY)` header.
 
