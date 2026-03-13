@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-13
+
 ### Added
 - **Adversarial debate protocol** for code review — 3-round debate (Independent → Challenge → Defense) between Claude, Qwen, and ChatGPT reviewers. Challenged findings get defended with evidence or withdrawn, eliminating false positives. Enabled by default, disable with `--no-debate` or `review_debate: false` in `agent_config`.
 - **Recursive sub-agents** (toggleable) — subagents can spawn sub-subagents up to configurable `max_depth`. Enables divide-and-conquer for complex tasks. Disabled by default, enable per-project with `agent_config.recursive_agents: true`.
@@ -92,7 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/antk25/devflow/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/antk25/devflow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/antk25/devflow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/antk25/devflow/compare/v0.4.0...v0.5.0
