@@ -159,7 +159,7 @@ research codebase → analyze architecture → propose 2-3 approaches → recomm
 
 **No code modifications** - pure research and solution design.
 
-**Position in workflow:** `/explore` -> user picks approach -> `/develop` or `/plan`
+**Position in workflow:** `/explore` -> user picks approach -> `/develop`
 
 Best for:
 - Vague or high-level feature ideas
@@ -236,15 +236,6 @@ analyze work branch commits → merge related changes (impl + tests) → create 
 - Independent changes remain as separate commits
 
 ---
-
-## Manual Step-by-Step
-
-```
-1. /plan     → PM analyzes requirements, creates subtasks
-2. /implement → Developer agent implements the solution
-3. /review   → Reviewer performs code review
-4. /finalize → Clean up commits before push
-```
 
 ---
 
@@ -326,7 +317,6 @@ After implementation, the orchestrator verifies the feature works:
 
 Task and project data is stored in `.claude/data/`:
 - `projects.json` - Project registry and active project
-- `queue.json` - Batch task queue and execution history
 - `sessions.json` - Session tracking, loop detection, and checkpoints
 
 ### Session Tracking (`sessions.json`)

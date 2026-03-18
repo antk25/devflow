@@ -129,21 +129,13 @@ Rows sorted by priority: high → medium → low.
 
 6. Store path as `improvement_notes_path` for the summary.
 
-7. **Queue offer** (only if high-priority items exist):
+7. **High-priority notification** (only if high-priority items exist):
    If any items have `priority: high`, print:
 
    ```
    📝 Improvement Notes: N items saved to <path>
-     🔴 X high priority
-
-   Suggested queue commands for high-priority items:
-     /queue add fix <title> — <description>
-     /queue add fix <title> — <description>
-
-   Copy and run these commands to add to your task queue.
+     🔴 X high priority — consider addressing these next
    ```
-
-   Do NOT auto-add to queue — print commands for the user to run manually.
 
 **Update contract status:** If `contract_path` exists, read the contract file from Obsidian and update frontmatter `status: approved` → `status: in_review`. This signals in Obsidian that the implementation is ready for review.
 

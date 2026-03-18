@@ -89,11 +89,6 @@ create_if_missing \
     "$PROJECT_ROOT/.claude/data/sessions.json" \
     ".claude/data/sessions.json"
 
-create_if_missing \
-    "$PROJECT_ROOT/.claude/data/queue.json.example" \
-    "$PROJECT_ROOT/.claude/data/queue.json" \
-    ".claude/data/queue.json"
-
 # --- Step 4: Update projects.json with actual path ---
 echo ""
 echo "4. Updating project paths"

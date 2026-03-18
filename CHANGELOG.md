@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-18
+
+### Added
+- **Reasoning Before Action** (SGR-inspired) — developer and tester agent templates now include an explicit reasoning phase before making changes. Developer: Assess → Trace impact → Identify risks → Choose approach. Tester: 4 mandatory questions (behavior, boundaries, dependencies, failure condition) before writing any test.
+
+### Removed
+- **`/queue` skill** — batch task queue (`SKILL.md`, `queue-bg.sh`, `queue-report.sh`, `queue.json`). Rarely used in practice.
+- **`/help` skill** — redundant with startup greeting that lists all commands.
+- **`/plan` + `/implement` skills** — manual step-by-step mode. `/develop` has built-in checkpoints that serve the same purpose.
+- **`/jira` skill** — moved to project-level (each project defines its own integration in `<project>/.claude/skills/jira/`).
+
+### Changed
+- `devflow-status.sh` and `tmux-status.sh` simplified — removed queue display logic.
+- Phase 9 improvement notes no longer suggest `/queue add` commands; shows high-priority notification instead.
+- `/explore` routing updated: flows into `/develop` instead of removed `/plan`.
+- Documentation updated across CLAUDE.md, README.md, workflows.md, multi-project.md.
+
+## [0.9.0] - 2026-03-18
+
+### Added
+- **Reasoning Before Action** in agent templates (developer, tester) — explicit reasoning phase before code changes.
+- **Enhanced Contract-Driven Development** — dual contract format, test-first expansion, simplified review/project workflows.
+
 ## [0.8.0] - 2026-03-13
 
 ### Added
@@ -94,7 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **patterns.template.md** restructured from 140 to 68 lines. Removed abstract rule sections ("Forbidden Patterns", "Required Patterns"), inlined naming conventions into directory structure, folded code patterns into Reference Implementations. Advisory warning logged when project patterns.md exceeds 100 lines.
 - **`/develop` pipeline** updated: `→ [test-first] → implement → ... → dual review (Claude + Qwen) → knowledge capture → STOP`
 
-[Unreleased]: https://github.com/antk25/devflow/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/antk25/devflow/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/antk25/devflow/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/antk25/devflow/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/antk25/devflow/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/antk25/devflow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/antk25/devflow/compare/v0.5.0...v0.6.0

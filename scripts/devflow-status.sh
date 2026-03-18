@@ -1,12 +1,11 @@
 #!/bin/bash
-# devflow-status.sh — CLI status display for DevFlow sessions and queue
+# devflow-status.sh — CLI status display for DevFlow sessions
 #
 # Usage: ./scripts/devflow-status.sh [subcommand] [args]
 #
 # Subcommands:
-#   (none)       — Full dashboard (active session + queue + recent)
+#   (none)       — Full dashboard (active session + recent)
 #   session      — Active session only
-#   queue        — Queue only
 #   recent [N]   — Last N completed sessions (default 5)
 #
 # Designed for use with: watch -n2 ./scripts/devflow-status.sh
@@ -18,20 +17,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
 SESSIONS_FILE="$DEVFLOW_DIR/.claude/data/sessions.json"
-QUEUE_FILE="$DEVFLOW_DIR/.claude/data/queue.json"
 
 SUBCOMMAND="${1:-all}"
 ARG2="${2:-}"
 
-python3 - "$SESSIONS_FILE" "$QUEUE_FILE" "$SUBCOMMAND" "$ARG2" <<'PYEOF'
+python3 - "$SESSIONS_FILE" "$SUBCOMMAND" "$ARG2" <<'PYEOF'
 import json
 import sys
 from datetime import datetime, timezone
 
 sessions_file = sys.argv[1]
-queue_file = sys.argv[2]
-subcommand = sys.argv[3]
-arg2 = sys.argv[4]
+subcommand = sys.argv[2]
+arg2 = sys.argv[3]
 
 # ── ANSI colors ──────────────────────────────────────────────────────────────
 
@@ -203,14 +200,6 @@ def load_sessions():
         return {"sessions": {}}
 
 
-def load_queue():
-    try:
-        with open(queue_file) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"queue": []}
-
-
 def header(title):
     line = "\u2500" * (50 - len(title) - 3)
     return f"{DIM}\u2500\u2500 {RESET}{BOLD}{title}{RESET} {DIM}{line}{RESET}"
@@ -256,52 +245,6 @@ def render_session():
     print(f"  {phase_line(completed, current, phase_hist)}")
 
 
-def render_queue():
-    data = load_queue()
-    items = data.get("queue", [])
-
-    print(header("Queue"))
-
-    if not items:
-        print(f"  {DIM}Queue is empty{RESET}")
-        return
-
-    total = len(items)
-    completed = sum(1 for i in items if i.get("status") == "completed")
-    failed = sum(1 for i in items if i.get("status") == "failed")
-
-    # Progress bar
-    bar_width = 30
-    filled = int(completed / total * bar_width) if total > 0 else 0
-    bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-    summary = f"{completed}/{total}"
-    if failed:
-        summary += f"  {RED}{failed} failed{RESET}"
-    print(f"  {bar}  {summary}")
-
-    # Background run status
-    bg = data.get("background_run")
-    if bg and bg.get("status") == "running":
-        bg_dur = duration_display(bg.get("started_at"), None)
-        print(f"  {YELLOW}Background run active{RESET} ({bg_dur})")
-
-    # Items list
-    for item in items:
-        icon = STATUS_ICONS.get(item.get("status", ""), "\u2753")
-        skill = item.get("skill", "?")
-        desc = item.get("args", "").split("\n")[0][:40].strip()
-        status = item.get("status", "pending")
-
-        suffix = ""
-        if status == "running":
-            suffix = f" {YELLOW}\u25b6{RESET}"
-        elif status == "failed":
-            suffix = f" {RED}{item.get('error', '')[:30]}{RESET}"
-
-        iid = item.get("id", "?")
-        print(f"  {icon} #{iid:<3} /{skill:<10} {desc}{suffix}")
-
-
 def render_recent(n=5):
     data = load_sessions()
     sessions = data.get("sessions", {})
@@ -339,16 +282,12 @@ def render_recent(n=5):
 
 if subcommand == "session":
     render_session()
-elif subcommand == "queue":
-    render_queue()
 elif subcommand == "recent":
     n = int(arg2) if arg2 else 5
     render_recent(n)
 else:
     # Full dashboard
     render_session()
-    print()
-    render_queue()
     print()
     render_recent()
 PYEOF

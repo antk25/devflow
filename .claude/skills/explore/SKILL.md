@@ -12,7 +12,7 @@ arguments:
 
 This skill researches the codebase, analyzes architecture, and proposes 2-3 solution approaches with trade-offs — **without making any code changes**.
 
-**Position in workflow:** `/explore` -> user picks approach -> `/develop` or `/plan`
+**Position in workflow:** `/explore` -> user picks approach -> `/develop`
 
 ## Usage
 
@@ -30,7 +30,7 @@ This skill researches the codebase, analyzes architecture, and proposes 2-3 solu
 3. **Analyzes architecture** (integration points, constraints, feasibility)
 4. **Proposes 2-3 approaches** (with pros, cons, effort, risk)
 5. **Recommends best approach** (with reasoning)
-6. **Generates actionable report** (feeds into `/develop` or `/plan`)
+6. **Generates actionable report** (feeds into `/develop`)
 
 **NO changes made** — pure research and analysis.
 
@@ -310,11 +310,6 @@ Ready to proceed? Use one of these commands:
 /develop <concrete description based on chosen approach>
 ```
 
-**If more planning is needed:**
-```
-/plan <concrete description with chosen approach specified>
-```
-
 **If more investigation is needed:**
 ```
 /investigate <specific technical question to answer first>
@@ -350,6 +345,5 @@ Ready to proceed? Use one of these commands:
 
 # If feature is complex
 /explore Add multi-tenancy support       # Research
-/plan Implement multi-tenancy with schema-per-tenant  # Detailed planning
-/implement 1                             # Step-by-step implementation
+/develop Implement multi-tenancy with schema-per-tenant  # Implement chosen approach
 ```

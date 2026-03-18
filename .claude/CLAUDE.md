@@ -11,8 +11,7 @@ Just describe your task — I'll pick the right workflow automatically.
 Or use a command directly:
 
 • `/develop` · `/fix` · `/refactor` · `/explore` · `/investigate` · `/review`
-• `/plan` · `/implement` · `/finalize` · `/audit` · `/note` · `/queue`
-• `/resume` · `/recall` · `/next` · `/project` · `/help`
+• `/finalize` · `/audit` · `/note` · `/resume` · `/recall` · `/next` · `/project`
 
 Ready to build!
 ```
@@ -147,7 +146,6 @@ When spawning agents, skills check for project agents and prepend their content 
 | Review your changes | `/review` | Before commit |
 | Review teammate's PR | `/review --pr 123` | External code review |
 | Ready to finalize after `/develop` | `/finalize` | Create clean branch with atomic commits |
-| Batch work | `/queue` | Plan day's work, run as batch |
 | Docs out of date | `/audit` | Compare docs with code reality |
 | Save dev notes | `/note save` | Persist research/decisions to Obsidian |
 | Read TZ from Obsidian | `/note tz` | Load spec and route to workflow |
@@ -156,7 +154,6 @@ When spawning agents, skills check for project agents and prepend their content 
 | Recall past session | `/recall <query>` | Search session logs, find context |
 | Done with task, starting next | `/next` | Wrap up context, keep project |
 | Generate project agents | `/project agents` | Analyze code, create project-specific agents |
-| Manual control | `/plan` → `/implement` → `/finalize` | Step-by-step with approval |
 
 ## Project Patterns
 
@@ -212,7 +209,6 @@ Commands that modify code handle git automatically:
 | `/resume` | (existing work branch) | - | continues from interrupted |
 | `/recall` | - | - | No changes (read-only search) |
 | `/next` | - | - | No changes (context wrap-up) |
-| `/queue` | (per item) | (per item) | delegates to invoked skill |
 
 - Branch naming convention read from project
 - Commit message format analyzed from git log
@@ -278,4 +274,4 @@ Detailed docs are in `.claude/docs/` — skills read them when needed:
 
 - **`.claude/docs/workflows.md`** — Detailed workflow descriptions, session tracking, project config schema
 - **`.claude/docs/infrastructure.md`** — Local RAG, autonomous mode, permissions, troubleshooting
-- **`.claude/docs/multi-project.md`** — Multi-project management, launcher script, batch queue
+- **`.claude/docs/multi-project.md`** — Multi-project management, launcher script

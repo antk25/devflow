@@ -5,7 +5,6 @@
 # Use *.example files as templates for initial setup
 .claude/data/projects.json
 .claude/data/sessions.json
-.claude/data/queue.json
 
 # User-specific configuration (contains absolute paths to hooks, MCP servers)
 # Run ./scripts/setup.sh to generate from templates

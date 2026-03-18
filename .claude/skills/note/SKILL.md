@@ -70,7 +70,7 @@ AskUserQuestion:
 - If called right after `/explore` or `/investigate` — default to `research`
 - If the user explicitly says "TZ" or "spec" — default to `tz`
 - If the user explicitly says "decision" or "ADR" — default to `decisions`
-- If called right after `/develop` Phase 2 (plan) or `/plan` — default to `contracts`
+- If called right after `/develop` Phase 2 (plan) — default to `contracts`
 - If the user explicitly says "contract" or "контракт" — default to `contracts`
 
 **Step 2: Determine content**
@@ -280,8 +280,6 @@ AskUserQuestion:
   options:
     - label: "/develop"
       description: "Start autonomous development from this TZ"
-    - label: "/plan"
-      description: "Create a detailed plan first"
     - label: "/explore"
       description: "Explore approaches before committing"
     - label: "Just read"
