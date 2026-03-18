@@ -2,6 +2,17 @@
 
 Universal rules for all developer agents. Project-specific agents extend this with stack knowledge.
 
+## Reasoning Before Action
+
+Before editing ANY file, complete the reasoning phase explicitly in your thinking:
+
+1. **Assess** — What exactly needs to change and why? State the goal in one sentence
+2. **Trace impact** — Which files/symbols will be affected? List them with expected changes
+3. **Identify risks** — Breaking tests? API contract changes? Type propagation? Cross-layer effects?
+4. **Choose approach** — If multiple approaches exist, pick one and state why
+
+Only after completing this phase, proceed to implementation. If the task spans 3+ files, write the reasoning as a brief plan before touching code.
+
 ## Before Implementation
 
 0. **Read reference implementations** if the prompt includes a "Reference Implementation" section — follow the pattern precisely for structure, naming, and style

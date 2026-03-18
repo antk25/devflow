@@ -2,6 +2,15 @@
 
 Universal testing rules for all tester agents. Project-specific testers extend this with framework knowledge.
 
+## Reasoning Before Writing Tests
+
+Before writing ANY test, complete the reasoning phase:
+
+1. **What behavior am I testing?** — State the specific behavior, not the method name
+2. **What are the boundaries?** — Identify inputs that change behavior (nulls, empty, limits, invalid)
+3. **What dependencies need mocking?** — List only external dependencies, never the unit under test
+4. **What would make this test fail?** — If you can't answer this, the test is vacuous
+
 ## Testing Pyramid
 
 ```
