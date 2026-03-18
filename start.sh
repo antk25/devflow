@@ -97,6 +97,10 @@ SKIP_MENU=false
 
 if [ $# -ge 1 ]; then
     case "$1" in
+        setup)
+            shift
+            exec "$SCRIPT_DIR/scripts/devflow-setup.sh" "$@"
+            ;;
         --current|-c)
             SKIP_MENU=true
             SELECTED=$(get_active)
@@ -188,7 +192,28 @@ fi
 # --- Launch Claude Code ---
 
 PROJECT_PATH=$(get_project_field "$SELECTED" "path")
-echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
-echo ""
 
-exec claude
+# If project is devflow itself, launch from devflow dir (skills are local)
+# Otherwise, launch from project dir (skills come from ~/.claude/skills/)
+if [ "$SELECTED" = "devflow" ]; then
+    echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
+    echo ""
+    exec claude
+else
+    # Check if project is set up for devflow
+    if [ ! -f "$PROJECT_PATH/.claude/settings.json" ]; then
+        echo ""
+        echo "⚠  Project '$SELECTED' is not configured for DevFlow yet."
+        echo "   Run: $SCRIPT_DIR/scripts/devflow-setup.sh project $SELECTED"
+        echo ""
+        read -rp "Launch anyway? [y/N] " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            exit 0
+        fi
+    fi
+
+    echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
+    echo ""
+    cd "$PROJECT_PATH"
+    exec claude
+fi

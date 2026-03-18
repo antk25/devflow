@@ -273,10 +273,25 @@ This orchestrator integrates with:
 - ESLint/PHPStan for static analysis
 - Local RAG (mcp-local-rag) for documentation and pattern retrieval
 
+## Skill Distribution
+
+DevFlow skills are distributed to all projects via `~/.claude/skills/` (user-level). This is managed by `scripts/devflow-setup.sh`.
+
+```bash
+./start.sh setup install           # Install/update skills globally
+./start.sh setup project <name>    # Configure a project (settings.json, .mcp.json)
+./start.sh setup status            # Check installation status
+./start.sh setup update            # Re-sync skills after editing
+```
+
+**Priority:** project `.claude/skills/` > user `~/.claude/skills/`. When developing devflow, local skills always take priority over installed copies.
+
+See `.claude/docs/multi-project.md` for full details.
+
 ## Extended Documentation
 
 Detailed docs are in `.claude/docs/` — skills read them when needed:
 
 - **`.claude/docs/workflows.md`** — Detailed workflow descriptions, session tracking, project config schema
 - **`.claude/docs/infrastructure.md`** — Local RAG, autonomous mode, permissions, troubleshooting
-- **`.claude/docs/multi-project.md`** — Multi-project management, launcher script
+- **`.claude/docs/multi-project.md`** — Multi-project management, skill distribution, project setup

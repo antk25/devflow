@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-03-18
+
+### Added
+- **User-level skill distribution** (DF-7) — DevFlow skills are now installed to `~/.claude/skills/` and available in any project without symlinks or copying. Uses Claude Code's native user-level skill discovery.
+- **`devflow-setup.sh`** — setup script with 4 commands:
+  - `install` / `update` — copies 13 skills to `~/.claude/skills/`, installs `devflow-instructions.md`, adds `@include` to `~/.claude/CLAUDE.md`
+  - `project <name>` — generates `.claude/settings.json` (hooks → devflow absolute paths), `.mcp.json`, `.claude/data/`, `.gitignore` entries
+  - `status` — shows installed skills (devflow vs custom), per-project configuration status
+  - `uninstall` — removes devflow-managed skills only, preserves custom skills
+- **Project-specific skills** — projects can add their own skills in `<project>/.claude/skills/` alongside devflow skills. Project skills override same-named devflow skills (Claude Code priority: project > user).
+- **`start.sh setup` passthrough** — `./start.sh setup <args>` delegates to `devflow-setup.sh`
+
+### Changed
+- **`start.sh` launches from project directory** — for non-devflow projects, `cd` to project path before `exec claude`. DevFlow itself still launches from its own directory (project skills take priority for development).
+- **`start.sh` warns unconfigured projects** — shows setup instructions if `.claude/settings.json` is missing.
+- Updated `multi-project.md` with full skill distribution architecture documentation.
+
 ## [0.12.0] - 2026-03-18
 
 ### Added
