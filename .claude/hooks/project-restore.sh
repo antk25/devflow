@@ -43,3 +43,9 @@ interrupted=$(python3 "$DEVFLOW_DIR/scripts/session-log.py" check-interrupted --
 if [ -n "$interrupted" ]; then
     echo "$interrupted"
 fi
+
+# Show active Obsidian documents (contracts, TZ)
+obsidian_active=$("$DEVFLOW_DIR/scripts/obsidian-active.sh" "$active" 2>/dev/null)
+if [ -n "$obsidian_active" ] && ! echo "$obsidian_active" | grep -q '"error"'; then
+    echo "OBSIDIAN_CONTEXT=$obsidian_active"
+fi

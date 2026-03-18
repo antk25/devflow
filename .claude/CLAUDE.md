@@ -29,6 +29,11 @@ A `SessionStart` hook runs `project-restore.sh` which outputs the active project
    ⚠️ Interrupted session: <branch> (<phase>)
       Resume with: /resume
    ```
+5. If `OBSIDIAN_CONTEXT` is present, parse the JSON and show active documents:
+   ```
+   📋 Obsidian: N active contracts, M active TZ
+   ```
+   Read the listed files to have full context available for the conversation.
 
 This ensures project context is automatically restored after `/clear`.
 

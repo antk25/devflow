@@ -35,6 +35,12 @@ PROJECT_CONFIG=$("$DEVFLOW_DIR/scripts/read-project-config.sh")
 
 Extract `project_name` from the active project in `projects.json`.
 
+**Load Obsidian context** (active contracts, TZ, improvement notes):
+```bash
+OBSIDIAN_CONTEXT=$("$DEVFLOW_DIR/scripts/obsidian-active.sh")
+```
+If there are active contracts or TZ related to the session being resumed, read them for full context.
+
 ---
 
 ### Step 1: Parse Arguments

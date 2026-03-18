@@ -22,6 +22,21 @@ If review finds critical issues, use loop detection script:
 - **Category:** security | performance | quality
 ```
 
+**Update contract in Obsidian** (if `contract_path` exists):
+
+If the fix changed the implementation in a way that diverges from the contract (new/modified API endpoints, changed DTO fields, different DB schema), update the contract:
+
+```bash
+# 1. Add changelog entry describing what changed
+./scripts/obsidian-sync-contract.sh "<contract_path>" changelog "Phase 8 fix: <brief description of changes>"
+
+# 2. If specific sections changed (API, DTO, Database, etc.), update them:
+#    Generate updated section content to a temp file, then:
+./scripts/obsidian-sync-contract.sh "<contract_path>" section "<SectionName>" /tmp/section-content.md
+```
+
+This keeps the contract as a living document that reflects the actual implementation, not just the original plan.
+
 **Checkpoint:**
 ```bash
 ./scripts/session-checkpoint.sh <branch> phase_9_summary
