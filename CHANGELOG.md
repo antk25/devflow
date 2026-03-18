@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-18
+
+### Added
+- **Unified git workflow config** (DF-5) — declarative `git` section in `projects.json` with per-project base branch, branch naming, commit format, MR/release settings. Replaces scattered `branch_prefix`, `main_branch`, `commit_style` fields.
+  - `git.base_branch` — which branch to create features from (`dev`, `develop`, `main`, `master`)
+  - `git.branch` — prefix, work suffix, type prefix toggle
+  - `git.commit` — format template, body, coauthor, language
+  - `git.mr` — MR/PR target, tool (gitlab/github), squash policy
+  - `git.release` — tag/branch release config
+
+### Changed
+- `create-branch.sh` reads `git.base_branch` and `git.branch.type_prefix` from project config (with auto-detection fallback).
+- `read-project-config.sh` exposes `git` config with backward compatibility for legacy fields.
+- Skills (`/develop`, `/fix`, `/refactor`, `/finalize`) use `git.commit` config instead of parsing `git log` each time.
+- `/project add` now detects and asks for git workflow config during registration.
+- All 9 projects migrated to new `git` section. Legacy fields removed.
+- `projects.json` version bumped to 2.1.
+
 ## [0.10.0] - 2026-03-18
 
 ### Added
