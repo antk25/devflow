@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-03-18
+
+### Added
+- **Auto-save TZ to Obsidian** (DF-6) — `/develop` Phase 0 automatically saves the user's feature description to `projects/<project>/tz/` in Obsidian vault. Incremental additions appended with `## Дополнение (timestamp)` via `--update` mode.
+- **Contract sync after fixes** (DF-6) — Phase 8 updates the Obsidian contract when post-review fixes change the implementation: changelog entries and section-level updates keep the contract as a living document.
+- **Active Obsidian context at startup** (DF-6) — `project-restore.sh` hook outputs `OBSIDIAN_CONTEXT` JSON with active contracts, TZ, and improvement notes. Phase 0 of `/develop`, `/fix`, and `/resume` reads this context automatically.
+- New scripts: `obsidian-save-tz.sh`, `obsidian-sync-contract.sh`, `obsidian-active.sh`
+
 ## [0.11.0] - 2026-03-18
 
 ### Added
