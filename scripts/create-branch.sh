@@ -62,6 +62,32 @@ if [ "$USE_WORKTREE" = false ]; then
     fi
 fi
 
+# Read git config from project config (if available)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECTS_FILE="$DEVFLOW_DIR/.claude/data/projects.json"
+
+GIT_TYPE_PREFIX="auto"
+GIT_BASE_BRANCH=""
+
+if [ -f "$PROJECTS_FILE" ] && command -v python3 >/dev/null 2>&1; then
+    eval "$(python3 -c "
+import json, sys
+with open('$PROJECTS_FILE') as f:
+    data = json.load(f)
+active = data.get('active', '')
+project = data.get('projects', {}).get(active, {})
+git = project.get('git', {})
+branch = git.get('branch', {})
+tp = branch.get('type_prefix')
+if tp is not None:
+    print(f'GIT_TYPE_PREFIX={str(tp).lower()}')
+base = git.get('base_branch', '')
+if base:
+    print(f'GIT_BASE_BRANCH={base}')
+" 2>/dev/null)" || true
+fi
+
 # Determine branch prefix from type
 case "$TYPE" in
     feature) PREFIX="feature/" ;;
@@ -75,8 +101,11 @@ case "$TYPE" in
 esac
 
 # Build branch name
-# If name already contains the prefix pattern (e.g., DEV-488), use as-is with suffix
+# If name already contains a ticket prefix pattern (e.g., DEV-488), use as-is with suffix
 if echo "$NAME" | grep -qE '^[A-Z]+-[0-9]+'; then
+    BRANCH="${NAME}${WORK_SUFFIX}"
+elif [ "$GIT_TYPE_PREFIX" = "false" ]; then
+    # Project config says no type prefix (ticket-based naming)
     BRANCH="${NAME}${WORK_SUFFIX}"
 else
     BRANCH="${PREFIX}${NAME}${WORK_SUFFIX}"
@@ -95,8 +124,14 @@ if [ "$USE_WORKTREE" = true ]; then
     WORKTREE_SLUG=$(echo "$BRANCH" | tr '/' '-')
     WORKTREE_DIR="$REPO_PATH/.claude/worktrees/$WORKTREE_SLUG"
 
+    # Determine base commit for worktree (use git.base_branch if available)
+    WORKTREE_BASE="${GIT_BASE_BRANCH:-}"
+    if [ -z "$WORKTREE_BASE" ]; then
+        WORKTREE_BASE=$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "HEAD")
+    fi
+
     mkdir -p "$(dirname "$WORKTREE_DIR")"
-    git -C "$REPO_PATH" worktree add "$WORKTREE_DIR" -b "$BRANCH" --quiet
+    git -C "$REPO_PATH" worktree add "$WORKTREE_DIR" -b "$BRANCH" "$WORKTREE_BASE" --quiet
 
     echo "$BRANCH"
     echo "WORKTREE_PATH=$WORKTREE_DIR"
@@ -106,8 +141,11 @@ if [ "$USE_WORKTREE" = true ]; then
     echo "BASE: $(git -C "$WORKTREE_DIR" log --oneline -1)" >&2
 else
     # Standard branch creation — switches current working tree
-    # Ensure we're on main/master before branching
-    MAIN_BRANCH=$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "")
+    # Use git.base_branch from project config, fall back to detection
+    MAIN_BRANCH="$GIT_BASE_BRANCH"
+    if [ -z "$MAIN_BRANCH" ]; then
+        MAIN_BRANCH=$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "")
+    fi
     if [ -z "$MAIN_BRANCH" ]; then
         # Fallback: check for main or master
         if git -C "$REPO_PATH" rev-parse --verify main >/dev/null 2>&1; then

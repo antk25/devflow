@@ -53,13 +53,36 @@ agent_config_defaults = {
 }
 agent_config = {**agent_config_defaults, **project.get('agent_config', {})}
 
+# Git config: use new 'git' section, fall back to legacy fields
+git_config = project.get('git', {})
+if not git_config:
+    # Backward compat: build git config from legacy fields
+    legacy_prefix = project.get('branch_prefix', '')
+    legacy_main = project.get('main_branch', '')
+    legacy_commit = project.get('commit_style', {})
+    git_config = {
+        'base_branch': legacy_main or 'main',
+        'branch': {
+            'prefix': legacy_prefix,
+            'work_suffix': '-work',
+            'type_prefix': not bool(legacy_prefix),
+        },
+        'commit': {
+            'format': legacy_commit.get('pattern', '{type}: {message}'),
+            'body': True,
+            'coauthor': True,
+            'language': legacy_commit.get('language', 'en'),
+        },
+        'mr': False,
+        'release': False,
+    }
+
 output = {
     'name': project_name,
     'path': project.get('path', ''),
     'type': project.get('type', 'single'),
     'description': project.get('description', ''),
-    'branch_prefix': project.get('branch_prefix', ''),
-    'commit_style': project.get('commit_style', {}),
+    'git': git_config,
     'repositories': project.get('repositories', {}),
     'testing': project.get('testing', {}),
     'docker': project.get('docker', {}),

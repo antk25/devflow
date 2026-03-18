@@ -87,7 +87,40 @@ To switch projects, exit and run `./start.sh`
    - If single: Use the main path
    - Store in `repositories` field
 5. Ask user for E2E testing configuration (optional)
-6. Add to projects.json (v2.0 format):
+6. **Detect git workflow** and ask user to confirm/adjust:
+   - Detect main branch: `git -C <path> symbolic-ref refs/remotes/origin/HEAD` or check for main/master/develop
+   - Detect commit style: `git -C <path> log --oneline -20` and analyze patterns
+   - Detect branch naming: check existing branches for ticket prefixes
+   - Ask user to confirm detected git config or provide overrides:
+     ```
+     AskUserQuestion:
+       question: "Git workflow detected. Confirm or adjust:"
+       options:
+         - label: "Confirm"
+           description: "base=<detected>, commit=<detected format>, prefix=<detected>"
+         - label: "Adjust"
+           description: "I'll specify the git config"
+     ```
+   - Build `git` section:
+     ```json
+     "git": {
+       "base_branch": "<detected or user-provided>",
+       "branch": {
+         "prefix": "<detected or empty>",
+         "work_suffix": "-work",
+         "type_prefix": <true if no prefix detected>
+       },
+       "commit": {
+         "format": "<detected pattern>",
+         "body": <true/false>,
+         "coauthor": <true/false>,
+         "language": "<en/ru>"
+       },
+       "mr": <false or { "target": "<base>", "tool": "gitlab|github" }>,
+       "release": false
+     }
+     ```
+7. Add to projects.json (v2.1 format):
 
 ```json
 {
