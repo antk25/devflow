@@ -137,7 +137,22 @@ Rows sorted by priority: high → medium → low.
      🔴 X high priority — consider addressing these next
    ```
 
-**Update contract status:** If `contract_path` exists, read the contract file from Obsidian and update frontmatter `status: approved` → `status: in_review`. This signals in Obsidian that the implementation is ready for review.
+**Update contract status:** If `contract_path` exists, use the sync script:
+```bash
+./scripts/obsidian-sync-contract.sh "<contract_path>" status in_review
+```
+This signals in Obsidian that the implementation is ready for review.
+
+**Update TZ status:** If `tz_path` exists (from Phase 0), update its status:
+```bash
+python3 -c "
+import re
+path = '<tz_path>'
+with open(path) as f: content = f.read()
+content = re.sub(r'^(status:\s*).*$', 'status: in_progress', content, count=1, flags=re.MULTILINE)
+with open(path, 'w') as f: f.write(content)
+"
+```
 
 **Desktop notification:**
 ```bash

@@ -188,7 +188,22 @@ done
    - Read `<project_path>/.claude/data/lessons-learned.md`
    - Store contents as `lessons_context`
 
-6. **Initialize session tracking** (if not resuming):
+6. **Load Obsidian context** (active contracts, TZ, improvement notes):
+   ```bash
+   OBSIDIAN_CONTEXT=$(./scripts/obsidian-active.sh)
+   ```
+   - If there are active contracts or TZ for this project, read them for context
+   - Store as `obsidian_context` — available to all phases
+
+7. **Save TZ to Obsidian** (if not resuming):
+   Save the user's feature description to Obsidian as a TZ (technical specification).
+   This ensures the task description is persisted even if the session is interrupted.
+   ```bash
+   echo "<feature description from user>" | ./scripts/obsidian-save-tz.sh <project> <branch> "<feature title>"
+   ```
+   Store the returned path as `tz_path` in `phase_data.phase_0_config`.
+
+8. **Initialize session tracking** (if not resuming):
    - Read `.claude/data/sessions.json`
    - Create a new session entry keyed by the work branch name:
      ```json

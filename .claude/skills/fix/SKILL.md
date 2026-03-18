@@ -58,7 +58,13 @@ done
 5. **Load lessons learned** (if `PROJECT_CONFIG.files.has_lessons_learned` is true):
    - Read `<project_path>/.claude/data/lessons-learned.md`
 
-6. **Initialize session tracking** (lightweight):
+6. **Load Obsidian context** (check for related contracts):
+   ```bash
+   OBSIDIAN_CONTEXT=$(./scripts/obsidian-active.sh)
+   ```
+   If there are active contracts that cover the area being fixed, read them for context.
+
+7. **Initialize session tracking** (lightweight):
    - Read `.claude/data/sessions.json`
    - Create session entry keyed by fix branch name:
      ```json
