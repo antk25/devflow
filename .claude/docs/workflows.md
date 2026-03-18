@@ -440,8 +440,57 @@ Projects support multi-repository setups and E2E testing configuration:
 **Key fields:**
 - `repositories` - paths to each git repository (required for multi-repo projects)
 - `testing` - E2E testing configuration per component
-- `branch_prefix` - prefix for feature branches (e.g., "DEV-")
+- `git` - per-project git workflow config (see below)
 - `agent_config` - per-project agent behavior (see below)
+
+### Git Workflow Configuration (`git`)
+
+Declarative git workflow per project. Read by `create-branch.sh`, skills (`/develop`, `/fix`, `/refactor`, `/finalize`), and `read-project-config.sh`.
+
+```json
+{
+  "git": {
+    "base_branch": "dev",
+    "branch": {
+      "prefix": "DEV-",
+      "work_suffix": "-work",
+      "type_prefix": false
+    },
+    "commit": {
+      "format": "{ticket} {message}",
+      "body": false,
+      "coauthor": false,
+      "language": "en"
+    },
+    "mr": {
+      "target": "dev",
+      "squash": true,
+      "tool": "gitlab"
+    },
+    "release": false
+  }
+}
+```
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `base_branch` | Branch to create features from and diff against | `main` |
+| `branch.prefix` | Ticket prefix (e.g., `DEV-`, `RS-`) | none |
+| `branch.work_suffix` | Suffix for work branches | `-work` |
+| `branch.type_prefix` | Add `feature/`/`fix/`/`refactor/` prefix | `true` |
+| `commit.format` | Commit message template | `{type}: {message}` |
+| `commit.body` | Include multi-line commit body | `true` |
+| `commit.coauthor` | Add Co-Authored-By footer | `true` |
+| `commit.language` | Commit message language | `en` |
+| `mr` | MR/PR config or `false` | `false` |
+| `mr.target` | Target branch for MR | = `base_branch` |
+| `mr.tool` | `gitlab` or `github` | — |
+| `mr.squash` | Squash on merge | `false` |
+| `release` | Release config or `false` | `false` |
+| `release.type` | `tag` or `branch` | — |
+| `release.changelog` | Auto-generate changelog | `false` |
+
+**Backward compat:** If `git` section is missing, `read-project-config.sh` builds it from legacy fields (`branch_prefix`, `main_branch`, `commit_style`).
 
 ### Agent Configuration (`agent_config`)
 

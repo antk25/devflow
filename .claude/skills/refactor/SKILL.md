@@ -259,6 +259,8 @@ If tests fail:
 
 ### Phase 7: Commit Changes
 
+Use `PROJECT_CONFIG.git.commit` to format commit messages.
+
 Commit strategy - one commit per logical change OR one squashed commit:
 
 **Option A: Step-by-step commits (recommended for large refactoring)**
@@ -270,14 +272,8 @@ Commit strategy - one commit per logical change OR one squashed commit:
 ```bash
 cd /path/to/repo
 git add .
-git commit -m "refactor(<scope>): <summary>
-
-Changes:
-- Extracted <X> from <Y>
-- Renamed <A> to <B>
-- Removed duplication in <C>
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+# Format per PROJECT_CONFIG.git.commit (format, body, coauthor, language)
+git commit -m "<format per git.commit config>"
 ```
 
 ### Phase 8: Summary with Improvements

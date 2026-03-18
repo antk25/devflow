@@ -224,15 +224,17 @@ If exit code is 2 (server not running), note as "⏭️ Skipped" in summary.
 
 **Step 1: Commit**
 
+Use `PROJECT_CONFIG.git.commit` to format the commit message:
+
 ```bash
 cd /path/to/repo
 git add <affected-files>
-git commit -m "fix: <brief description>
 
-<issue description>
-Fixes: <root cause>
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+# Format depends on git.commit config:
+# - format="{ticket} {message}", body=false → DEV-519 Fix broken pagination
+# - format="{type}: {message}", body=true, coauthor=true → multi-line with Co-Authored-By
+# - format="{message}", language=ru → Исправить пагинацию
+git commit -m "<format per PROJECT_CONFIG.git.commit>"
 ```
 
 **Step 2: Test Reaction (verification)**

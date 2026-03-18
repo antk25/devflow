@@ -72,28 +72,32 @@ git branch --show-current
 # feature/auth → feature/auth-clean
 ```
 
-### Step 2: Analyze Project Commit Style
+### Step 2: Read Project Git Config
 
 ```bash
-# Read recent commits to understand project conventions
-git log --oneline -30
-
-# Look for patterns:
-# - Conventional commits: feat(scope): description
-# - Simple: Add/Fix/Update description
-# - Ticket-based: [PROJ-123] description
-# - Other project-specific formats
+# Read project config to get git conventions
+PROJECT_CONFIG=$(./scripts/read-project-config.sh)
 ```
 
-**Store the detected format for use in Step 5.**
+Extract from `PROJECT_CONFIG.git`:
+- `git.base_branch` — base branch for diff (e.g., `dev`, `develop`, `main`)
+- `git.commit.format` — commit message format template
+- `git.commit.body` — whether to include commit body
+- `git.commit.coauthor` — whether to add Co-Authored-By footer
+- `git.commit.language` — commit message language (en/ru)
+
+**Use these for commit formatting in Step 6.**
+
+If `PROJECT_CONFIG.git` is not available, fall back to analyzing `git log --oneline -30`.
 
 ### Step 3: Analyze Changes
 
 ```bash
-# Get base branch (usually main or master)
-git log --oneline main..HEAD  # Work branch commits
-git diff main...HEAD --stat   # Changed files summary
-git diff main...HEAD          # Full diff
+# Use git.base_branch from project config (not hardcoded "main")
+BASE_BRANCH=<git.base_branch>   # e.g., dev, develop, main
+git log --oneline $BASE_BRANCH..HEAD  # Work branch commits
+git diff $BASE_BRANCH...HEAD --stat   # Changed files summary
+git diff $BASE_BRANCH...HEAD          # Full diff
 ```
 
 ### Step 4: Group Changes Logically
@@ -121,8 +125,9 @@ Analyze the diff and categorize:
 # Ensure we're on work branch
 git checkout feature/xxx-work
 
-# Create clean branch from main
-git checkout main
+# Create clean branch from base (use git.base_branch, NOT hardcoded "main")
+BASE_BRANCH=<git.base_branch>
+git checkout $BASE_BRANCH
 git checkout -b feature/xxx
 ```
 
