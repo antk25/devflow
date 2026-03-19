@@ -58,12 +58,102 @@
 
 ## Быстрый старт
 
+### Установка DevFlow
+
 ```bash
 git clone <repo-url> devflow
 cd devflow
-./scripts/setup.sh    # генерирует .mcp.json, .claude/settings.json, пустые data-файлы
-claude                # запускает Claude Code
+./scripts/setup.sh                    # генерирует .mcp.json, .claude/settings.json
+./scripts/devflow-setup.sh install    # устанавливает скиллы в ~/.claude/skills/
 ```
+
+После этого все 13 скиллов DevFlow доступны в **любом** проекте.
+
+### Подключить существующий проект
+
+```bash
+# 1. Зарегистрировать в DevFlow
+cd ~/projects/devflow && claude
+> /project add /path/to/my-project
+# Интерактивно: тип, git-конвенции, docker, testing, obsidian
+
+# 2. Настроить проект
+./start.sh setup project my-project
+# Создаёт: project.json, settings.json, .mcp.json, .gitignore
+
+# 3. Сгенерировать проектных агентов (анализирует код)
+./start.sh my-project
+> /project agents
+
+# 4. Работать — просто опишите задачу
+> добавить фильтр по дате в отчёт
+```
+
+### Создать проект с нуля
+
+```bash
+mkdir ~/projects/new-app && cd ~/projects/new-app && git init
+
+# Зарегистрировать и настроить
+cd ~/projects/devflow && claude
+> /project add /home/user/projects/new-app
+
+./start.sh setup project new-app
+./start.sh new-app
+> создай базовую структуру Node.js проекта с TypeScript
+```
+
+Генерацию агентов (`/project agents`) имеет смысл запускать после появления кода.
+
+### Обновление DevFlow
+
+```bash
+cd ~/projects/devflow && git pull
+
+# Скиллы → обновить глобально
+./start.sh setup update
+
+# Хуки/скрипты → автоматически (абсолютные пути)
+
+# Агенты → перегенерировать per-project
+./start.sh my-project
+> /project agents
+
+# project.json → перегенерировать если изменился формат
+./start.sh setup project my-project
+
+# Проверить статус всех проектов
+./start.sh setup status
+```
+
+### Что где живёт
+
+```
+~/.claude/
+├── skills/                          ← Скиллы DevFlow (все проекты)
+│   ├── develop/, fix/, review/ ...
+├── devflow-instructions.md          ← Инструкции (роутинг, агенты)
+└── CLAUDE.md                        ← @devflow-instructions.md
+
+<project>/
+├── .claude/
+│   ├── data/project.json            ← Конфиг ЭТОГО проекта
+│   ├── data/sessions.json           ← Сессии ЭТОГО проекта
+│   ├── settings.json                ← Хуки → devflow (абс. пути)
+│   ├── agents/                      ← Проектные агенты
+│   └── skills/                      ← Проектные скиллы (опционально)
+└── .mcp.json                        ← MCP серверы → devflow
+
+devflow/
+├── .claude/skills/                  ← Исходники скиллов
+├── .claude/agents/                  ← Дефолтные агенты + шаблоны
+├── .claude/hooks/                   ← Хуки (вызываются по абс. путям)
+├── .claude/data/projects.json       ← Реестр (только для start.sh)
+├── scripts/                         ← devflow-setup.sh, obsidian-*.sh
+└── start.sh                         ← Лаунчер проектов
+```
+
+**Приоритет скиллов:** проектные `.claude/skills/` > пользовательские `~/.claude/skills/`
 
 При запуске увидите:
 
