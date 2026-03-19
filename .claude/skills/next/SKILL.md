@@ -24,7 +24,7 @@ Wraps up the current task context and prepares for the next one. Designed for sw
 ### Phase 1: Summarize Current Task
 
 1. Read `.claude/data/sessions.json` — find any `running` session for the active project
-2. Read `.claude/data/projects.json` — get active project name
+2. Read `.claude/data/project.json` — get project name
 3. If the session has a `phase_history` array, render a timeline table:
    ```markdown
    ### Phase Timeline
@@ -53,8 +53,8 @@ Wraps up the current task context and prepares for the next one. Designed for sw
    - Add summary to `phase_data`
 
 2. **Append result to TZ in Obsidian:**
-   - Read `obsidian_vault` from `.claude/data/projects.json`
-   - Look for the TZ file: `<obsidian_vault>/projects/<project>/tz/<branch>-*.md`
+   - Read `obsidian` config from `.claude/data/project.json`
+   - Look for the TZ file: `<obsidian.vault>/<obsidian.project_dir>/tz/<branch>-*.md`
      - Use the session's branch name (from `sessions.json` → `branches.final` or `branches.work`)
      - If multiple matches, use the first one
    - If TZ file found, append a `## Результат` section at the end:

@@ -48,7 +48,7 @@ Parse the feature description to identify:
 
 Read project configuration:
 ```
-1. Read `.claude/data/projects.json` - get active project config
+1. Read `.claude/data/project.json` - get project config
 2. Read project's `.claude/CLAUDE.md` - conventions and architecture
 3. Read `.claude/patterns.md` - if exists
 ```

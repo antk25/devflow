@@ -152,7 +152,16 @@ cmd_project() {
     local claude_dir="$project_path/.claude"
     mkdir -p "$claude_dir"
 
-    # 1. Generate settings.json (hooks + permissions)
+    # 0. Create directories
+    mkdir -p "$claude_dir/data"
+    mkdir -p "$claude_dir/agents"
+
+    # 1. Generate project.json (project config extracted from central registry)
+    info "Generating project.json"
+    generate_project_json "$project" > "$claude_dir/data/project.json"
+    ok "Written project.json"
+
+    # 2. Generate settings.json (hooks + permissions)
     if [ -f "$claude_dir/settings.json" ]; then
         warn "settings.json already exists — backing up to settings.json.bak"
         cp "$claude_dir/settings.json" "$claude_dir/settings.json.bak"
@@ -162,7 +171,7 @@ cmd_project() {
     generate_settings > "$claude_dir/settings.json"
     ok "Written settings.json"
 
-    # 2. Generate .mcp.json
+    # 3. Generate .mcp.json
     local mcp_file="$project_path/.mcp.json"
     if [ -f "$mcp_file" ]; then
         warn ".mcp.json already exists — skipping (remove to regenerate)"
@@ -172,15 +181,7 @@ cmd_project() {
         ok "Written .mcp.json"
     fi
 
-    # 3. Create data directory
-    mkdir -p "$claude_dir/data"
-    ok "Created .claude/data/"
-
-    # 4. Create agents directory
-    mkdir -p "$claude_dir/agents"
-    ok "Created .claude/agents/"
-
-    # 5. Update .gitignore
+    # 4. Update .gitignore
     update_gitignore "$project_path"
 
     echo ""
@@ -248,15 +249,17 @@ cmd_status() {
     echo "Configured projects:"
     for proj in $(list_projects); do
         local ppath=$(get_project_path "$proj")
+        local has_project="✗"
         local has_settings="✗"
         local has_agents="✗"
         local has_mcp="✗"
 
+        [ -f "$ppath/.claude/data/project.json" ] && has_project="✓"
         [ -f "$ppath/.claude/settings.json" ] && has_settings="✓"
         [ -d "$ppath/.claude/agents" ] && [ "$(ls -A "$ppath/.claude/agents" 2>/dev/null)" ] && has_agents="✓"
         [ -f "$ppath/.mcp.json" ] && has_mcp="✓"
 
-        echo "  $proj: settings=$has_settings agents=$has_agents mcp=$has_mcp"
+        echo "  $proj: project=$has_project settings=$has_settings agents=$has_agents mcp=$has_mcp"
     done
     echo ""
 }
@@ -303,6 +306,50 @@ cmd_uninstall() {
 }
 
 # --- Generators ---
+
+generate_project_json() {
+    local project="$1"
+    python3 -c "
+import json, sys
+
+with open('$PROJECTS_FILE') as f:
+    data = json.load(f)
+
+project = data['projects'].get('$project')
+if not project:
+    print('ERROR: Project not found', file=sys.stderr)
+    sys.exit(1)
+
+vault = data.get('obsidian_vault', '')
+
+output = {
+    'name': '$project',
+    'type': project.get('type', 'single'),
+    'description': project.get('description', ''),
+    'tags': project.get('tags', []),
+    'obsidian': {
+        'vault': vault,
+        'project_dir': 'projects/$project',
+    } if vault else None,
+    'git': project.get('git', {}),
+    'repositories': project.get('repositories', {}),
+    'testing': project.get('testing', {}),
+    'docker': project.get('docker', {}),
+    'agent_config': {
+        'recursive_agents': False,
+        'max_depth': 3,
+        'review_debate': True,
+        **project.get('agent_config', {}),
+    },
+}
+
+# Remove None values
+output = {k: v for k, v in output.items() if v is not None}
+
+json.dump(output, sys.stdout, indent=2, ensure_ascii=False)
+print()
+"
+}
 
 generate_instructions() {
     cat << 'INSTRUCTIONS'

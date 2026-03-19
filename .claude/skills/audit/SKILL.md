@@ -38,7 +38,7 @@ You are the documentation audit orchestrator. Compare documented conventions aga
 ### Phase 0: Read Project Configuration
 
 ```
-1. Read `.claude/data/projects.json` - get active project config
+1. Read `.claude/data/project.json` - get project config
 2. Read project's `.claude/CLAUDE.md` - documented conventions
 3. Read `.claude/patterns.md` - if exists
 4. Read `CONTRIBUTING.md` - if exists

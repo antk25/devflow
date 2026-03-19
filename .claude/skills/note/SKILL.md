@@ -34,11 +34,11 @@ You are the Obsidian vault integration handler. Follow these steps based on the 
 
 ### Phase 0: Config (all commands)
 
-1. Read `.claude/data/projects.json` — get `active` project name and `obsidian_vault` path
-2. Set vault base: `<obsidian_vault>/projects/<active_project>/`
-3. If `obsidian_vault` is not set, report error and stop:
+1. Read `.claude/data/project.json` — get project `name` and `obsidian` config (`vault`, `project_dir`)
+2. Set vault base: `<obsidian.vault>/<obsidian.project_dir>/`
+3. If `obsidian` is not set, report error and stop:
    ```
-   Obsidian vault not configured. Add "obsidian_vault" to .claude/data/projects.json
+   Obsidian not configured. Add "obsidian" section to .claude/data/project.json
    ```
 4. If vault base dir doesn't exist yet, that's OK — commands like `save` will create it
 

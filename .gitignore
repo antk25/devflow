@@ -29,3 +29,8 @@ mcp-servers/*/node_modules/
 .zed/
 .vscode/
 .idea/
+
+# DevFlow (auto-generated)
+.claude/data/
+.claude/settings.json
+.mcp.json

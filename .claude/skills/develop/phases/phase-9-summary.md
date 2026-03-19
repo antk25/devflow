@@ -120,8 +120,8 @@ Rows sorted by priority: high → medium → low.
 
 5. **Save to Obsidian:**
    ```bash
-   VAULT_PATH=<obsidian_vault from projects.json>
-   NOTES_DIR="$VAULT_PATH/projects/<project>/improvement-notes"
+   VAULT_PATH=<obsidian.vault from project.json>
+   NOTES_DIR="$VAULT_PATH/<obsidian.project_dir>/improvement-notes"
    mkdir -p "$NOTES_DIR"
    # Write file: <NOTES_DIR>/<branch-slug>-improvements.md
    ```

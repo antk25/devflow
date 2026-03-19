@@ -167,14 +167,14 @@ Analyze the merged contract and the feature description to generate scenarios:
 
 ## Step 2: Save Contract to Obsidian
 
-1. Read `obsidian_vault` from `.claude/data/projects.json`
-2. Build path: `<obsidian_vault>/projects/<project>/contracts/<branch>-<feature_slug>.md`
-3. Create directory if needed: `mkdir -p <obsidian_vault>/projects/<project>/contracts/`
+1. Read `obsidian` config from `.claude/data/project.json`
+2. Build path: `<obsidian.vault>/<obsidian.project_dir>/contracts/<branch>-<feature_slug>.md`
+3. Create directory if needed: `mkdir -p <obsidian.vault>/<obsidian.project_dir>/contracts/`
 4. Write the contract file
 5. Store the full path as `contract_path`
 
 ```bash
-mkdir -p <obsidian_vault>/projects/<project>/contracts/
+mkdir -p <obsidian.vault>/<obsidian.project_dir>/contracts/
 # Write contract content to file
 ```
 

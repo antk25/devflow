@@ -2,7 +2,7 @@
 # obsidian-active.sh — List active Obsidian documents for a project
 #
 # Usage: obsidian-active.sh [project_name]
-#   If project_name is omitted, uses the active project.
+#   If project_name is omitted, uses local project.json or active project.
 #
 # Output: JSON with active contracts, TZ, and improvement-notes.
 # Exit codes:
@@ -13,7 +13,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECTS_FILE="$DEVFLOW_DIR/.claude/data/projects.json"
 
 PROJECT="${1:-}"
 
@@ -21,19 +20,40 @@ python3 -c "
 import json, os, re, sys
 from pathlib import Path
 
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
+project = '${PROJECT}'
+vault = ''
+project_dir_rel = ''
 
-project = '${PROJECT}' or data.get('active', '')
+# Try local project.json first
+local_config = os.path.join(os.getcwd(), '.claude', 'data', 'project.json')
+if os.path.isfile(local_config):
+    with open(local_config) as f:
+        cfg = json.load(f)
+    if not project:
+        project = cfg.get('name', '')
+    obsidian = cfg.get('obsidian', {})
+    vault = obsidian.get('vault', '')
+    project_dir_rel = obsidian.get('project_dir', f'projects/{project}')
+
+# Fallback: central projects.json
+if not vault:
+    projects_file = '$DEVFLOW_DIR/.claude/data/projects.json'
+    if os.path.isfile(projects_file):
+        with open(projects_file) as f:
+            data = json.load(f)
+        if not project:
+            project = data.get('active', '')
+        vault = data.get('obsidian_vault', '')
+        project_dir_rel = f'projects/{project}'
+
 if not project:
     sys.exit(0)
 
-vault = data.get('obsidian_vault', '')
 if not vault or not os.path.isdir(vault):
     print(json.dumps({'error': 'vault not accessible', 'vault': vault}))
     sys.exit(1)
 
-project_dir = Path(vault) / 'projects' / project
+project_dir = Path(vault) / project_dir_rel
 result = {
     'project': project,
     'vault': vault,
@@ -68,7 +88,6 @@ if contracts_dir.is_dir():
         status = fm.get('status', 'unknown')
         if status in ('completed',):
             continue
-        # Extract first heading as title
         title_match = re.search(r'^#\s+(.+)$', body, re.MULTILINE)
         title = title_match.group(1) if title_match else f.stem
         result['contracts'].append({
