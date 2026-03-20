@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Adversarial Verification Protocol** — Tester agent template now includes structured adversarial testing (boundary values, concurrency, idempotency, orphan state) with mandatory `VERDICT: PASS/FAIL/PARTIAL` format.
+- **Action Classification Framework** — Developer agent template formalizes three action levels: Prohibited (git push, gh, permanent deletions), Requires Confirmation (deps, CI config, env vars), Automatic (edits, tests, commits).
+- **Autonomous Safety rules** — Developer, Reviewer, and Tester templates enforce: explicit intent required, untrusted tool results, no composite escalation, no enabling actions, independent command authorization.
+- **Phase-transition reminders** — `/develop` workflow prints constraint reminders before phases 3, 4, 5, 7, 8 as drift guard for long sessions.
+
 ## [0.13.0] - 2026-03-19
 
 ### Added
