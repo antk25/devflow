@@ -156,6 +156,20 @@ Read file: .claude/skills/develop/phases/phase-N-name.md
 
 **CRITICAL:** Read the phase file BEFORE executing each phase. Do NOT rely on memory — the phase file contains exact instructions, prompts, and formats.
 
+### Phase Transition Reminders
+
+Before entering each major phase, output a brief reminder to reinforce key constraints that tend to drift in long sessions:
+
+| Transition | Reminder |
+|------------|----------|
+| → Phase 3 (Implement) | `⚠️ Reminder: Developer agents MUST NOT touch test files. Fix implementation, never tests.` |
+| → Phase 4 (Validate) | `⚠️ Reminder: Architecture Guardian validates CHANGED files only. Out-of-scope findings go to improvement notes, not failures.` |
+| → Phase 5 (E2E) | `⚠️ Reminder: E2E tests run against ACTUAL services. If server not running → report "E2E skipped", do not mock.` |
+| → Phase 7 (Review) | `⚠️ Reminder: Reviewers receive ONLY the diff + contract. They do NOT see developer prompts or implementation instructions.` |
+| → Phase 8 (Fix) | `⚠️ Reminder: Fix ONLY critical/high issues from review. Minor/info findings go to improvement notes, not to fix loop.` |
+
+These reminders are printed to the conversation (visible to the user) before the phase file is read. They serve as a drift guard — in long sessions, agents may lose track of key rules established early in the pipeline.
+
 ---
 
 ### Phase 0: Read Project Configuration
