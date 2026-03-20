@@ -357,7 +357,14 @@ generate_instructions() {
 
 ## Auto-Routing (Smart Task Dispatch)
 
-When the user sends a task description **without a slash command**, analyze the intent and invoke the appropriate skill automatically. Do NOT ask which command to use — route it yourself.
+**IMPORTANT:** When the user sends a task description **without a slash command**, you MUST analyze the intent and invoke the appropriate skill automatically via the `Skill` tool. Do NOT ask the user which command to use — route it yourself.
+
+### How it works
+
+1. User sends a message (not a slash command, not a question about the codebase)
+2. You analyze the intent using the routing matrix below
+3. You briefly announce the chosen route: `→ /review` (one line, no explanation)
+4. You invoke `Skill(skill: "<name>", args: "<user's message>")` immediately
 
 ### Routing Matrix (priority order, first match wins)
 
@@ -375,6 +382,7 @@ When the user sends a task description **without a slash command**, analyze the 
 - Questions about code → answer directly, don't route
 - Explicit slash command → use that command, don't re-route
 - Ambiguous → ask user with 2 options
+- **Always use the `Skill` tool** to invoke commands — never execute the workflow manually
 
 ## Project Auto-Restore (SessionStart Hook)
 
