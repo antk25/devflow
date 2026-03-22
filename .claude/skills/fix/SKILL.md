@@ -136,9 +136,51 @@ Do NOT include full file contents or raw grep output.",
 )
 ```
 
+### Phase 2.5: Runtime Debug (conditional)
+
+**When to use:** Phase 2 returned `Confidence: low` or `Confidence: medium`, meaning the root cause is unclear from static analysis alone.
+
+**When to skip:** Phase 2 returned `Confidence: high` — root cause is clear, proceed to Phase 3.
+
+1. **Resolve project debug agent:**
+   ```bash
+   DEBUG_AGENT=$(./scripts/resolve-agent.sh <repo_path> "Debugger")
+   ```
+
+2. **If project debug agent exists**, read it and spawn Debugger:
+   ```
+   Task(
+     description: "Debug: <issue>",
+     prompt: "Diagnose this issue using runtime debugging:
+
+   ## Issue
+   <issue description>
+
+   ## Static Analysis Findings (from Phase 2)
+   <search results — affected files, observations, partial analysis>
+
+   ## Debug Tools
+   <contents of project debug agent file>
+
+   ## Instructions
+   1. Use run_and_catch to reproduce the failing scenario
+   2. Use inspect_at on suspect locations identified by static analysis
+   3. Use eval to test hypotheses about state/values
+   4. Identify the root cause with high confidence
+
+   Return your findings in the standard Debugger output format (JSON).",
+     subagent_type: "Debugger",
+     model: "sonnet"
+   )
+   ```
+
+3. **If no project debug agent**, skip — proceed to Phase 3 with Phase 2 findings.
+
+4. **Use Debugger results** to enrich Phase 3: the developer agent receives precise root cause, file:line, and runtime evidence.
+
 ### Phase 3: Implement Fix
 
-Based on search results, spawn appropriate developer agent:
+Based on search results (and debug findings if Phase 2.5 ran), spawn appropriate developer agent:
 
 ```
 Task(
@@ -149,10 +191,10 @@ Task(
 <issue description>
 
 ## Root Cause
-<from Phase 2>
+<from Phase 2, enriched by Phase 2.5 debug findings if available>
 
 ## Affected Files
-<from Phase 2>
+<from Phase 2 and/or Phase 2.5>
 
   <if lessons_context is not empty, append:>
 

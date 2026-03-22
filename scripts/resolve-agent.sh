@@ -40,6 +40,9 @@ case "$AGENT_TYPE" in
     "Tester")
         CANDIDATES=("tester.md")
         ;;
+    "Debugger")
+        CANDIDATES=("debugger.md")
+        ;;
     *)
         # Unknown type — try kebab-case of the name, then developer.md
         KEBAB=$(echo "$AGENT_TYPE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')

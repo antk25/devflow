@@ -89,7 +89,14 @@ Return:
 
 ### Phase 3: Deep Analysis
 
-For each candidate location, analyze:
+Resolve the project debug agent and use the Debugger for deep analysis:
+
+```bash
+DEBUG_AGENT=$(./scripts/resolve-agent.sh <repo_path> "Debugger")
+# If found, read its contents for the Debug Tools section
+```
+
+For each candidate location, analyze using the Debugger agent:
 
 ```
 Task(
@@ -103,7 +110,19 @@ Task(
 <file:lines>
 
 ## Context
-<surrounding code, related files>
+<surrounding code, related files from Phase 2>
+
+<if DEBUG_AGENT exists, append:>
+
+## Debug Tools
+<contents of project debug agent file>
+
+Use runtime inspection (Phase 2.5) to verify hypotheses:
+- run_and_catch to reproduce the issue
+- inspect_at on suspect locations
+- eval to check state and test theories
+
+<endif>
 
 ## Instructions
 Analyze for:
@@ -116,11 +135,12 @@ Analyze for:
 7. Async/await issues
 8. Resource leaks
 
-Return:
-- Specific problems found
-- Evidence supporting each finding
-- Confidence level (high/medium/low)",
-  subagent_type: "general-purpose",
+Return your findings in the standard Debugger output format (JSON):
+- status, root_cause, confidence, file, line
+- hypotheses (title, likelihood, verified, evidence)
+- proposed_fixes (description, files, risk, recommended)
+- summary",
+  subagent_type: "Debugger",
   model: "sonnet"
 )
 ```
