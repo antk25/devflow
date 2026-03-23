@@ -299,6 +299,60 @@ Wraps up the current task context:
 
 ---
 
+## DevFlow Health Monitor (`/monitor`)
+
+```
+/monitor                    # Full analysis for last 7 days
+/monitor --period 30d       # Custom period
+/monitor --project captivia # Project filter
+/monitor trends             # Statistics and trends
+```
+
+Standalone diagnostic tool that analyzes session logs:
+```
+load sessions.json → check failures/stuck/loops → scan summaries for recurring problems → check interruption rates → review lessons-learned → report
+```
+
+**No code modifications** — pure analysis and reporting.
+
+**Checks performed:**
+- Failed sessions (status: failed)
+- Stuck sessions (status: running > 2h)
+- Retry loop fires (arch_validation, review_fix, test_fix)
+- Empty sessions (≤1 completed phase)
+- Phase failures/warnings
+- Recurring problems in session summaries
+- High interruption rates per project
+- Recurring violations in lessons-learned
+
+**Trends mode** additionally reports:
+- Skill usage (tracked sessions + log mentions)
+- Agent activity (developer, guardian, reviewer, tester, tracer spawns)
+- Average session duration
+- Completion rates
+
+**Auto-monitoring:** SessionEnd hook runs lightweight check (`monitor-check.py quick`) after every session. Desktop notification on critical/high findings.
+
+---
+
+## Careful Mode (`/careful`)
+
+```
+/careful          # Activate — destructive commands require manual approval
+/careful off      # Deactivate
+```
+
+Temporary guard for production-adjacent work. Creates `.claude/data/careful-mode.json` flag file that `auto-approve.sh` checks on every tool call. **No session restart needed.**
+
+**Blocked commands in careful mode:**
+- `rm -rf`, `rm -r` — recursive deletion
+- `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, `DELETE FROM` — destructive SQL
+- `kubectl delete`, `docker rm`, `docker rmi`, `docker system prune`
+- `git reset --hard`, `git checkout --`, `git clean`
+- `chmod 777`, `kill -9`
+
+---
+
 ## E2E Testing
 
 After implementation, the orchestrator verifies the feature works:

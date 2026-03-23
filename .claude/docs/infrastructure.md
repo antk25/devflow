@@ -119,6 +119,25 @@ The `settings.json` pre-approves common development commands:
 - `gh` - GitHub CLI commands
 - `ssh`, `scp`, `rsync` - remote operations
 
+### Careful Mode (`/careful`)
+
+Temporary guard that blocks destructive commands. Useful when working near production or sensitive data.
+
+```
+/careful          # Activate — blocks destructive commands
+/careful off      # Deactivate — return to normal auto-approve
+```
+
+**How it works:** `/careful` creates `.claude/data/careful-mode.json` with a list of blocked patterns. The existing `auto-approve.sh` hook checks for this file on every tool call. No session restart needed.
+
+**Blocked in careful mode:**
+- `rm -rf`, `rm -r` — recursive deletion
+- `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, `DELETE FROM` — destructive SQL
+- `kubectl delete` — Kubernetes resource deletion
+- `docker rm`, `docker rmi`, `docker system prune` — Docker cleanup
+- `git reset --hard`, `git checkout --`, `git clean` — git state destruction
+- `chmod 777`, `kill -9` — dangerous system operations
+
 ### Multi-Repository Git Operations
 
 For projects with separate frontend/backend repos:

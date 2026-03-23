@@ -11,7 +11,7 @@ DevFlow uses a **two-tier skill distribution** model:
 ├── skills/                             ← DevFlow skills (installed via setup)
 │   ├── develop/SKILL.md
 │   ├── fix/SKILL.md
-│   └── ... (13 skills)
+│   └── ... (15 skills)
 ├── devflow-instructions.md             ← Core instructions (auto-routing, agents, conventions)
 └── CLAUDE.md                           ← @devflow-instructions.md + @RTK.md + ...
 
@@ -56,7 +56,7 @@ Run once after cloning devflow:
 ```
 
 This:
-1. Copies 13 devflow skills to `~/.claude/skills/` (marked with `.devflow-managed`)
+1. Copies 15 devflow skills to `~/.claude/skills/` (marked with `.devflow-managed`)
 2. Writes `~/.claude/devflow-instructions.md` (auto-routing, agent selection, conventions)
 3. Adds `@devflow-instructions.md` to `~/.claude/CLAUDE.md` (if not already there)
 

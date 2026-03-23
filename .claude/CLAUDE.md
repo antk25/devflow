@@ -225,6 +225,7 @@ Commands that modify code handle git automatically:
 | `/resume` | (existing work branch) | - | continues from interrupted |
 | `/recall` | - | - | No changes (read-only search) |
 | `/monitor` | - | - | No changes (read-only analysis) |
+| `/careful` | - | - | No changes (activates/deactivates hook guard) |
 | `/next` | - | - | No changes (context wrap-up) |
 
 - Branch naming convention read from project

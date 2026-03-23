@@ -169,8 +169,10 @@ Task(
 ## Instructions
   <if lessons_context is not empty, append:>
 
-  ## Lessons Learned (DO NOT repeat these mistakes)
-  <lessons_context>
+  ## Gotchas (DO NOT repeat these mistakes)
+  <Extract the 5 most recent entries from lessons_context.
+   Format each as a single line: "- **Anti-pattern:** X → **Do instead:** Y (files: Z)"
+   Keep total under 500 chars. Omit older entries if over limit.>
 
   <endif>
 

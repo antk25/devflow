@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Project Constitution** — projects can define `.claude/constitution.md` with non-negotiable architectural principles (Articles). Architecture Guardian enforces them before (Phase 2.9) and after (Phase 4) implementation. Template: `.claude/constitution.template.md`.
+- **`/careful` skill** — temporary guard that blocks destructive commands (`rm -rf`, `DROP TABLE`, `kubectl delete`, `docker rm`, `git reset --hard`, etc.) via auto-approve hook flag file. No session restart needed.
+- **Gotchas injection** — lessons-learned are now formatted as compact top-5 "Gotchas" and injected into developer agents (Phase 3), Architecture Guardian (Phase 4), and `/fix` skill.
+- **Skill usage metrics** in `/monitor trends` — tracks agent spawns, avg session duration, skill mentions in session logs.
+
+### Changed
+- `auto-approve.sh` now checks for `.claude/data/careful-mode.json` flag on every tool call.
+- "Lessons Learned" sections in agent prompts renamed to "Gotchas" with compact format (max 500 chars).
+
 ## [0.15.0] - 2026-03-23
 
 ### Added
