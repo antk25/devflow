@@ -50,6 +50,13 @@ Task(
 
   <endif>
 
+  <if lessons_context is not empty, append:>
+
+  ## Known Gotchas (check these specifically)
+  <Extract the 5 most recent entries from lessons_context as single-line items.>
+
+  <endif>
+
   Return TWO sections:
 
   ## Validation Result

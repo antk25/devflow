@@ -13,6 +13,7 @@ Or use a command directly:
 • `/develop` · `/fix` · `/refactor` · `/explore` · `/investigate` · `/review`
 • `/finalize` · `/audit` · `/note` · `/resume` · `/recall` · `/next` · `/project`
 • `/monitor` — DevFlow health check and improvement suggestions
+• `/careful` — block destructive commands (rm -rf, DROP TABLE, etc.)
 
 Ready to build!
 ```
@@ -162,6 +163,7 @@ When spawning agents, skills check for project agents and prepend their content 
 | Generate project agents | `/project agents` | Analyze code, create project-specific agents |
 | Check DevFlow health | `/monitor` | Analyze logs, find problems, suggest improvements |
 | View trends/stats | `/monitor trends` | Session statistics over time |
+| Block dangerous commands | `/careful` | Activate careful mode for prod-adjacent work |
 
 ## Project Constitution
 

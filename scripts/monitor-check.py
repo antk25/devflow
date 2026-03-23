@@ -421,6 +421,9 @@ def compute_trends(sessions: dict, period: timedelta) -> dict:
         "loop_fires": 0,
         "avg_phases": 0,
         "phases_list": [],
+        "agent_spawns": Counter(),
+        "avg_duration_minutes": 0,
+        "durations": [],
     }
 
     for key, s in sessions.items():
@@ -440,16 +443,81 @@ def compute_trends(sessions: dict, period: timedelta) -> dict:
             if loop_data.get("attempt", 0) > 0:
                 stats["loop_fires"] += 1
 
+        # Track agent spawns from phase_history
+        for phase in s.get("phase_history", []):
+            phase_name = phase.get("phase", "")
+            if "implement" in phase_name:
+                stats["agent_spawns"]["developer"] += 1
+            elif "validate" in phase_name or "guardian" in phase_name:
+                stats["agent_spawns"]["guardian"] += 1
+            elif "review" in phase_name:
+                stats["agent_spawns"]["reviewer"] += 1
+            elif "trace" in phase_name:
+                stats["agent_spawns"]["tracer"] += 1
+            elif "test" in phase_name or "e2e" in phase_name:
+                stats["agent_spawns"]["tester"] += 1
+
+        # Track session duration
+        started = parse_iso(s.get("started_at", ""))
+        if started and updated:
+            duration_min = (updated - started).total_seconds() / 60
+            if 0 < duration_min < 600:  # sanity: < 10 hours
+                stats["durations"].append(duration_min)
+
     if stats["phases_list"]:
-        stats["avg_phases"] = sum(stats["phases_list"]) / len(stats["phases_list"])
+        stats["avg_phases"] = round(sum(stats["phases_list"]) / len(stats["phases_list"]), 1)
+
+    if stats["durations"]:
+        stats["avg_duration_minutes"] = round(sum(stats["durations"]) / len(stats["durations"]), 1)
+
+    # Scan INDEX.md files for skill invocations not tracked in sessions.json
+    # (e.g., /review, /explore, /investigate — these don't create sessions)
+    skill_mentions = count_skill_mentions_in_logs(period)
+    if skill_mentions:
+        stats["skill_mentions_in_logs"] = dict(skill_mentions)
 
     # Convert Counters to dicts for JSON serialization
     stats["by_skill"] = dict(stats["by_skill"])
     stats["by_project"] = dict(stats["by_project"])
     stats["by_status"] = dict(stats["by_status"])
+    stats["agent_spawns"] = dict(stats["agent_spawns"])
     del stats["phases_list"]
+    del stats["durations"]
 
     return stats
+
+
+def count_skill_mentions_in_logs(period: timedelta) -> Counter:
+    """Scan session log summaries for skill/command mentions."""
+    now = datetime.now(timezone.utc)
+    skill_pattern = re.compile(r"/(develop|fix|refactor|explore|investigate|review|audit|finalize|resume|recall|monitor|careful|note|next|project)\b")
+    counts = Counter()
+
+    if not SESSIONS_LOG_DIR.exists():
+        return counts
+
+    for proj_dir in SESSIONS_LOG_DIR.iterdir():
+        if not proj_dir.is_dir() or proj_dir.name in ("monitor", "raw"):
+            continue
+        for md_file in proj_dir.rglob("*.md"):
+            if md_file.name == "INDEX.md":
+                continue
+            # Check period
+            try:
+                date_part = md_file.parent.name
+                file_date = datetime.strptime(date_part, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if (now - file_date) > period:
+                    continue
+            except ValueError:
+                continue
+            try:
+                content = md_file.read_text(encoding="utf-8", errors="ignore")[:5000]
+            except Exception:
+                continue
+            for match in skill_pattern.finditer(content):
+                counts[match.group(1)] += 1
+
+    return counts
 
 
 # === Commands ===
@@ -542,6 +610,11 @@ def cmd_trends(args):
         "session_stats": stats,
         "monitor_checks": len(recent_checks),
         "finding_categories": dict(category_counts),
+        "skill_usage": {
+            "tracked_sessions": stats.get("by_skill", {}),
+            "log_mentions": stats.get("skill_mentions_in_logs", {}),
+            "agent_spawns": stats.get("agent_spawns", {}),
+        },
     }
 
     print(json.dumps(output, ensure_ascii=False, indent=2))

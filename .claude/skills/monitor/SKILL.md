@@ -141,9 +141,31 @@ Format the report as follows:
 | Sessions total | N |
 | Completion rate | N% |
 | Avg phases completed | N |
+| Avg session duration | Nm |
 | Loop fires | N |
 | Most used skill | develop (N) |
 | Most active project | captivia (N) |
+
+### Skill Usage
+
+| Skill | Sessions | Log Mentions |
+|-------|----------|--------------|
+| develop | N | N |
+| fix | N | N |
+| review | — | N |
+| ... | ... | ... |
+
+*Sessions = tracked in sessions.json; Log Mentions = found in session summaries*
+
+### Agent Activity
+
+| Agent | Spawns |
+|-------|--------|
+| developer | N |
+| guardian | N |
+| reviewer | N |
+| tester | N |
+| tracer | N |
 
 ### Next Steps
 

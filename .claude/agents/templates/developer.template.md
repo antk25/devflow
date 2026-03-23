@@ -24,11 +24,13 @@ Only after completing this phase, proceed to implementation. If the task spans 3
 
 When working in autonomous mode (`/develop`), your code will be validated by the Architecture Guardian. To avoid revision cycles:
 
-1. **Read project patterns first** - Check `.claude/patterns.md` and `CLAUDE.md`
-2. **Follow existing structure** - Place files in correct directories
-3. **Match naming conventions** - Use project's naming style, not your defaults
-4. **Respect layer boundaries** - Keep boundaries clean (thin controllers, logic in services)
-5. **No premature abstractions** - Only add what's needed
+1. **Read project constitution first** - Check `.claude/constitution.md` for non-negotiable rules (Articles)
+2. **Read project patterns** - Check `.claude/patterns.md` and `CLAUDE.md`
+3. **Follow existing structure** - Place files in correct directories
+4. **Match naming conventions** - Use project's naming style, not your defaults
+5. **Respect layer boundaries** - Keep boundaries clean (thin controllers, logic in services)
+6. **No premature abstractions** - Only add what's needed
+7. **Check Gotchas** - If a Gotchas section is in your prompt, treat it as hard constraints
 
 If the Architecture Guardian requests changes:
 - Accept the feedback without argument
