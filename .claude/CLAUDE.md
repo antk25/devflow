@@ -12,6 +12,7 @@ Or use a command directly:
 
 • `/develop` · `/fix` · `/refactor` · `/explore` · `/investigate` · `/review`
 • `/finalize` · `/audit` · `/note` · `/resume` · `/recall` · `/next` · `/project`
+• `/monitor` — DevFlow health check and improvement suggestions
 
 Ready to build!
 ```
@@ -159,6 +160,8 @@ When spawning agents, skills check for project agents and prepend their content 
 | Recall past session | `/recall <query>` | Search session logs, find context |
 | Done with task, starting next | `/next` | Wrap up context, keep project |
 | Generate project agents | `/project agents` | Analyze code, create project-specific agents |
+| Check DevFlow health | `/monitor` | Analyze logs, find problems, suggest improvements |
+| View trends/stats | `/monitor trends` | Session statistics over time |
 
 ## Project Patterns
 
@@ -213,6 +216,7 @@ Commands that modify code handle git automatically:
 | `/note` | - | - | No changes (writes to vault) |
 | `/resume` | (existing work branch) | - | continues from interrupted |
 | `/recall` | - | - | No changes (read-only search) |
+| `/monitor` | - | - | No changes (read-only analysis) |
 | `/next` | - | - | No changes (context wrap-up) |
 
 - Branch naming convention read from project
