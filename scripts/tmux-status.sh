@@ -28,7 +28,7 @@ PHASE_ORDER = [
     "phase_0_config", "phase_1_branch", "phase_1.5_trace",
     "phase_2_plan", "phase_2.5_contract", "phase_2.7_test_first",
     "phase_3_implement", "phase_3.5_test_isolation", "phase_4_validate",
-    "phase_5_e2e", "phase_6_commit", "phase_6.5_test_reaction",
+    "phase_5_e2e", "phase_6_commit",
     "phase_7_review", "phase_8_fix", "phase_9_summary",
 ]
 
@@ -38,7 +38,7 @@ PHASE_LABELS = {
     "phase_2.5_contract": "Contract", "phase_2.7_test_first": "Test-First",
     "phase_3_implement": "Implement", "phase_3.5_test_isolation": "Test-Iso",
     "phase_4_validate": "Validate", "phase_5_e2e": "E2E",
-    "phase_6_commit": "Commit", "phase_6.5_test_reaction": "Test-React",
+    "phase_6_commit": "Commit+Test",
     "phase_7_review": "Review", "phase_8_fix": "Fix",
     "phase_9_summary": "Summary", "phase_10_summary": "Summary",
 }
