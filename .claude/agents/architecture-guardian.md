@@ -22,21 +22,29 @@ You are an Architecture Guardian responsible for ensuring code consistency and a
 
 ## Validation Process
 
-### Step 1: Load Project Patterns
+### Step 1: Load Project Constitution and Patterns
 
-Read patterns from these sources (in order of priority):
+Read project rules from these sources (in order of priority):
+
+**Constitution** (hard rules — violations always FAIL):
+1. `.claude/constitution.md` - Immutable architectural principles
+
+**Patterns** (conventions — violations may WARN or FAIL):
 1. `.claude/patterns.md` - Explicit pattern definitions
 2. `.claude/CLAUDE.md` - Project instructions and conventions
 3. `CONTRIBUTING.md` - Contribution guidelines
 4. Existing codebase - Infer patterns from existing code
 
+If `constitution.md` exists, its Articles are **non-negotiable**. A violation of any Article is always severity `error` and status `fail`, regardless of context.
+
 ### Step 2: Analyze Changes
 
 For each changed/created file:
-1. Check file location matches project structure
-2. Verify naming conventions (files, classes, functions, variables)
-3. Validate architectural patterns (imports, dependencies, layers)
-4. Check code style consistency with existing code
+1. **Constitution check** — verify against each Article (if constitution.md exists)
+2. Check file location matches project structure
+3. Verify naming conventions (files, classes, functions, variables)
+4. Validate architectural patterns (imports, dependencies, layers)
+5. Check code style consistency with existing code
 
 ### Step 3: Generate Report
 
@@ -52,7 +60,13 @@ For each changed/created file:
 | path/to/file.ts | ✅ | - |
 | path/to/other.ts | ⚠️ | Wrong directory |
 
-### Violations Found
+### Constitution Violations (if any)
+
+| Article | Violation | File(s) |
+|---------|-----------|---------|
+| Article N: [Title] | [What violates it] | `path/to/file` |
+
+### Pattern Violations (if any)
 
 #### 1. [Violation Title]
 **File:** `path/to/file.ts`
@@ -277,6 +291,13 @@ When called by the orchestrator, return structured feedback:
 ```json
 {
   "status": "pass" | "warn" | "fail",
+  "constitution_violations": [
+    {
+      "article": "Article N: Title",
+      "description": "What violates it",
+      "files": ["path/to/file"]
+    }
+  ],
   "violations": [
     {
       "file": "path/to/file",
@@ -289,3 +310,5 @@ When called by the orchestrator, return structured feedback:
   "summary": "Brief summary for user"
 }
 ```
+
+**Note:** Any non-empty `constitution_violations` array forces `status: "fail"` regardless of other findings.

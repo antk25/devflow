@@ -163,9 +163,15 @@ When spawning agents, skills check for project agents and prepend their content 
 | Check DevFlow health | `/monitor` | Analyze logs, find problems, suggest improvements |
 | View trends/stats | `/monitor trends` | Session statistics over time |
 
+## Project Constitution
+
+Projects can define a `constitution.md` with **non-negotiable architectural principles** (Articles). Constitution rules are enforced by the Architecture Guardian both **before** implementation (Phase 2.9 — plan validation) and **after** (Phase 4 — code validation). Constitution violations always result in FAIL status.
+
+See `.claude/constitution.template.md` for the template. Keep under 50 lines — these are hard rules, not guidelines.
+
 ## Project Patterns
 
-Each project should define its patterns in `.claude/patterns.md`. The orchestrator reads these when validating code.
+Each project should define its patterns in `.claude/patterns.md`. The orchestrator reads these when validating code. Patterns are conventions (may WARN or FAIL); constitution Articles are laws (always FAIL).
 
 If no patterns.md exists, the orchestrator will:
 1. Read CLAUDE.md and CONTRIBUTING.md for conventions

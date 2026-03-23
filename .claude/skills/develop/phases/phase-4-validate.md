@@ -26,6 +26,13 @@ Task(
   Repository: <repo_path>
   Changed files: [list]
 
+  <if constitution.md was loaded in Phase 0, append:>
+
+  ## Project Constitution (violations always FAIL)
+  <constitution content>
+
+  <endif>
+
   Project patterns: [patterns from Phase 0]
 
   <if rag_context contains architecture/pattern info, append:>

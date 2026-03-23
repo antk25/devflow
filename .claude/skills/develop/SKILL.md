@@ -144,6 +144,7 @@ Read file: .claude/skills/develop/phases/phase-N-name.md
 | 2 | `phases/phase-2-plan.md` | Always |
 | 2.5 | `phases/phase-2.5-contract.md` | Multi-layer features |
 | 2.7 | `phases/phase-2.7-test-first.md` | If contract generated (acceptance + unit tests) |
+| 2.9 | `phases/phase-2.9-constitution-gate.md` | If constitution.md exists |
 | 3 | `phases/phase-3-implement.md` | Always |
 | 3.5 | `phases/phase-3.5-test-isolation.md` | Always |
 | 4 | `phases/phase-4-validate.md` | Always |
@@ -161,6 +162,7 @@ Before entering each major phase, output a brief reminder to reinforce key const
 
 | Transition | Reminder |
 |------------|----------|
+| → Phase 2.9 (Constitution Gate) | `⚠️ Reminder: Constitution Articles are non-negotiable. Plan violations block implementation.` |
 | → Phase 3 (Implement) | `⚠️ Reminder: Developer agents MUST NOT touch test files. Fix implementation, never tests.` |
 | → Phase 4 (Validate) | `⚠️ Reminder: Architecture Guardian validates CHANGED files only. Out-of-scope findings go to improvement notes, not failures.` |
 | → Phase 5 (E2E) | `⚠️ Reminder: E2E tests run against ACTUAL services. If server not running → report "E2E skipped", do not mock.` |
@@ -187,6 +189,7 @@ done
 
 3. **Read project documentation** (if files exist per `PROJECT_CONFIG.files`):
    - `.claude/CLAUDE.md` — conventions
+   - `.claude/constitution.md` — architectural principles (hard rules for all agents). Store as `constitution_context`. If missing, set `constitution_context = ""`
    - `.claude/patterns.md` — architecture patterns (if > 100 lines, log warning: "patterns.md exceeds 100 lines — consider trimming to examples only")
    - `CONTRIBUTING.md` — contribution guidelines
 

@@ -61,6 +61,8 @@ When the plan involves 2+ layers (API + DB, Handler + Event, etc.) or is a multi
 
 **Test-first from contract (Phase 2.7):** When a contract exists, the Tester agent generates tests from the contract BEFORE implementation (red-green-refactor). Developer agents receive only pass/fail results — they never see test source code (test isolation policy).
 
+**Constitution gate (Phase 2.9):** When `constitution.md` exists, the Architecture Guardian validates the plan against all Articles BEFORE implementation starts. Checks: no Article violations, contracts defined before coding, every new file justified (YAGNI), no premature abstractions (Simplicity Gate). Blocks pipeline if violations found — plan must be adjusted.
+
 **Triple review with debate (Phase 7):** Code review runs Claude Code Reviewer, Qwen Code Review, and ChatGPT Code Review in parallel (Round 1). Then, if `review_debate` is enabled (default), a 3-round adversarial debate follows: Round 2 (Challenge) — each reviewer responds AGREE/CHALLENGE/ESCALATE to others' findings; Round 3 (Defense) — challenged findings get defended with evidence or withdrawn. Withdrawn findings are removed from the final report. Surviving findings are tagged by source and scored by debate outcome. Disable with `--no-debate`.
 
 **Knowledge capture (Phase 9):** After review, the pipeline automatically saves discovered patterns and gotchas to Claude Code auto-memory, and generates Architecture Decision Records (ADRs) when new patterns or technology choices are detected.
