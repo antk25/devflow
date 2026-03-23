@@ -149,7 +149,6 @@ Read file: .claude/skills/develop/phases/phase-N-name.md
 | 4 | `phases/phase-4-validate.md` | Always |
 | 5 | `phases/phase-5-e2e.md` | Always |
 | 6 | `phases/phase-6-commit.md` | Always |
-| 6.5 | `phases/phase-6.5-test-reaction.md` | Always |
 | 7 | `phases/phase-7-review.md` | Always |
 | 8 | `phases/phase-8-fix.md` | If critical issues |
 | 9 | `phases/phase-9-summary.md` | Always |
