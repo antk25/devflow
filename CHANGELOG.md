@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-03-23
+
+### Added
+- **`/monitor` skill** (DF-9) — DevFlow health monitor that analyzes session logs, detects problems, and suggests improvements.
+  - `full` mode — analyzes failed/stuck/looping/empty sessions, recurring problems, interruption rates, lessons-learned violations
+  - `trends` mode — session statistics by skill, project, status over configurable periods
+  - Python analysis script (`scripts/monitor-check.py`) with 7 check types and JSON output
+- **SessionEnd hook** — `session-end-monitor.sh` runs lightweight check after every session, appends findings to `checks.jsonl`, sends desktop notification on critical/high findings.
+- **Runtime debug integration** — stack-agnostic debug tooling for Debugger agent via MCP tools (Xdebug for PHP, Chrome DevTools for JS, etc.).
+
+### Changed
+- **Phase 6.5 merged into Phase 6** — test-reaction step was systematically skipped by LLM (0/19 sessions executed it). Now embedded directly in `phase-6-commit.md`, checkpoint transitions to `phase_7_review`. Eliminates the problematic intermediate decimal phase.
+- **Review skill refactored** — split from single file into orchestrator + phase files architecture for better maintainability.
+
+### Fixed
+- Auto-routing for external projects now explicitly instructs Skill tool invocation.
+
 ## [0.14.0] - 2026-03-20
 
 ### Added
