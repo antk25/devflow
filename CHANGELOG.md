@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-03-24
+
 ### Added
 - **Project Constitution** — projects can define `.claude/constitution.md` with non-negotiable architectural principles (Articles). Architecture Guardian enforces them before (Phase 2.9) and after (Phase 4) implementation. Template: `.claude/constitution.template.md`.
 - **`/careful` skill** — temporary guard that blocks destructive commands (`rm -rf`, `DROP TABLE`, `kubectl delete`, `docker rm`, `git reset --hard`, etc.) via auto-approve hook flag file. No session restart needed.
