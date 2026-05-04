@@ -7,8 +7,7 @@
 #   ./start.sh <project>    # direct project switch → claude
 #   ./start.sh --current    # skip menu, use current active project
 #
-# The selected project becomes active in projects.json.
-# SessionStart hook in Claude Code reads it and restores context.
+# Reads/writes the project registry in .claude/data/projects.json (v3.0 schema).
 
 set -euo pipefail
 
@@ -16,71 +15,51 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECTS_FILE="$SCRIPT_DIR/.claude/data/projects.json"
 GUM="${GUM:-$(command -v gum 2>/dev/null || echo "$HOME/bin/gum")}"
 
-# --- Helpers ---
+py() { python3 -c "$1" 2>/dev/null; }
 
 get_active() {
-    python3 -c "
+    py "
 import json
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-print(data.get('active', '') or '')
-" 2>/dev/null
+print(json.load(open('$PROJECTS_FILE')).get('active') or '')
+"
 }
 
-get_project_field() {
-    local project="$1" field="$2"
-    python3 -c "
+get_path() {
+    py "
 import json
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-p = data['projects'].get('$project', {})
-keys = '$field'.split('.')
-val = p
-for k in keys:
-    if isinstance(val, dict):
-        val = val.get(k, '')
-    else:
-        val = ''
-        break
-print(val or '')
-" 2>/dev/null
+p = json.load(open('$PROJECTS_FILE'))['projects'].get('$1', {})
+print(p.get('path') or '')
+"
 }
 
 set_active() {
-    local project="$1"
-    python3 -c "
+    py "
 import json
-with open('$PROJECTS_FILE', 'r+') as f:
-    data = json.load(f)
-    data['active'] = '$project'
-    f.seek(0)
-    json.dump(data, f, indent=2, ensure_ascii=False)
-    f.truncate()
-" 2>/dev/null
+with open('$PROJECTS_FILE','r+') as f:
+    d = json.load(f)
+    d['active'] = '$1'
+    f.seek(0); json.dump(d, f, indent=2, ensure_ascii=False); f.truncate()
+"
 }
 
 read_projects() {
-    python3 -c "
+    py "
 import json
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-active = data.get('active', '') or ''
-for name, p in data.get('projects', {}).items():
+d = json.load(open('$PROJECTS_FILE'))
+active = d.get('active') or ''
+for name, p in d.get('projects', {}).items():
     marker = ' *' if name == active else ''
-    ptype = p.get('type', 'unknown')
-    desc = p.get('description', '')[:60]
-    print(f'{name}\t{ptype}\t{desc}{marker}')
-" 2>/dev/null
+    desc = (p.get('description') or '')[:60]
+    print(f'{name}\t{desc}{marker}')
+"
 }
 
 validate_project() {
-    local project="$1"
-    python3 -c "
+    py "
 import json
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-print('yes' if '$project' in data.get('projects', {}) else 'no')
-" 2>/dev/null
+d = json.load(open('$PROJECTS_FILE'))
+print('yes' if '$1' in d.get('projects', {}) else 'no')
+"
 }
 
 # --- Preflight ---
@@ -93,16 +72,10 @@ fi
 # --- Parse args ---
 
 SELECTED=""
-SKIP_MENU=false
 
 if [ $# -ge 1 ]; then
     case "$1" in
-        setup)
-            shift
-            exec "$SCRIPT_DIR/scripts/devflow-setup.sh" "$@"
-            ;;
         --current|-c)
-            SKIP_MENU=true
             SELECTED=$(get_active)
             if [ -z "$SELECTED" ]; then
                 echo "No active project set. Run without --current to select one." >&2
@@ -115,8 +88,8 @@ if [ $# -ge 1 ]; then
                 echo "ERROR: Project '$SELECTED' not found in registry" >&2
                 echo ""
                 echo "Available projects:"
-                read_projects | while IFS=$'\t' read -r name ptype desc; do
-                    echo "  - $name ($ptype)"
+                read_projects | while IFS=$'\t' read -r name desc; do
+                    echo "  - $name"
                 done
                 exit 1
             fi
@@ -135,12 +108,11 @@ if [ -z "$SELECTED" ]; then
 
     ACTIVE=$(get_active)
 
-    # Build formatted list: active first, then alphabetical
-    items=$(read_projects | sort -t$'\t' -k1,1 | while IFS=$'\t' read -r name ptype desc; do
+    items=$(read_projects | sort -t$'\t' -k1,1 | while IFS=$'\t' read -r name desc; do
         if [ "$name" = "$ACTIVE" ]; then
-            echo "► $name  ($ptype)  $desc"
+            echo "► $name  $desc"
         else
-            echo "  $name  ($ptype)  $desc"
+            echo "  $name  $desc"
         fi
     done)
 
@@ -160,30 +132,11 @@ if [ -z "$SELECTED" ]; then
     SELECTED=$(echo "$chosen" | sed 's/^[► ] *//' | awk '{print $1}')
 fi
 
-# --- Switch project ---
+# --- Switch active project ---
 
 ACTIVE=$(get_active)
-
 if [ "$SELECTED" != "$ACTIVE" ]; then
-    # Docker stop previous
-    if [ -n "$ACTIVE" ]; then
-        docker_stop=$(get_project_field "$ACTIVE" "docker.stop")
-        if [ -n "$docker_stop" ]; then
-            echo "Stopping $ACTIVE containers..."
-            eval "$docker_stop" >/dev/null 2>&1 &
-        fi
-    fi
-
-    # Update active
     set_active "$SELECTED"
-
-    # Docker start new
-    docker_start=$(get_project_field "$SELECTED" "docker.start")
-    if [ -n "$docker_start" ]; then
-        echo "Starting $SELECTED containers..."
-        eval "$docker_start" >/dev/null 2>&1 &
-    fi
-
     echo "Switched to: $SELECTED"
 else
     echo "Active project: $SELECTED"
@@ -191,29 +144,25 @@ fi
 
 # --- Launch Claude Code ---
 
-PROJECT_PATH=$(get_project_field "$SELECTED" "path")
+PROJECT_PATH=$(get_path "$SELECTED")
 
-# If project is devflow itself, launch from devflow dir (skills are local)
-# Otherwise, launch from project dir (skills come from ~/.claude/skills/)
-if [ "$SELECTED" = "devflow" ]; then
-    echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
-    echo ""
-    exec claude
-else
-    # Check if project is set up for devflow
-    if [ ! -f "$PROJECT_PATH/.claude/settings.json" ]; then
-        echo ""
-        echo "⚠  Project '$SELECTED' is not configured for DevFlow yet."
-        echo "   Run: $SCRIPT_DIR/scripts/devflow-setup.sh project $SELECTED"
-        echo ""
-        read -rp "Launch anyway? [y/N] " answer
-        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
-            exit 0
-        fi
-    fi
-
-    echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
-    echo ""
-    cd "$PROJECT_PATH"
-    exec claude
+if [ -z "$PROJECT_PATH" ] || [ ! -d "$PROJECT_PATH" ]; then
+    echo "ERROR: project path missing or invalid: $PROJECT_PATH" >&2
+    exit 1
 fi
+
+if [ ! -f "$PROJECT_PATH/AGENTS.md" ]; then
+    echo ""
+    echo "⚠  $SELECTED has no AGENTS.md."
+    echo "   Copy template: cp $SCRIPT_DIR/AGENTS.md.template $PROJECT_PATH/AGENTS.md"
+    echo ""
+    read -rp "Launch anyway? [y/N] " answer
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        exit 0
+    fi
+fi
+
+echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
+echo ""
+cd "$PROJECT_PATH"
+exec claude

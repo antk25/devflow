@@ -1,135 +1,95 @@
 #!/bin/bash
-# obsidian-active.sh — List active Obsidian documents for a project
+# obsidian-active.sh — List active Obsidian documents for the current project.
 #
-# Usage: obsidian-active.sh [project_name]
-#   If project_name is omitted, uses local project.json or active project.
+# Reads vault path from <cwd>/AGENTS.md frontmatter.
+# Looks at tz/, research/, plans/ inside the vault and returns items where
+# `status` in frontmatter is set and not equal to "done"/"completed"/"archived".
 #
-# Output: JSON with active contracts, TZ, and improvement-notes.
-# Exit codes:
-#   0 = success (may return empty lists)
-#   1 = vault not configured
+# Output: JSON. Empty lists if nothing active.
+# Exit codes: 0 always (silent on missing AGENTS.md or vault).
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEVFLOW_DIR="$(dirname "$SCRIPT_DIR")"
+AGENTS_FILE="$(pwd)/AGENTS.md"
 
-PROJECT="${1:-}"
+if [ ! -f "$AGENTS_FILE" ]; then
+    exit 0
+fi
 
-python3 -c "
-import json, os, re, sys
+python3 - "$AGENTS_FILE" <<'PY' 2>/dev/null || true
+import json, re, sys
 from pathlib import Path
 
-project = '${PROJECT}'
-vault = ''
-project_dir_rel = ''
+agents_file = Path(sys.argv[1])
+text = agents_file.read_text(encoding='utf-8')
 
-# Try local project.json first
-local_config = os.path.join(os.getcwd(), '.claude', 'data', 'project.json')
-if os.path.isfile(local_config):
-    with open(local_config) as f:
-        cfg = json.load(f)
-    if not project:
-        project = cfg.get('name', '')
-    obsidian = cfg.get('obsidian', {})
-    vault = obsidian.get('vault', '')
-    project_dir_rel = obsidian.get('project_dir', f'projects/{project}')
-
-# Fallback: central projects.json
-if not vault:
-    projects_file = '$DEVFLOW_DIR/.claude/data/projects.json'
-    if os.path.isfile(projects_file):
-        with open(projects_file) as f:
-            data = json.load(f)
-        if not project:
-            project = data.get('active', '')
-        vault = data.get('obsidian_vault', '')
-        project_dir_rel = f'projects/{project}'
-
-if not project:
+if not text.startswith('---'):
     sys.exit(0)
 
-if not vault or not os.path.isdir(vault):
-    print(json.dumps({'error': 'vault not accessible', 'vault': vault}))
-    sys.exit(1)
+parts = text.split('---', 2)
+if len(parts) < 3:
+    sys.exit(0)
 
-project_dir = Path(vault) / project_dir_rel
+fm = {}
+for line in parts[1].strip().splitlines():
+    if ':' in line:
+        k, _, v = line.partition(':')
+        fm[k.strip()] = v.strip()
+
+project = fm.get('project', '')
+vault = fm.get('vault', '')
+
+if not project or not vault or not Path(vault).is_dir():
+    sys.exit(0)
+
+def read_frontmatter(filepath):
+    try:
+        text = filepath.read_text(encoding='utf-8')
+    except Exception:
+        return {}, ''
+    if not text.startswith('---'):
+        return {}, text
+    parts = text.split('---', 2)
+    if len(parts) < 3:
+        return {}, text
+    fm = {}
+    for line in parts[1].strip().splitlines():
+        if ':' in line:
+            k, _, v = line.partition(':')
+            fm[k.strip()] = v.strip()
+    return fm, parts[2].strip()
+
+INACTIVE = {'done', 'completed', 'archived', 'closed'}
+
+def collect(folder, limit=5):
+    out = []
+    d = Path(vault) / folder
+    if not d.is_dir():
+        return out
+    files = sorted(d.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)
+    for f in files[:limit]:
+        meta, body = read_frontmatter(f)
+        status = (meta.get('status') or '').lower()
+        if status in INACTIVE:
+            continue
+        title_match = re.search(r'^#\s+(.+)$', body, re.MULTILINE)
+        title = title_match.group(1) if title_match else f.stem
+        out.append({
+            'file': str(f),
+            'name': f.stem,
+            'status': meta.get('status') or 'unknown',
+            'title': title,
+        })
+    return out
+
 result = {
     'project': project,
     'vault': vault,
-    'contracts': [],
-    'tz': [],
-    'improvements': [],
+    'tz': collect('tz'),
+    'research': collect('research'),
+    'plans': collect('plans'),
 }
-
-def read_frontmatter(filepath):
-    \"\"\"Extract YAML frontmatter from markdown file.\"\"\"
-    try:
-        text = filepath.read_text(encoding='utf-8')
-        if not text.startswith('---'):
-            return {}, text
-        parts = text.split('---', 2)
-        if len(parts) < 3:
-            return {}, text
-        fm = {}
-        for line in parts[1].strip().split('\n'):
-            if ':' in line:
-                key, _, val = line.partition(':')
-                fm[key.strip()] = val.strip()
-        return fm, parts[2].strip()
-    except Exception:
-        return {}, ''
-
-# Active contracts (status != completed)
-contracts_dir = project_dir / 'contracts'
-if contracts_dir.is_dir():
-    for f in sorted(contracts_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True):
-        fm, body = read_frontmatter(f)
-        status = fm.get('status', 'unknown')
-        if status in ('completed',):
-            continue
-        title_match = re.search(r'^#\s+(.+)$', body, re.MULTILINE)
-        title = title_match.group(1) if title_match else f.stem
-        result['contracts'].append({
-            'file': str(f),
-            'name': f.stem,
-            'status': status,
-            'title': title,
-            'branch': fm.get('branch', ''),
-        })
-
-# Active TZ (status != done)
-tz_dir = project_dir / 'tz'
-if tz_dir.is_dir():
-    for f in sorted(tz_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)[:5]:
-        fm, body = read_frontmatter(f)
-        status = fm.get('status', 'unknown')
-        if status in ('done', 'completed'):
-            continue
-        title_match = re.search(r'^#\s+(.+)$', body, re.MULTILINE)
-        title = title_match.group(1) if title_match else f.stem
-        result['tz'].append({
-            'file': str(f),
-            'name': f.stem,
-            'status': status,
-            'title': title,
-        })
-
-# Recent improvement notes (status = new)
-improvements_dir = project_dir / 'improvement-notes'
-if improvements_dir.is_dir():
-    for f in sorted(improvements_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)[:3]:
-        fm, body = read_frontmatter(f)
-        status = fm.get('status', 'new')
-        if status in ('resolved',):
-            continue
-        result['improvements'].append({
-            'file': str(f),
-            'name': f.stem,
-            'status': status,
-            'branch': fm.get('branch', ''),
-        })
 
 json.dump(result, sys.stdout, indent=2, ensure_ascii=False)
 print()
-" 2>/dev/null || echo '{"error": "script failed"}'
+PY

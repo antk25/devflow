@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "qwen-review": {
-      "command": "node",
-      "args": ["__PROJECT_ROOT__/mcp-servers/qwen-review/index.js"]
-    }
-  }
-}

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-03
+
+### Changed — full simplification
+
+DevFlow is now a minimal three-phase workflow (research → plan → implement) with persistence to obsidian. The user drives the work; nothing is automated beyond saving the artifact at the end of each phase.
+
+### Added
+- `/research`, `/plan`, `/implement` skills — each runs in a fresh session, each writes one artifact to the project's obsidian vault (`research/`, `plans/`, `changelog/`).
+- `AGENTS.md` template — model-agnostic project descriptor with frontmatter (`project`, `vault`) plus stack/run/conventions in the body. Replaces `CLAUDE.md` and the per-project `.claude/agents/*` overrides.
+- `install.sh` — symlinks devflow skills into `~/.claude/skills/`. Supports `--check` and `--remove`.
+- New vault layout: `tz/`, `research/`, `plans/`, `changelog/`, `notes/`.
+
+### Removed
+- Skills: `develop`, `fix`, `refactor`, `finalize`, `audit`, `monitor`, `careful`, `resume`, `next`, `explore`, `investigate`, `review`, `recall`.
+- All agent definitions and templates (`.claude/agents/`).
+- All workflow scripts (`create-branch.sh`, `e2e-check.sh`, `monitor-check.py`, `session-log.py`, `check-loop.sh`, `resolve-agent.sh`, `run-tests.sh`, etc.).
+- All workflow hooks except `project-restore.sh` (`auto-approve.sh`, `precompact-snapshot.sh`, `rag-reindex-check.sh`, `session-end-*.sh`).
+- MCP servers `chatgpt-review` and `qwen-review` (used only by the deleted multi-reviewer debate).
+- `.claude/CLAUDE.md`, `.claude/docs/`, constitution and patterns templates.
+- Auto-routing, recursive sub-agents, review debate, contract gates, project constitution.
+
+### Migrated
+- `projects.json` v2.1 → v3.0 (only `path` and `description` per entry; vault and stack info live in each project's `AGENTS.md`).
+- `note` and `project` skills rewritten — `note` now targets the new vault layout, `project` is a thin registry CRUD.
+
+### Notes
+- Existing projects (`captivia`, `rs`, `ipdocs`, etc.) still need to be migrated: replace `CLAUDE.md` with `AGENTS.md`, drop `.claude/agents/` and any old skill directories, refresh `.claude/settings.json` to keep only the `project-restore.sh` hook.
+
 ## [0.16.0] - 2026-03-24
 
 ### Added

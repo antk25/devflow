@@ -5,26 +5,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__PROJECT_ROOT__/.claude/hooks/rag-reindex-check.sh",
-            "timeout": 30,
-            "statusMessage": "Checking RAG knowledge base for updates..."
-          },
-          {
-            "type": "command",
             "command": "__PROJECT_ROOT__/.claude/hooks/project-restore.sh",
             "timeout": 10,
             "statusMessage": "Restoring project context..."
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "__PROJECT_ROOT__/.claude/hooks/auto-approve.sh"
           }
         ]
       }
@@ -37,13 +20,10 @@
       "Edit(*)",
       "Glob(*)",
       "Grep(*)",
-      "Task(*)",
       "Bash(*)",
       "mcp__playwright__*",
       "mcp__context7__*",
-      "mcp__chrome-devtools__*",
-      "mcp__local-rag__*",
-      "mcp__qwen-review__*"
+      "mcp__local-rag__*"
     ],
     "deny": [
       "Bash(git push:*)",
@@ -52,12 +32,6 @@
       "Bash(gh:*)",
       "Bash(gh *)",
       "Bash(*gh *)",
-      "Bash(ssh:*)",
-      "Bash(ssh *)",
-      "Bash(scp:*)",
-      "Bash(scp *)",
-      "Bash(rsync:*)",
-      "Bash(rsync *)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf /)"
     ]

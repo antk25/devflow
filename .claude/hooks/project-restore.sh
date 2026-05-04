@@ -1,80 +1,46 @@
 #!/bin/bash
-# Project Context Auto-Restore
-# Runs at SessionStart to output active project info for Claude to restore context.
+# Project Context Auto-Restore (SessionStart hook)
 #
-# Reads from: .claude/data/project.json (local, per-project config)
-# Fallback:   devflow/.claude/data/projects.json (central registry)
+# Reads the current project's AGENTS.md and emits PROJECT_RESTORE +
+# OBSIDIAN_CONTEXT for Claude to greet the user with active project info.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVFLOW_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
-# Try local project.json first (new per-project config)
-LOCAL_CONFIG="$(pwd)/.claude/data/project.json"
+AGENTS_FILE="$(pwd)/AGENTS.md"
 
-if [ -f "$LOCAL_CONFIG" ]; then
-    # Read from local project config
-    project_info=$(python3 -c "
-import json
-with open('$LOCAL_CONFIG') as f:
-    p = json.load(f)
-name = p.get('name', '')
-ptype = p.get('type', '')
-docker_start = (p.get('docker') or {}).get('start', '')
+if [ ! -f "$AGENTS_FILE" ]; then
+    exit 0
+fi
+
+python3 - "$AGENTS_FILE" <<'PY' 2>/dev/null
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding='utf-8')
+if not text.startswith('---'):
+    sys.exit(0)
+parts = text.split('---', 2)
+if len(parts) < 3:
+    sys.exit(0)
+
+fm = {}
+for line in parts[1].strip().splitlines():
+    if ':' in line:
+        k, _, v = line.partition(':')
+        fm[k.strip()] = v.strip()
+
+name = fm.get('project', '')
+if not name:
+    sys.exit(0)
+
 print('PROJECT_RESTORE')
 print(f'name={name}')
-print(f'type={ptype}')
-print(f'path=$(pwd)')
-print(f'docker_start={docker_start}')
-" 2>/dev/null)
+print(f'path={Path.cwd()}')
+PY
 
-    active=$(python3 -c "
-import json
-with open('$LOCAL_CONFIG') as f:
-    print(json.load(f).get('name', ''))
-" 2>/dev/null)
-else
-    # Fallback: read from central projects.json
-    PROJECTS_FILE="$DEVFLOW_DIR/.claude/data/projects.json"
-
-    if [ ! -f "$PROJECTS_FILE" ]; then
-        exit 0
-    fi
-
-    active=$(python3 -c "
-import json, sys
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-print(data.get('active', '') or '')
-" 2>/dev/null)
-
-    if [ -z "$active" ]; then
-        exit 0
-    fi
-
-    project_info=$(python3 -c "
-import json
-with open('$PROJECTS_FILE') as f:
-    data = json.load(f)
-p = data['projects'].get('$active', {})
-print('PROJECT_RESTORE')
-print(f'name=$active')
-print(f'type={p.get(\"type\",\"\")}')
-print(f'path={p.get(\"path\",\"\")}')
-docker_start = (p.get('docker') or {}).get('start', '')
-print(f'docker_start={docker_start}')
-" 2>/dev/null)
-fi
-
-echo "$project_info"
-
-# Check for interrupted sessions
-interrupted=$(python3 "$DEVFLOW_DIR/scripts/session-log.py" check-interrupted --project "$active" --limit 5 2>/dev/null)
-if [ -n "$interrupted" ]; then
-    echo "$interrupted"
-fi
-
-# Show active Obsidian documents (contracts, TZ)
-obsidian_active=$("$DEVFLOW_DIR/scripts/obsidian-active.sh" "$active" 2>/dev/null)
+# Show active Obsidian documents (tz, research, plans)
+obsidian_active=$("$DEVFLOW_DIR/scripts/obsidian-active.sh" 2>/dev/null)
 if [ -n "$obsidian_active" ] && ! echo "$obsidian_active" | grep -q '"error"'; then
     echo "OBSIDIAN_CONTEXT=$obsidian_active"
 fi

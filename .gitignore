@@ -1,36 +1,22 @@
 # Playwright MCP screenshots
 .playwright-mcp/
 
-# User-specific runtime data (contains local paths, session history, task queue)
-# Use *.example files as templates for initial setup
+# Local DevFlow data — generated from .example templates
 .claude/data/projects.json
-.claude/data/sessions.json
-
-# User-specific configuration (contains absolute paths to hooks, MCP servers)
-# Run ./scripts/setup.sh to generate from templates
-.mcp.json
+.claude/data/projects.json.*.bak
 .claude/settings.json
+.claude/settings.local.json
 
-# Git worktrees created by /develop
-.claude/worktrees/
-
-# LanceDB (local RAG database)
-lancedb/
-
-# Python
+# Python / Node leftovers
 .venv/
 __pycache__/
-
-# Node modules
 node_modules/
-mcp-servers/*/node_modules/
 
 # Editor configs
 .zed/
 .vscode/
 .idea/
 
-# DevFlow (auto-generated)
-.claude/data/
-.claude/settings.json
-.mcp.json
+# Other tool state
+.serena/
+lancedb/

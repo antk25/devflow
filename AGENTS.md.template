@@ -1,0 +1,38 @@
+---
+project: <project-name>
+vault: /mnt/f/notes_2/projects/<project-name>
+---
+
+# <ProjectName>
+
+## What
+<1-2 lines: what the project does and why it exists>
+
+## Stack
+- <language + version>
+- <framework + version>
+- <key dependencies>
+
+## Run
+- Install: `<command>`
+- Dev: `<command>`
+- Test: `<command>`
+- Lint: `<command>`
+
+## Conventions
+- Branch base: `<dev|main>`
+- Commit format: `<example>`
+- <other non-obvious rules: code style, test isolation, type rules>
+
+## Workflow
+Three phases, each in a fresh session:
+
+1. `/research <task>` → `vault/research/<slug>.md`
+2. `/plan <slug>` → `vault/plans/<slug>.md`
+3. `/implement <slug>` → `vault/changelog/<date>-<slug>.md`
+
+Vault layout: `tz/` `research/` `plans/` `changelog/` `notes/`
+
+## Notes
+Use `/note save <title>` during work to persist patterns/rules to `notes/`.
+Use `/recall <query>` to search the vault.

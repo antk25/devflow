@@ -1,626 +1,153 @@
 # DevFlow
 
-Система оркестрации разработки, построенная нативно на [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Координирует специализированных AI-агентов для планирования, реализации, тестирования и ревью задач — от постановки до готовой ветки с атомарными коммитами.
+A minimal three-phase workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), backed by [Obsidian](https://obsidian.md/) for persistence.
 
-## Что умеет
+> **research → plan → implement**, each in its own session, each leaving a written artifact in your obsidian vault.
 
-- **Полностью автономный режим** — от описания задачи до финального коммита без подтверждений
-- **Умная маршрутизация** — просто опиши задачу, оркестратор сам выберет workflow
-- **Мульти-репозиторий** — проекты с раздельным frontend/backend
-- **Двухветочная стратегия** — грязная work-ветка + чистая ветка с атомарными коммитами
-- **Валидация архитектуры** — автоматическая проверка и исправление нарушений паттернов
-- **E2E тестирование** — curl для API, Playwright для UI
-- **Тройное код-ревью с дебатами** — Claude + Qwen + ChatGPT параллельно, затем 3-раундовый состязательный протокол (Independent → Challenge → Defense) для устранения ложных срабатываний
-- **Рекурсивные субагенты** — агенты могут порождать субагентов для декомпозиции сложных задач (настраиваемая глубина, отключаемо)
-- **Генеративный анализ** — агенты пишут и выполняют скрипты анализа (Python/TS) вместо цепочек grep
-- **Структурированный контракт возврата** — обязательный формат ответа субагентов (Answer, Key Files, Implementation Notes) снижает загрязнение контекста
-- **Изоляция тестов** — dev-агенты не трогают тесты, только Tester пишет тесты
-- **Test-first из контракта** — тесты генерируются до реализации (red-green-refactor)
-- **Auto-ADR** — архитектурные решения фиксируются автоматически
-- **Код-ревью** — локальные изменения, GitHub PR, GitLab MR
-- **Интеграция с Obsidian** — контрактная разработка (C-DAD) через vault
+DevFlow does **not** route, branch, commit, review, or otherwise automate. The user drives the work; the skills just structure the phases and persist the output.
 
 ---
 
-## Требования
+## Skills
 
-### Обязательные
+| Skill | What it does | Output |
+|-------|-------------|--------|
+| `/research <task>` | Gather context for a task — read code, ask clarifying questions, list constraints | `<vault>/research/<slug>.md` |
+| `/plan <slug>` | Read a research doc, produce a step-by-step implementation plan | `<vault>/plans/<slug>.md` |
+| `/implement <slug>` | Execute a plan step-by-step under user control, save changelog | `<vault>/changelog/<date>-<slug>.md` |
+| `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
+| `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
 
-| Зависимость | Версия | Назначение |
-|-------------|--------|------------|
-| [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) | 2.0+ | Основная платформа |
-| [Node.js](https://nodejs.org/) | 20+ | MCP серверы, npm-скрипты |
-| [Python](https://www.python.org/) | 3.10+ | Скрипты сессий и конфигурации |
-| Git | 2.30+ | Управление версиями |
-| [gum](https://github.com/charmbracelet/gum) | — | Интерактивное меню `start.sh` (не нужен при вызове `./start.sh <project>`) |
-
-### MCP серверы (проектные)
-
-Конфигурируются автоматически через `setup.sh`:
-
-| Сервер | Назначение | Метод установки |
-|--------|------------|-----------------|
-| qwen-review | Тройное ревью (Qwen) | Встроен, `npm install` |
-| chatgpt-review | Тройное ревью (ChatGPT) | Встроен, `npm install` |
-
-### MCP серверы (опциональные, пользовательские)
-
-Устанавливаются в `~/.claude.json` через `claude mcp add`. Без них оркестратор работает — зависящие фичи пропускаются.
-
-| Сервер | Назначение | Команда установки |
-|--------|------------|-------------------|
-| [context7](https://github.com/upstash/context7) | Актуальная документация библиотек | `claude mcp add context7 -- npx -y @upstash/context7-mcp` |
-| [playwright](https://github.com/anthropics/mcp-playwright) | E2E тестирование в браузере | `claude mcp add playwright -- npx -y @playwright/mcp@latest` |
-| [chrome-devtools](https://github.com/nicholasgriffintn/chrome-devtools-mcp) | Отладка и профилирование браузера | `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest` |
-| [local-rag](https://github.com/jcassee/mcp-local-rag) | RAG база знаний для документации | `claude mcp add local-rag -- npx -y mcp-local-rag` |
+Each phase runs in a fresh session. The artifact from one phase is the input to the next.
 
 ---
 
-## Быстрый старт
+## Project layout
 
-### Установка DevFlow
-
-```bash
-git clone <repo-url> devflow
-cd devflow
-./scripts/setup.sh                    # генерирует .mcp.json, .claude/settings.json
-./scripts/devflow-setup.sh install    # устанавливает скиллы в ~/.claude/skills/
-```
-
-После этого все 13 скиллов DevFlow доступны в **любом** проекте.
-
-### Подключить существующий проект
-
-```bash
-# 1. Зарегистрировать в DevFlow
-cd ~/projects/devflow && claude
-> /project add /path/to/my-project
-# Интерактивно: тип, git-конвенции, docker, testing, obsidian
-
-# 2. Настроить проект
-./start.sh setup project my-project
-# Создаёт: project.json, settings.json, .mcp.json, .gitignore
-
-# 3. Сгенерировать проектных агентов (анализирует код)
-./start.sh my-project
-> /project agents
-
-# 4. Работать — просто опишите задачу
-> добавить фильтр по дате в отчёт
-```
-
-### Создать проект с нуля
-
-```bash
-mkdir ~/projects/new-app && cd ~/projects/new-app && git init
-
-# Зарегистрировать и настроить
-cd ~/projects/devflow && claude
-> /project add /home/user/projects/new-app
-
-./start.sh setup project new-app
-./start.sh new-app
-> создай базовую структуру Node.js проекта с TypeScript
-```
-
-Генерацию агентов (`/project agents`) имеет смысл запускать после появления кода.
-
-### Обновление DevFlow
-
-```bash
-cd ~/projects/devflow && git pull
-
-# Скиллы → обновить глобально
-./start.sh setup update
-
-# Хуки/скрипты → автоматически (абсолютные пути)
-
-# Агенты → перегенерировать per-project
-./start.sh my-project
-> /project agents
-
-# project.json → перегенерировать если изменился формат
-./start.sh setup project my-project
-
-# Проверить статус всех проектов
-./start.sh setup status
-```
-
-### Что где живёт
-
-```
-~/.claude/
-├── skills/                          ← Скиллы DevFlow (все проекты)
-│   ├── develop/, fix/, review/ ...
-├── devflow-instructions.md          ← Инструкции (роутинг, агенты)
-└── CLAUDE.md                        ← @devflow-instructions.md
-
-<project>/
-├── .claude/
-│   ├── data/project.json            ← Конфиг ЭТОГО проекта
-│   ├── data/sessions.json           ← Сессии ЭТОГО проекта
-│   ├── settings.json                ← Хуки → devflow (абс. пути)
-│   ├── agents/                      ← Проектные агенты
-│   └── skills/                      ← Проектные скиллы (опционально)
-└── .mcp.json                        ← MCP серверы → devflow
-
-devflow/
-├── .claude/skills/                  ← Исходники скиллов
-├── .claude/agents/                  ← Дефолтные агенты + шаблоны
-├── .claude/hooks/                   ← Хуки (вызываются по абс. путям)
-├── .claude/data/projects.json       ← Реестр (только для start.sh)
-├── scripts/                         ← devflow-setup.sh, obsidian-*.sh
-└── start.sh                         ← Лаунчер проектов
-```
-
-**Приоритет скиллов:** проектные `.claude/skills/` > пользовательские `~/.claude/skills/`
-
-При запуске увидите:
-
-```
-DevFlow
-
-Просто опишите задачу — я выберу правильный workflow.
-Или используйте команду напрямую:
-
-/develop · /fix · /refactor · /explore · /investigate · /review
-/finalize · /audit · /note · /resume · /recall · /next · /project
-/monitor · /careful
-
-Ready to build!
-```
-
----
-
-## Какую команду выбрать?
-
-Можно не выбирать — просто опишите задачу. Оркестратор автоматически определит тип и запустит нужный workflow.
-
-| Ситуация | Команда | Почему |
-|----------|---------|--------|
-| Новая фича | `/develop` | Полный пайплайн: план, реализация, тройное ревью с дебатами — останавливается на work-ветке |
-| Идея без чёткого плана | `/explore` | Исследование подходов, без изменений |
-| Баг (причина ясна) | `/fix` | Быстро, без планирования |
-| Баг (причина неясна) | `/investigate` | Анализ и гипотезы, без изменений |
-| Улучшение кода | `/refactor` | Пошагово, с сохранением поведения |
-| Ревью своих изменений | `/review` | Перед коммитом |
-| Ревью PR коллеги | `/review --pr 123` | Внешнее код-ревью |
-| Грязная git-история | `/finalize` | Очистка work-ветки перед PR |
-| Документация устарела | `/audit` | Сравнение docs с кодом |
-| Заметки в Obsidian | `/note save` | Сохранить исследования и решения |
-| Прочитать контракт | `/note contract <branch>` | Ревью/одобрение контракта в Obsidian |
-| Сессия прервалась | `/resume` | Продолжить с места остановки |
-| Вспомнить прошлую сессию | `/recall <query>` | Поиск по логам сессий |
-| Закончил задачу, беру следующую | `/next` | Подвести итог, сохранить контекст |
-| Генерация агентов для проекта | `/project agents` | Анализ кода и создание проектных агентов |
-| Проверка здоровья DevFlow | `/monitor` | Анализ логов, поиск проблем, тренды |
-| Блокировка опасных команд | `/careful` | Активация guard-режима для prod-работы |
-
----
-
-## Основные команды
-
-### /develop — Автономная разработка
-
-Полный пайплайн от описания задачи до готовой ветки:
-
-```
-/develop Добавить аутентификацию через JWT
-/develop Реализовать экспорт данных в CSV
-```
-
-**Пайплайн:**
-```
-ветка → [deep trace] → план → [контракт → ревью в Obsidian] → [тесты из контракта] → реализация → валидация архитектуры → E2E тесты → тройное ревью (Claude + Qwen + ChatGPT) → [дебаты] → сохранение знаний → СТОП
-```
-
-После ревью результата: `/finalize` для создания чистой ветки с атомарными коммитами.
-
-**Deep Trace** (автоматически для бизнес-логики): трассировка потоков данных, цепочек событий и связей между сущностями перед планированием — предотвращает баги типа подписки на неправильное событие или неверных связей.
-
-**Контракт (C-DAD)** (автоматически для сложных задач): если план затрагивает 2+ слоя (API + DB, Handler + Event) или мультирепо — генерируется контракт и сохраняется в Obsidian. Пайплайн ставится на паузу. После ревью и правок пользователем — продолжает с контрактом как источником истины. Подробнее см. раздел [Контрактная разработка (C-DAD)](#контрактная-разработка-c-dad).
-
-**Двухветочная стратегия:**
-```
-feature/auth-work  ← атомарные коммиты во время разработки, ревью здесь
-       ↓  (по готовности: /finalize)
-feature/auth       ← чистая ветка с объединёнными коммитами — пушите эту
-```
-
-### /fix — Быстрое исправление
-
-```
-/fix Кнопка логина не реагирует
-/fix TypeError в профиле пользователя
-```
-
-**Пайплайн:** `ветка → поиск → исправление → тест → коммит`
-
-### /investigate — Анализ проблемы
-
-Глубокий анализ **без изменений в коде**:
-
-```
-/investigate Логин не работает в Safari
-/investigate Почему API отвечает медленно?
-```
-
-**Результат:** гипотезы с уверенностью, корневая причина, варианты решений с оценкой сложности.
-
-### /refactor — Рефакторинг
-
-```
-/refactor src/services/auth.ts
-/refactor --extract UserValidator from UserService
-```
-
-**Пайплайн:** `ветка → анализ → пошаговый рефакторинг → валидация → тесты → коммиты`
-
-### /review — Код-ревью
-
-```
-/review                          # Staged-изменения
-/review --pr 123                 # GitHub PR
-/review --branch feature/auth    # Ветка vs main
-/review --focus security         # Фокус на безопасности
-/review --no-debate              # Без протокола дебатов
-```
-
-**Протокол дебатов** (по умолчанию включён): после параллельного ревью три модели оспаривают находки друг друга (AGREE/CHALLENGE/ESCALATE), затем защищают или отзывают оспоренные находки. Выжившие находки имеют более высокую уверенность. Отключить: `--no-debate`.
-
-### /explore — Исследование подхода
-
-```
-/explore Как лучше реализовать уведомления?
-/explore Варианты кеширования для каталога
-```
-
-Исследует кодовую базу, сравнивает подходы, **не вносит изменений**.
-
-### /finalize — Финализация коммитов
-
-```
-/finalize                        # Текущая ветка
-/finalize feature/auth-work      # Конкретная ветка
-```
-
-Создаёт чистую ветку с атомарными коммитами из грязной work-ветки.
-
-### /resume — Продолжение прерванной сессии
-
-```
-/resume                          # Последняя прерванная сессия
-/resume feature/auth-work        # По имени ветки
-/resume list                     # Показать все прерванные сессии
-```
-
-Находит прерванную сессию `/develop`, `/fix` или `/refactor`, проверяет git-состояние и продолжает пайплайн с последней завершённой фазы.
-
-При запуске DevFlow автоматически обнаруживает прерванные сессии и предлагает `/resume`.
-
-### /recall — Поиск по истории сессий
-
-```
-/recall JWT авторизация          # Найти сессию по ключевым словам
-/recall DEV-488                  # Найти по номеру задачи
-```
-
-Ищет в логах прошлых сессий (`session-log.py`). Полезно для восстановления контекста: какие решения принимались, какие файлы менялись, какие проблемы возникали.
-
-### /next — Переход к следующей задаче
-
-```
-/next                            # Подвести итог текущей задачи
-```
-
-Завершает контекст текущей задачи: сохраняет заметки. Проект остаётся активным — можно сразу начать следующую задачу.
-
-### /monitor — Здоровье DevFlow
-
-```
-/monitor                    # Полный анализ за 7 дней
-/monitor --period 30d       # За 30 дней
-/monitor --project captivia # Один проект
-/monitor trends             # Статистика и тренды
-```
-
-Анализирует сессии, находит проблемы (зависшие сессии, циклы валидации, повторяющиеся ошибки) и предлагает улучшения. **Не меняет код.**
-
-**Тренды** включают: частоту использования skill'ов, активность агентов, среднее время сессий, процент завершения.
-
-### /careful — Блокировка опасных команд
-
-```
-/careful          # Включить — опасные команды требуют подтверждения
-/careful off      # Выключить
-```
-
-Активирует guard-режим: `rm -rf`, `DROP TABLE`, `kubectl delete`, `docker rm`, `git reset --hard` и другие деструктивные команды перестают авто-подтверждаться. Работает через существующий `auto-approve.sh` хук, **не требует рестарта сессии**.
-
----
-
-## Мониторинг
-
-### devflow-status — CLI дашборд
-
-```bash
-devflow-status                   # Полный дашборд
-devflow-status session           # Только текущая сессия
-devflow-status recent 5          # Последние 5 сессий
-watch -n2 devflow-status         # Авто-обновление каждые 2 сек
-```
-
-Показывает активную сессию (прогресс-бар фазы, длительность, циклы) и недавние сессии. Bash + встроенный Python, без внешних зависимостей.
-
-### tmux status bar
-
-```bash
-# Добавить в .tmux.conf:
-set -g status-right '#(~/.claude/scripts/tmux-status.sh)'
-```
-
-Компактная строка для tmux (~50 символов): `⏳ /develop Implement 47%`. Без ANSI-цветов.
-
----
-
-## Контрактная разработка (C-DAD)
-
-Contract-Driven AI Development — методология, при которой перед реализацией сложной фичи генерируется формальный контракт (Markdown + YAML), описывающий API, DTO, события, схему БД и компоненты. Контракт становится единым источником истины для всех агентов.
-
-### Когда генерируется контракт
-
-Автоматически (скрипт `require-contract.sh`) при выполнении **любого** из условий:
-- План затрагивает **2+ слоя** (API + DB, Handler + Event, Controller + Service)
-- Фича **мультирепо** (frontend + backend)
-- Есть **новые доменные события** или изменения обработчиков
-- Есть **изменения схемы БД** (миграции, новые таблицы/колонки)
-
-Простые задачи (один файл, один слой) проходят без контракта.
-
-### Жизненный цикл
-
-```
-План (Phase 2) → require-contract.sh → контракт нужен?
-                                           │
-                                    нет    │   да
-                                     ↓     │    ↓
-                                Phase 3    │  Claude + Qwen + ChatGPT генерируют контракт параллельно
-                                           │    ↓
-                                           │  Мерж трёх контрактов
-                                           │    ↓
-                                           │  Сохранение в Obsidian vault
-                                           │    ↓
-                                           │  ⏸ Пауза — ревью в Obsidian
-                                           │    ↓
-                                           │  Пользователь: "go"
-                                           │    ↓
-                                           │  Перечитать контракт (с правками)
-                                           │    ↓
-                                           └→ Phase 3 (реализация)
-```
-
-### Структура контракта
+Every project gets a single `AGENTS.md` at its root. Frontmatter holds the project name and obsidian vault path; the body holds stack, run commands, and conventions:
 
 ```yaml
 ---
-created: 2026-02-19
 project: my-app
-type: contract
-branch: DEV-498-work
-status: draft          # draft → approved → implemented
-sources: [claude, qwen]
+vault: /path/to/obsidian/vault/projects/my-app
 ---
+
+# my-app
+
+## What
+Short description.
+
+## Stack
+- ...
+
+## Run
+- Install: `...`
+- Test: `...`
+
+## Conventions
+- ...
 ```
 
-Секции (только применимые к задаче):
-- **API** — эндпоинты, методы, request/response (YAML)
-- **DTO** — команды, запросы, response-объекты (YAML)
-- **Events** — доменные события и их payload (YAML)
-- **Database** — таблицы, колонки, индексы, миграции (YAML)
-- **Components** — UI-компоненты для мультирепо (YAML)
+See `AGENTS.md.template` for the full skeleton.
 
-### Тройная генерация (Claude + Qwen + ChatGPT)
+The obsidian vault for each project follows this structure:
 
-Контракт генерируется параллельно тремя моделями:
-- **Claude Architect** — основной контракт
-- **Qwen** (через MCP сервер) — альтернативный контракт
-- **ChatGPT** (через MCP сервер) — третий контракт
-
-Результаты мержатся: совпадения остаются как есть, уникальные записи помечаются `# [Claude]`, `# [Qwen]` или `# [ChatGPT]`, расхождения аннотируются для ручного разрешения. Рейтинг уверенности: все 3 согласны → высшая, 2 из 3 → высокая, 1 → обычная.
-
-### Как агенты используют контракт
-
-- **Developer** — реализация строго по YAML-блокам (имена полей, типы, эндпоинты)
-- **Architecture Guardian** — проверяет соответствие реализации контракту
-- **Reviewer** — верифицирует совпадение кода с контрактом
-- **Tester** — генерирует тесты по контрактным спецификациям
-
-### Хранение
-
-Контракты сохраняются в Obsidian vault:
 ```
-<vault>/projects/<project>/contracts/<branch>-<feature>.md
+<vault>/
+├── tz/         — task descriptions / specs
+├── research/   — research artifacts (Phase 1 output)
+├── plans/      — implementation plans (Phase 2 output)
+├── changelog/  — what was changed (Phase 3 output)
+└── notes/      — free-form notes (rules, patterns, decisions)
 ```
-
-Управление: `/note contract <branch>` — прочитать, одобрить или запустить разработку по контракту.
 
 ---
 
-## Агенты
+## Install
 
-Система использует специализированных агентов для разных фаз:
+DevFlow installs its skills as symlinks into `~/.claude/skills/`, so they are available globally.
 
-| Агент | Роль | Когда используется |
-|-------|------|-------------------|
-| **PM** | Менеджер проекта | Анализ требований, декомпозиция задач |
-| **Architect** | Системный архитектор | ADR, технические решения |
-| **JS Developer** | JavaScript/TypeScript | React, Vue, Node.js, TypeScript |
-| **PHP Developer** | PHP | Laravel, Symfony |
-| **Tester** | QA-инженер | Unit, integration, E2E тесты |
-| **Debugger** | Отладчик | Поиск корневых причин, диагностика |
-| **Tracer** | Аналитик бизнес-логики | Трассировка потоков данных перед реализацией |
-| **Reviewer** | Код-ревьюер (Claude + Qwen + ChatGPT) | Тройное ревью с состязательным протоколом дебатов |
-| **Architecture Guardian** | Валидатор паттернов | Проверка на соответствие паттернам проекта |
-
-Агент выбирается автоматически по расширениям файлов, фреймворку и типу задачи.
-
-### Проектные агенты
-
-Проекты могут определять кастомизированных агентов в `<project>/.claude/agents/`, которые переопределяют generic-агентов DevFlow знанием стека, архитектуры и конвенций проекта.
-
-**Порядок разрешения** (через `scripts/resolve-agent.sh`):
-1. `<project>/.claude/agents/<specific>.md` (e.g., `js-developer.md`, `php-developer.md`)
-2. `<project>/.claude/agents/developer.md` (generic developer)
-3. Fallback на generic-агентов DevFlow
-
-**Шаблоны агентов** (`.claude/agents/templates/`) содержат универсальные правила (качество тестов, безопасность, архитектурное соответствие, формат возврата, генеративный анализ, делегирование), которые применяются ко всем проектам. Проектные агенты расширяют их специфичными для стека знаниями.
-
-При спавне агента, скиллы проверяют наличие проектного агента и добавляют его содержимое в промпт с заголовком `## Project-Specific Instructions (PRIORITY)`.
-
-**Генерация агентов:** `/project agents` — анализирует кодовую базу активного проекта (стек, архитектура, паттерны, тесты) и автоматически создаёт нужных агентов.
-
----
-
-## Git-стратегия
-
-| Команда | Work-ветка | Финальная ветка | Коммиты |
-|---------|------------|-----------------|---------|
-| `/develop` | `feature/xxx-work` | — (останавливается на work-ветке) | Атомарные (по стилю проекта) |
-| `/fix` | — | `fix/xxx` | Один коммит |
-| `/refactor` | — | `refactor/xxx` | По шагам |
-| `/investigate` | — | — | Без изменений |
-| `/review` | — | — | Без изменений |
-| `/resume` | (существующая work-ветка) | — | Продолжает с места остановки |
-
-**Безопасность:**
-- `git push` **заблокирован** — вы всегда пушите вручную
-- `gh` (GitHub CLI) **заблокирован** — PR создаёте сами
-- Все изменения остаются локальными
-
-Стиль коммитов анализируется из git-истории проекта и копируется (Conventional Commits, тикеты, plain text).
-
----
-
-## Конфигурация проекта
-
-Проекты регистрируются через `/project add <path>` и хранятся в `.claude/data/projects.json`:
-
-```json
-{
-  "my-app": {
-    "path": "/home/user/projects/my-app",
-    "type": "fullstack",
-    "branch_prefix": "JIRA-",
-    "repositories": {
-      "backend": "/home/user/projects/my-app/backend",
-      "frontend": "/home/user/projects/my-app/frontend"
-    },
-    "testing": {
-      "backend": {
-        "type": "api",
-        "base_url": "http://localhost:8000",
-        "commands": {
-          "unit": "cd {{repo}} && ./vendor/bin/phpunit",
-          "e2e": "curl -s {{base_url}}/api/health | jq ."
-        }
-      },
-      "frontend": {
-        "type": "browser",
-        "base_url": "http://localhost:3000",
-        "commands": {
-          "unit": "cd {{repo}} && npm test",
-          "e2e": "cd {{repo}} && npx playwright test"
-        }
-      }
-    }
-  }
-}
+```bash
+git clone <repo> ~/projects/devflow
+cd ~/projects/devflow
+./install.sh             # creates symlinks
+./install.sh --check     # show status without changing anything
+./install.sh --remove    # remove the symlinks
 ```
 
-Каждый проект может определить паттерны в `.claude/patterns.md` — оркестратор использует их при валидации кода.
-
-### agent_config — настройка поведения агентов
-
-Опциональная секция в конфигурации проекта для управления поведением агентов:
-
-```json
-{
-  "agent_config": {
-    "recursive_agents": false,
-    "max_depth": 3,
-    "review_debate": true
-  }
-}
-```
-
-| Поле | По умолчанию | Описание |
-|------|-------------|----------|
-| `recursive_agents` | `false` | Разрешить субагентам порождать собственных субагентов |
-| `max_depth` | `3` | Максимальная глубина рекурсии субагентов |
-| `review_debate` | `true` | Состязательный протокол дебатов при код-ревью |
+After install, `/research`, `/plan`, `/implement`, `/note`, `/project` are available in any Claude Code session.
 
 ---
 
-## Структура проекта
+## Launching a project
+
+```bash
+./start.sh                # interactive menu (requires gum)
+./start.sh <name>         # switch to a registered project
+./start.sh --current      # use the currently active project
+```
+
+`start.sh` updates `active` in the registry, then `cd`s into the project and runs `claude`. The `SessionStart` hook reads the project's `AGENTS.md` and greets you with active TZ / research / plans.
+
+---
+
+## Adding a new project
+
+```bash
+# from any directory
+/project add /path/to/project [name]
+
+# then create AGENTS.md
+cp ~/projects/devflow/AGENTS.md.template /path/to/project/AGENTS.md
+$EDITOR /path/to/project/AGENTS.md
+```
+
+Configure the SessionStart hook locally (optional but recommended) by copying `.claude/settings.json.example` and replacing `__PROJECT_ROOT__` with the project's absolute path.
+
+---
+
+## Requirements
+
+| Tool | Why |
+|------|-----|
+| [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) 2.0+ | runtime |
+| Python 3.10+ | hook scripts |
+| Bash / Git | basics |
+| [gum](https://github.com/charmbracelet/gum) | optional, for `./start.sh` interactive menu |
+
+---
+
+## Layout
 
 ```
 devflow/
-├── .claude/
-│   ├── CLAUDE.md                    # Контекст и правила маршрутизации
-│   ├── settings.json.example        # Шаблон разрешений и хуков
-│   ├── data/
-│   │   ├── projects.json.example    # Шаблон реестра проектов
-│   │   ├── sessions.json.example    # Шаблон отслеживания сессий
-│   ├── agents/                      # Системные промпты агентов
-│   │   └── templates/               # Универсальные шаблоны (безопасность, тесты, архитектура)
-│   ├── hooks/                       # Хуки Claude Code
-│   │   ├── auto-approve.sh          # Автоодобрение безопасных вызовов (PreToolUse)
-│   │   ├── project-restore.sh       # Восстановление контекста при старте (SessionStart)
-│   │   ├── rag-reindex-check.sh     # Проверка обновлений RAG базы (SessionStart)
-│   │   ├── precompact-snapshot.sh   # Снимок контекста перед сжатием (PreCompact)
-│   │   └── session-end-summarize.sh # Логирование сессии (SessionEnd)
-│   └── skills/                      # Определения slash-команд
+├── AGENTS.md                  — devflow's own AGENTS.md
+├── AGENTS.md.template         — copy into other projects
+├── install.sh                 — symlinks skills into ~/.claude/skills/
+├── start.sh                   — project launcher
+├── skills/
+│   ├── research/   plan/   implement/
+│   ├── note/   project/
+│   └── autoresearch/          — optional, skill self-optimization tool
 ├── scripts/
-│   ├── setup.sh                     # Первоначальная настройка
-│   ├── create-branch.sh             # Создание веток с конвенциями
-│   ├── session-checkpoint.sh        # Отслеживание фаз сессий
-│   ├── session-log.py               # Логирование сессий для /recall
-│   ├── read-project-config.sh       # Чтение конфигурации проекта
-│   ├── run-tests.sh                 # Запуск тестов проекта
-│   ├── e2e-check.sh                 # Проверка E2E тестов
-│   ├── check-loop.sh                # Детекция зацикливания
-│   ├── git-context.sh               # Git-контекст для агентов
-│   ├── resolve-agent.sh              # Разрешение проектного агента по роли
-│   ├── require-contract.sh          # Проверка необходимости контракта
-│   ├── notify.sh                    # Системные уведомления
-│   ├── test-reaction.sh             # Реакция на результаты тестов
-│   ├── devflow-status.sh            # CLI дашборд мониторинга
-│   └── tmux-status.sh               # Компактный статус для tmux
-├── mcp-servers/
-│   ├── qwen-review/                 # Тройное ревью (Qwen)
-│   └── chatgpt-review/              # Тройное ревью (ChatGPT)
-├── .mcp.json.example                # Шаблон конфигурации MCP
-├── start.sh                         # Лаунчер проектов
-└── README.md
+│   └── obsidian-active.sh     — used by SessionStart hook
+└── .claude/
+    ├── hooks/project-restore.sh
+    ├── data/projects.json     — local registry (gitignored)
+    └── settings.json          — local settings (gitignored)
 ```
 
 ---
 
-## Устранение неполадок
+## Philosophy
 
-**Всё ещё запрашивает подтверждения?**
-1. Перезапустите Claude Code — изменения `settings.json` требуют перезапуска
-2. Проверьте `chmod +x .claude/hooks/auto-approve.sh`
-3. Крайний вариант: `claude --dangerously-skip-permissions`
-
-**Git-операции не работают?**
-- Git-команды должны запускаться из директории репозитория, а не из оркестратора
-
-**E2E тесты падают?**
-- Оркестратор фиксирует ошибку, пытается исправить (до 2 попыток), затем продолжает с ревью
+- **Manual control over automation.** No auto-routing, no auto-commits, no auto-PRs. The user drives.
+- **Persistence over agents.** The system's value is the artifact trail in obsidian, not multi-agent orchestration.
+- **Model-agnostic.** `AGENTS.md` is plain markdown so the same project can be opened in any tool that respects it.
+- **Small surface.** Five skills, two scripts, one hook.
 
 ---
 
-## Лицензия
+## License
 
 MIT
