@@ -22,6 +22,7 @@ DevFlow itself is the meta-project. Skills shipped from `skills/` are symlinked 
 - Launch with project picker: `./start.sh` (interactive gum menu)
 
 ## Conventions
+- Model policy: reasoning phases (`/research`, `/plan`, `/code-review`) run on **opus**; writing/editing (`/implement`) runs on **sonnet**. Set per session at launch — `./start.sh <project> <phase>` picks the model, or launch `claude --model opus|sonnet`. The three workflow skills carry a `model:` frontmatter nudge, but that only covers the first turn; the session model is what holds across a phase.
 - Branch base: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).
 - Skills are kept short (target ≤150 lines). Cut anything that isn't actionable.

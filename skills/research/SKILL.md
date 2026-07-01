@@ -1,6 +1,7 @@
 ---
 name: research
 description: Phase 1 of devflow — gather context for a task and save a research document to obsidian. Use when starting a new task. Output is read by /plan in a fresh session.
+model: opus
 user_invocable: true
 arguments:
   - name: task

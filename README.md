@@ -82,12 +82,24 @@ After install, `/research`, `/plan`, `/implement`, `/note`, `/project` are avail
 ## Launching a project
 
 ```bash
-./start.sh                # interactive menu (requires gum)
-./start.sh <name>         # switch to a registered project
-./start.sh --current      # use the currently active project
+./start.sh                     # interactive menu (requires gum)
+./start.sh <name>              # switch to a registered project
+./start.sh <name> <phase>      # phase picks the model (see below)
+./start.sh --current [phase]   # use the currently active project
 ```
 
 `start.sh` updates `active` in the registry, then `cd`s into the project and runs `claude`. The `SessionStart` hook reads the project's `AGENTS.md` and greets you with active TZ / research / plans.
+
+### Model per phase
+
+Reasoning is worth Opus; mechanical edits are cheaper on Sonnet. Because each phase is its own session, the model is chosen at launch:
+
+| Phase | Model | Launch |
+|-------|-------|--------|
+| `research`, `plan`, `review` | **opus** | `./start.sh <name> plan` |
+| `implement` | **sonnet** | `./start.sh <name> implement` |
+
+Without gum, `./start.sh <name> <phase>` still maps the phase to a model; with gum, the launcher asks for the phase after project selection. Launching `claude` directly? Use `claude --model opus` / `claude --model sonnet`. The `/research`, `/plan`, `/implement` skills also carry a `model:` frontmatter hint, but that override only lasts the invoking turn — the session model is what holds across the whole phase.
 
 ---
 

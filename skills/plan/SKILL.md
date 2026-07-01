@@ -1,6 +1,7 @@
 ---
 name: plan
 description: Phase 2 of devflow — read a research document and produce a step-by-step implementation plan in obsidian. Use after /research, in a fresh session. Output is read by /implement.
+model: opus
 user_invocable: true
 arguments:
   - name: slug

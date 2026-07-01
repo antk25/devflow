@@ -1,6 +1,7 @@
 ---
 name: implement
 description: Phase 3 of devflow — execute a plan step-by-step under user control, then save a changelog entry to obsidian. Use after /plan, in a fresh session.
+model: sonnet
 user_invocable: true
 arguments:
   - name: slug
