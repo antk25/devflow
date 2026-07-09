@@ -43,7 +43,13 @@ The user controls the cadence. They may:
 - Stop early.
 - Commit between steps (manually, via `git`).
 
-## Step 4: Write the changelog entry
+## Step 4: Out-of-scope observations
+
+Before writing the changelog, check whether anything surfaced during the work that's outside this plan's scope — tech debt, a bug, a missing test, an optimization. If so, save it via `/note save` (category `notes`, filename `<slug>-observations.md`) and link it from the changelog's Observations section below. If nothing surfaced, skip this step — don't write an empty note or section.
+
+This is separate from Step 3's "Capture learnings": learnings are non-obvious patterns worth remembering for future work; observations here are concrete follow-up items outside this task's scope.
+
+## Step 5: Write the changelog entry
 
 When the user signals "done" (all intended steps finished, or stopping point reached), write `<vault>/changelog/<YYYY-MM-DD>-<slug>.md`:
 
@@ -79,13 +85,16 @@ When the user signals "done" (all intended steps finished, or stopping point rea
 - [ ] <known issue>
 - [ ] <thing flagged for discussion>
 
+## Наблюдения вне scope
+- [[notes/<slug>-observations]] — <one line> (section only if Step 4 produced a note)
+
 ## Notes for review
 <anything a reviewer should pay attention to: trade-offs, surprises, deviations from plan>
 ```
 
 If the work is partial or blocked, be explicit about what's incomplete and why. The changelog is what the user will share with colleagues or read when the task comes back for rework.
 
-## Step 5: Confirm
+## Step 6: Confirm
 
 ```
 ✓ Changelog saved: <vault>/changelog/<YYYY-MM-DD>-<slug>.md

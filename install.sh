@@ -12,7 +12,7 @@ DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
 
 # Skills shipped by devflow (directory names under skills/)
-SKILLS=(research plan implement note project)
+SKILLS=(research plan implement quick note project)
 
 # Optional skills (installed if present)
 OPTIONAL_SKILLS=(autoresearch)

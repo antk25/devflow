@@ -10,7 +10,7 @@
 #
 # <phase> maps to a session model:
 #   research | plan | review  → opus    (deep reasoning)
-#   implement                 → sonnet  (writing / edits)
+#   implement | quick         → sonnet  (writing / edits)
 # Omit <phase> to launch with your default model (interactive menu asks if gum is present).
 #
 # Reads/writes the project registry in .claude/data/projects.json (v3.0 schema).
@@ -24,12 +24,12 @@ GUM="${GUM:-$(command -v gum 2>/dev/null || echo "$HOME/bin/gum")}"
 py() { python3 -c "$1" 2>/dev/null; }
 
 # Map a devflow phase to the model its session should run on.
-# research/plan/review = deep reasoning → opus; implement = writing/edits → sonnet.
+# research/plan/review = deep reasoning → opus; implement/quick = writing/edits → sonnet.
 phase_to_model() {
     case "$1" in
-        research|plan|review) echo "opus" ;;
-        implement|impl)       echo "sonnet" ;;
-        *)                    echo "" ;;
+        research|plan|review)  echo "opus" ;;
+        implement|impl|quick)  echo "sonnet" ;;
+        *)                     echo "" ;;
     esac
 }
 
@@ -187,12 +187,14 @@ if [ -z "$PHASE" ] && [ -x "$GUM" ]; then
         "research   → opus" \
         "plan       → opus" \
         "implement  → sonnet" \
+        "quick      → sonnet" \
         "review     → opus" \
         "(default model)") || phase_pick=""
     case "$phase_pick" in
         research*)  PHASE="research" ;;
         plan*)      PHASE="plan" ;;
         implement*) PHASE="implement" ;;
+        quick*)     PHASE="quick" ;;
         review*)    PHASE="review" ;;
         *)          PHASE="" ;;
     esac

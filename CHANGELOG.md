@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`/quick <task>` skill** — lightweight single-session entry that collapses research → plan → implement for small tasks: fast recon, an inline plan (≤5 lines, no file), controlled edits, one compact changelog. Pushes back and suggests the full pipeline if the task looks too large or risky. Runs on `sonnet`; registered in `install.sh` and `start.sh` (`phase_to_model`, gum menu).
+
+### Changed
+- `/implement` gains a Step 4 "out-of-scope observations" step — tech debt/bugs/missing tests found outside the plan's scope get saved to `<vault>/notes/<slug>-observations.md` and linked from an optional changelog section. Distinct from the existing per-step "Capture learnings".
+
 ## [1.0.0] - 2026-05-03
 
 ### Changed — full simplification

@@ -15,6 +15,7 @@ DevFlow does **not** route, branch, commit, review, or otherwise automate. The u
 | `/research <task>` | Gather context for a task — read code, ask clarifying questions, list constraints | `<vault>/research/<slug>.md` |
 | `/plan <slug>` | Read a research doc, produce a step-by-step implementation plan | `<vault>/plans/<slug>.md` |
 | `/implement <slug>` | Execute a plan step-by-step under user control, save changelog | `<vault>/changelog/<date>-<slug>.md` |
+| `/quick <task>` | Lightweight single-session entry for small tasks — recon, inline plan, controlled edits, one changelog | `<vault>/changelog/<date>-<slug>.md` + `<vault>/notes/` |
 | `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
 | `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
 
@@ -75,7 +76,7 @@ cd ~/projects/devflow
 ./install.sh --remove    # remove the symlinks
 ```
 
-After install, `/research`, `/plan`, `/implement`, `/note`, `/project` are available in any Claude Code session.
+After install, `/research`, `/plan`, `/implement`, `/quick`, `/note`, `/project` are available in any Claude Code session.
 
 ---
 
@@ -97,9 +98,11 @@ Reasoning is worth Opus; mechanical edits are cheaper on Sonnet. Because each ph
 | Phase | Model | Launch |
 |-------|-------|--------|
 | `research`, `plan`, `review` | **opus** | `./start.sh <name> plan` |
-| `implement` | **sonnet** | `./start.sh <name> implement` |
+| `implement`, `quick` | **sonnet** | `./start.sh <name> implement` |
 
-Without gum, `./start.sh <name> <phase>` still maps the phase to a model; with gum, the launcher asks for the phase after project selection. Launching `claude` directly? Use `claude --model opus` / `claude --model sonnet`. The `/research`, `/plan`, `/implement` skills also carry a `model:` frontmatter hint, but that override only lasts the invoking turn — the session model is what holds across the whole phase.
+Without gum, `./start.sh <name> <phase>` still maps the phase to a model; with gum, the launcher asks for the phase after project selection. Launching `claude` directly? Use `claude --model opus` / `claude --model sonnet`. The `/research`, `/plan`, `/implement`, `/quick` skills also carry a `model:` frontmatter hint, but that override only lasts the invoking turn — the session model is what holds across the whole phase.
+
+`/quick` collapses all three phases into one sonnet session for small tasks — recon, an inline plan, controlled edits, one compact changelog. It pushes back if the task looks too large or risky, suggesting the full `/research` → `/plan` → `/implement` pipeline instead.
 
 ---
 
@@ -138,7 +141,7 @@ devflow/
 ├── install.sh                 — symlinks skills into ~/.claude/skills/
 ├── start.sh                   — project launcher
 ├── skills/
-│   ├── research/   plan/   implement/
+│   ├── research/   plan/   implement/   quick/
 │   ├── note/   project/
 │   └── autoresearch/          — optional, skill self-optimization tool
 ├── scripts/
@@ -156,7 +159,7 @@ devflow/
 - **Manual control over automation.** No auto-routing, no auto-commits, no auto-PRs. The user drives.
 - **Persistence over agents.** The system's value is the artifact trail in obsidian, not multi-agent orchestration.
 - **Model-agnostic.** `AGENTS.md` is plain markdown so the same project can be opened in any tool that respects it.
-- **Small surface.** Five skills, two scripts, one hook.
+- **Small surface.** Six skills, two scripts, one hook.
 
 ---
 
