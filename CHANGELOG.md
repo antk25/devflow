@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `/implement` gains a Step 4 "out-of-scope observations" step — tech debt/bugs/missing tests found outside the plan's scope get saved to `<vault>/notes/<slug>-observations.md` and linked from an optional changelog section. Distinct from the existing per-step "Capture learnings".
+- README gains a **Cheat sheet** section — copy-paste command reference for the full pipeline vs. `/quick`, `/note`/`/project` anytime-commands, and per-phase launch commands.
+- `AGENTS.md` (devflow's own) and `AGENTS.md.template` (copied into every other project) now mention `/quick` in the Workflow section. Template's stale `/recall <query>` reference fixed to `/note search <query>`.
 
 ## [1.0.0] - 2026-05-03
 

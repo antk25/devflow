@@ -23,6 +23,47 @@ Each phase runs in a fresh session. The artifact from one phase is the input to 
 
 ---
 
+## Cheat sheet
+
+**Big task** (multi-file, architectural, risky, or requirements still fuzzy) — full pipeline, one skill per fresh session:
+
+```
+/research <task>      →  vault/research/<slug>.md
+/plan <slug>          →  vault/plans/<slug>.md
+/implement <slug>     →  vault/changelog/<date>-<slug>.md
+```
+
+**Small task** (one-off fix, small tweak) — one session, no separate docs:
+
+```
+/quick <task>         →  vault/changelog/<date>-<slug>.md
+```
+
+`/quick` pushes back if the task turns out to be bigger than it looked — say no to its "continue anyway?" prompt and it stops before writing any code, so you can switch to `/research` instead.
+
+**Anytime, either mode:**
+
+```
+/note save <title>             save a pattern/rule to vault/notes/
+/note search <query>           grep the whole vault
+/note read <title>             read a note (fuzzy match)
+/note list [folder]            list notes, optionally by folder
+/project list|add|info|remove  manage the project registry
+```
+
+**Launch with the right model** (see [Model per phase](#model-per-phase) below):
+
+```
+./start.sh <project> research    # opus
+./start.sh <project> plan        # opus
+./start.sh <project> implement   # sonnet
+./start.sh <project> quick       # sonnet
+```
+
+Already in a session? `/model opus` / `/model sonnet` switches it manually.
+
+---
+
 ## Project layout
 
 Every project gets a single `AGENTS.md` at its root. Frontmatter holds the project name and obsidian vault path; the body holds stack, run commands, and conventions:

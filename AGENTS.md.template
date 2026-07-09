@@ -25,14 +25,16 @@ vault: /mnt/f/notes_2/projects/<project-name>
 - <other non-obvious rules: code style, test isolation, type rules>
 
 ## Workflow
-Three phases, each in a fresh session:
+Full pipeline — three phases, each in a fresh session:
 
 1. `/research <task>` → `vault/research/<slug>.md`
 2. `/plan <slug>` → `vault/plans/<slug>.md`
 3. `/implement <slug>` → `vault/changelog/<date>-<slug>.md`
 
+Small task, one session: `/quick <task>` → `vault/changelog/<date>-<slug>.md`. Pushes back to the full pipeline if the task looks bigger than expected.
+
 Vault layout: `tz/` `research/` `plans/` `changelog/` `notes/`
 
 ## Notes
 Use `/note save <title>` during work to persist patterns/rules to `notes/`.
-Use `/recall <query>` to search the vault.
+Use `/note search <query>` to search the vault.
