@@ -26,7 +26,7 @@ Manages project notes outside the workflow skills (`/research`, `/plan`, `/imple
 Vault layout:
 ```
 <vault>/
-  tz/         # task specs (input from stakeholders)
+  tz/         # task specs — durable contracts (see the tz command)
   research/   # /research output
   plans/      # /plan output
   changelog/  # /implement output
@@ -40,7 +40,7 @@ Vault layout:
 Save an ad-hoc note to the vault.
 
 1. **Determine category.** Ask the user (default: `notes`):
-   - `tz` — task spec
+   - `tz` — task spec; scaffold it from `references/tz-template.md` instead of a bare note
    - `notes` — patterns, rules, decisions, anything reusable
    - (research/plans/changelog are normally written by skills — only allow if user insists)
 2. **Determine content.** Either user-provided text, or content from current conversation (e.g. summary of a discussion).
@@ -93,15 +93,37 @@ If the vault directory doesn't exist yet, say so and suggest `/note save` to boo
 
 ---
 
-## Command: `tz <slug>`
+## Command: `tz <slug>` | `tz new <slug>`
 
-Shortcut for reading task specs.
+Read or create a task spec. A TZ is a **durable contract** — it outlives the code it describes, so
+it is checked against a fixed shape rather than read as free-form prose.
 
-1. Look in `<vault>/tz/` first: exact match `<slug>.md`, then fuzzy `*<slug>*.md`.
-2. If found — display contents (same format as `read`).
-3. If not found — list available files in `tz/` and stop.
+### `tz new <slug>`
 
-This is just a convenience over `read` when you know the doc is a TZ.
+1. Read `references/tz-template.md` (ships next to this file).
+2. Fill the frontmatter — `created` today, `project` from `AGENTS.md`, `task` = the slug prefix
+   upper-cased, `status: draft` — and write `<vault>/tz/<slug>.md`. If it exists, stop and say so.
+3. Show the path and the section list. Leave the sections as placeholders; do **not** invent content
+   the user has not given.
+
+### `tz <slug>`
+
+1. Look in `<vault>/tz/`: exact `<slug>.md`, then fuzzy `*<slug>*.md`. Not found — list `tz/`, stop.
+2. Display the contents.
+3. **Check the contract** and print a verdict under the doc:
+
+| Check | Rule |
+|---|---|
+| Sections | All six present: `Суть`, `Текущее поведение`, `Желаемое поведение`, `Ключевые интерфейсы`, `Критерии приёмки`, `Вне объёма` |
+| `Вне объёма` | Present **and non-empty** — an empty one means the TZ is not ready |
+| Interfaces | The `Ключевые интерфейсы` section holds no file paths and no line numbers — grep it for `src/`, `.php:`, `.ts:`, `:<digits>`. A hit is a violation: rewrite the entry as a contract (signature, invariants, error modes). This ban is **specific to `tz/`** — plans name paths on purpose |
+| Criteria | Each `Критерии приёмки` item is verifiable on its own. One that cannot be checked without opening another is a defect of the TZ — name it |
+
+Verdict: `ТЗ готово` or `ТЗ не готово: <what is missing>`. A failing TZ is a **draft** — say so
+plainly and name the fix; never hand it to `plan` as if it were settled.
+
+TZ written before this shape will fail the check. That is the check working. Report it; don't
+rewrite an old spec unless the user asks.
 
 ---
 
