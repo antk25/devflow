@@ -19,6 +19,8 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
 | `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
 | `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
+| `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
+| `/jira <key>` | Read a Jira issue, its comments and attachments through the read-only shell scripts | issue text |
 
 The driver spawns three **phase agents** (`~/.claude/agents/`), each with its model pinned in frontmatter, each writing one artifact:
 

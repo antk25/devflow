@@ -12,7 +12,7 @@ set -euo pipefail
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Skills shipped by devflow (directory names under skills/)
-SKILLS=(note project devflow standup tokens page review)
+SKILLS=(note project devflow standup tokens page review jira xreview)
 
 # Optional skills (installed if present)
 OPTIONAL_SKILLS=(autoresearch)
