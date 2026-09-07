@@ -2,46 +2,52 @@
 
 A minimal three-phase workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), backed by [Obsidian](https://obsidian.md/) for persistence.
 
-> **research → plan → implement**, each in its own session, each leaving a written artifact in your obsidian vault.
+> **research → plan → implement**, run as autonomous phase agents under the `/devflow` driver, each leaving a written artifact in your obsidian vault, with an approval gate between phases.
 
-DevFlow does **not** route, branch, commit, review, or otherwise automate. The user drives the work; the skills just structure the phases and persist the output.
+DevFlow does **not** branch, commit, or push. The driver routes by artifacts and holds the gates; you drive the decisions and control git.
 
 ---
 
 ## Skills
 
-| Skill | What it does | Output |
-|-------|-------------|--------|
-| `/research <task>` | Gather context for a task — read code, ask clarifying questions, list constraints | `<vault>/research/<slug>.md` |
-| `/plan <slug>` | Read a research doc, produce a step-by-step implementation plan | `<vault>/plans/<slug>.md` |
-| `/implement <slug>` | Execute a plan step-by-step under user control, save changelog | `<vault>/changelog/<date>-<slug>.md` |
-| `/quick <task>` | Lightweight single-session entry for small tasks — recon, inline plan, controlled edits, one changelog | `<vault>/changelog/<date>-<slug>.md` + `<vault>/notes/` |
+| Command | What it does | Output |
+|---------|-------------|--------|
+| `/devflow` | Driver: Jira standup → pick a task → route → run phase agents with an approval gate between phases | pipeline artifacts below |
+| `/devflow <slug>` | Skip standup, resume the pipeline at the phase the artifacts imply | — |
+| `/standup [peek]` | Jira digest ("what's new on my tasks") across both instances, then recommend a route | — |
 | `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
 | `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
+| `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
 
-Each phase runs in a fresh session. The artifact from one phase is the input to the next.
+The driver spawns three **phase agents** (`~/.claude/agents/`), each with its model pinned in frontmatter, each writing one artifact:
+
+| Phase agent | Model | Output |
+|-------------|-------|--------|
+| `research` | opus | `<vault>/research/<slug>.md` |
+| `plan` | opus | `<vault>/plans/<slug>.md` |
+| `implement` | sonnet | `<vault>/changelog/<date>-<slug>.md` |
+
+The artifact from one phase is the input to the next; the driver re-routes after each gate.
 
 ---
 
 ## Cheat sheet
 
-**Big task** (multi-file, architectural, risky, or requirements still fuzzy) — full pipeline, one skill per fresh session:
+**Start work** — the driver picks up where the artifacts leave off:
 
 ```
-/research <task>      →  vault/research/<slug>.md
-/plan <slug>          →  vault/plans/<slug>.md
-/implement <slug>     →  vault/changelog/<date>-<slug>.md
+/devflow              standup → pick a task → route → run (with gates)
+/devflow <slug>       skip standup, resume at the right phase
 ```
 
-**Small task** (one-off fix, small tweak) — one session, no separate docs:
+**Just glance** — Jira digest without entering the loop:
 
 ```
-/quick <task>         →  vault/changelog/<date>-<slug>.md
+/standup              what's new on my tasks (marks them seen)
+/standup peek         same, without marking seen
 ```
 
-`/quick` pushes back if the task turns out to be bigger than it looked — say no to its "continue anyway?" prompt and it stops before writing any code, so you can switch to `/research` instead.
-
-**Anytime, either mode:**
+**Anytime:**
 
 ```
 /note save <title>             save a pattern/rule to vault/notes/
@@ -51,16 +57,30 @@ Each phase runs in a fresh session. The artifact from one phase is the input to 
 /project list|add|info|remove  manage the project registry
 ```
 
-**Launch with the right model** (see [Model per phase](#model-per-phase) below):
+**Token spend:**
 
 ```
-./start.sh <project> research    # opus
-./start.sh <project> plan        # opus
-./start.sh <project> implement   # sonnet
-./start.sh <project> quick       # sonnet
+/tokens                        cost per task (default view)
+/tokens --by phase             research vs plan vs implement vs main session
+/tokens --by model             does sonnet-on-implement actually pay off
+/tokens --task SE-2032 --by phase    where one task's budget went
+/tokens --html ~/tokens.html   dashboard: daily chart + ranked tables
+/tokens --tag SE-2044          pin this session to a task for exact attribution
 ```
 
-Already in a session? `/model opus` / `/model sonnet` switches it manually.
+Attribution is a ledger (`~/.claude/devflow/task-ledger.jsonl`, written by `/devflow` and
+`--tag`) plus a fallback heuristic over Jira keys mentioned in your own messages. Everything
+is read from the local transcripts in `~/.claude/projects/` — nothing leaves the machine.
+
+**Launch:**
+
+```
+./start.sh                 interactive project menu → opus driver
+./start.sh <project>       switch project → opus driver
+./start.sh --current       current project → opus driver
+```
+
+The driver session runs on opus; each phase agent picks its own model (research/plan opus, implement sonnet) from its frontmatter. Already in a session? `/model` switches it manually.
 
 ---
 
@@ -107,43 +127,40 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills as symlinks into `~/.claude/skills/`, so they are available globally.
+DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally.
 
 ```bash
 git clone <repo> ~/projects/devflow
 cd ~/projects/devflow
-./install.sh             # creates symlinks
+./install.sh             # creates symlinks (skills + phase agents)
 ./install.sh --check     # show status without changing anything
 ./install.sh --remove    # remove the symlinks
 ```
 
-After install, `/research`, `/plan`, `/implement`, `/quick`, `/note`, `/project` are available in any Claude Code session.
+After install, `/devflow`, `/standup`, `/note`, `/project` (and the research / plan / implement phase agents) are available in any Claude Code session.
 
 ---
 
 ## Launching a project
 
 ```bash
-./start.sh                     # interactive menu (requires gum)
-./start.sh <name>              # switch to a registered project
-./start.sh <name> <phase>      # phase picks the model (see below)
-./start.sh --current [phase]   # use the currently active project
+./start.sh                # interactive menu (requires gum)
+./start.sh <name>         # switch to a registered project
+./start.sh --current      # use the currently active project
 ```
 
-`start.sh` updates `active` in the registry, then `cd`s into the project and runs `claude`. The `SessionStart` hook reads the project's `AGENTS.md` and greets you with active TZ / research / plans.
+`start.sh` updates `active` in the registry, then `cd`s into the project and runs `claude --model opus` (the driver session). The `SessionStart` hook reads the project's `AGENTS.md` and greets you with active TZ / research / plans.
 
 ### Model per phase
 
-Reasoning is worth Opus; mechanical edits are cheaper on Sonnet. Because each phase is its own session, the model is chosen at launch:
+Reasoning is worth Opus; mechanical edits are cheaper on Sonnet. The model is pinned **per phase agent** in its frontmatter and holds for that agent's whole run — no per-session juggling:
 
-| Phase | Model | Launch |
-|-------|-------|--------|
-| `research`, `plan`, `review` | **opus** | `./start.sh <name> plan` |
-| `implement`, `quick` | **sonnet** | `./start.sh <name> implement` |
+| Phase agent | Model |
+|-------------|-------|
+| `research`, `plan` | **opus** |
+| `implement` | **sonnet** |
 
-Without gum, `./start.sh <name> <phase>` still maps the phase to a model; with gum, the launcher asks for the phase after project selection. Launching `claude` directly? Use `claude --model opus` / `claude --model sonnet`. The `/research`, `/plan`, `/implement`, `/quick` skills also carry a `model:` frontmatter hint, but that override only lasts the invoking turn — the session model is what holds across the whole phase.
-
-`/quick` collapses all three phases into one sonnet session for small tasks — recon, an inline plan, controlled edits, one compact changelog. It pushes back if the task looks too large or risky, suggesting the full `/research` → `/plan` → `/implement` pipeline instead.
+The `/devflow` driver session itself runs on opus (`./start.sh` launches `claude --model opus`); it spawns each phase agent, and the agent's frontmatter model takes over for that phase. `/code-review` and ad-hoc reasoning also default to opus — switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
 
 ---
 
@@ -179,11 +196,14 @@ Configure the SessionStart hook locally (optional but recommended) by copying `.
 devflow/
 ├── AGENTS.md                  — devflow's own AGENTS.md
 ├── AGENTS.md.template         — copy into other projects
-├── install.sh                 — symlinks skills into ~/.claude/skills/
-├── start.sh                   — project launcher
+├── install.sh                 — symlinks skills → ~/.claude/skills/, agents → ~/.claude/agents/
+├── start.sh                   — project launcher (opus driver)
+├── agents/
+│   └── research.md  plan.md  implement.md   — phase agents (model pinned in frontmatter)
 ├── skills/
-│   ├── research/   plan/   implement/   quick/
+│   ├── devflow/   standup/    — pipeline driver + Jira digest front-end
 │   ├── note/   project/
+│   ├── tokens/                — /tokens + token-stats.py (spend analyzer)
 │   └── autoresearch/          — optional, skill self-optimization tool
 ├── scripts/
 │   └── obsidian-active.sh     — used by SessionStart hook
@@ -193,14 +213,16 @@ devflow/
     └── settings.json          — local settings (gitignored)
 ```
 
+The Jira digest engine itself (`jira-digest.sh`) lives outside the repo in `~/.config/devflow/integrations/`, alongside the other tracker scripts.
+
 ---
 
 ## Philosophy
 
-- **Manual control over automation.** No auto-routing, no auto-commits, no auto-PRs. The user drives.
-- **Persistence over agents.** The system's value is the artifact trail in obsidian, not multi-agent orchestration.
-- **Model-agnostic.** `AGENTS.md` is plain markdown so the same project can be opened in any tool that respects it.
-- **Small surface.** Six skills, two scripts, one hook.
+- **Gated control over full automation.** The driver routes and runs the phases, but stops at a gate for your approval on research and plan, and never touches git. You drive the decisions that matter.
+- **Persistence first.** The system's value is the artifact trail in obsidian — research, plan, changelog — not the orchestration around it.
+- **Model-agnostic artifacts.** `AGENTS.md` and the vault docs are plain markdown, readable in any tool.
+- **Small surface.** Four skills, three phase agents, one Jira digest script, one hook.
 
 ---
 

@@ -6,9 +6,9 @@ vault: /mnt/f/notes_2/projects/devflow
 # DevFlow
 
 ## What
-AI development workflow orchestration for Claude Code. Provides three thin skills — `/research`, `/plan`, `/implement` — that structure work into discrete phases, each writing an artifact to the project's obsidian vault. `/quick` collapses all three into one session for small tasks. Plus `/note` and `/project` for vault and registry management.
+AI development workflow orchestration for Claude Code. The `/devflow` driver runs a research → plan → implement pipeline as three autonomous **phase agents**, each writing an artifact to the project's obsidian vault, with an explicit approval gate between phases. `/standup` gives a Jira digest ("what's new on my tasks") and routes you into the pipeline. Plus `/note` and `/project` for vault and registry management.
 
-DevFlow itself is the meta-project. Skills shipped from `skills/` are symlinked into `~/.claude/skills/` via `install.sh`, so any project on this machine can use them once `AGENTS.md` is set.
+DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents/`) are symlinked into `~/.claude/skills/` and `~/.claude/agents/` via `install.sh`, so any project on this machine can use them once `AGENTS.md` is set.
 
 ## Stack
 - Bash + Python 3 (scripts and hooks)
@@ -16,32 +16,44 @@ DevFlow itself is the meta-project. Skills shipped from `skills/` are symlinked 
 - JSON (project registry at `.claude/data/projects.json`)
 
 ## Run
-- Install/update skills: `./install.sh` (creates symlinks `~/.claude/skills/<name>` → `skills/<name>`)
+- Install/update skills + phase agents: `./install.sh` (symlinks `skills/<name>` → `~/.claude/skills/`, `agents/<name>.md` → `~/.claude/agents/`)
 - Check install state: `./install.sh --check`
 - Remove: `./install.sh --remove`
-- Launch with project picker: `./start.sh` (interactive gum menu)
+- Launch with project picker: `./start.sh` (interactive gum menu → opus driver)
 
 ## Conventions
-- Model policy: reasoning phases (`/research`, `/plan`, `/code-review`) run on **opus**; writing/editing (`/implement`, `/quick`) runs on **sonnet**. Set per session at launch — `./start.sh <project> <phase>` picks the model, or launch `claude --model opus|sonnet`. The workflow skills carry a `model:` frontmatter nudge, but that only covers the first turn; the session model is what holds across a phase.
+- Model policy: per-phase models live in the **agent frontmatter** — `research` and `plan` on **opus**, `implement` on **sonnet** — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). The `/devflow` driver session runs on **opus** (`./start.sh <project>` launches it, or `claude --model opus`). `/code-review` and ad-hoc reasoning also default to opus; switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
 - Branch base: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).
 - Skills are kept short (target ≤150 lines). Cut anything that isn't actionable.
 - `git push` and `gh` are blocked by `.claude/settings.json` — pushing/PR-creation is always manual.
 
 ## Workflow
-Full pipeline — three phases, each in a fresh session:
+The `/devflow` driver orchestrates the whole pipeline in one interactive session:
 
-1. `/research <task>` → `vault/research/<slug>.md`
-2. `/plan <slug>` → `vault/plans/<slug>.md`
-3. `/implement <slug>` → `vault/changelog/<date>-<slug>.md`
+- `/devflow` — Jira standup ("what's new since last time") → pick a task → route → run the phase.
+- `/devflow <slug>` — skip standup, resume at the phase the artifacts imply.
 
-Small task, one session: `/quick <task>` → `vault/changelog/<date>-<slug>.md`. Pushes back to the full pipeline if the task looks bigger than expected.
+It spawns a phase agent, shows you the artifact, and **waits for your approval at the gate** before the next phase:
+
+1. `research` agent → `vault/research/<slug>.md`   (gate)
+2. `plan` agent → `vault/plans/<slug>.md`   (gate)
+3. `implement` agent → `vault/changelog/<date>-<slug>.md`   (autonomous; stops on red tests / plan drift)
+
+`/standup` alone just shows the digest and recommends a route, without entering the loop.
 
 Vault layout: `tz/` (specs in) · `research/` · `plans/` · `changelog/` · `notes/` (ad-hoc patterns/rules)
 
 Use `/note save <title>` (category `notes`) to persist patterns mid-implementation. `/note search <query>` to grep the vault.
 
+## Token accounting
+`/tokens` reports spend by task, project, phase, model, or day from the local Claude Code
+transcripts (`skills/tokens/token-stats.py`). The driver tags each task it routes into
+`~/.claude/devflow/task-ledger.jsonl`; anything untagged falls back to Jira keys found in
+the user's messages. Use `--by phase` to see how much work bypasses the pipeline — a high
+`—` share means it ran ad hoc in the main session.
+
 ## Notes
 - Skills are model-agnostic markdown — readable by Codex/Cursor/Aider in principle, though only Claude Code currently invokes them as `/<name>`.
 - The user controls git: no auto-branches, no auto-commits.
-- Tests, planning docs, and review documents are not auto-generated — only the workflow artifacts above (research/plan/changelog, or `/quick`'s single changelog).
+- Tests, planning docs, and review documents are not auto-generated — only the workflow artifacts above (research / plan / changelog).

@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- Скелет страницы devflow. Копировать целиком, менять содержимое, не трогать каркас.
+
+     Почему файл начинается с <!doctype html> и НЕ содержит <html>/<head>/<body>:
+     локально это даёт standards mode при открытии двойным кликом, а при публикации
+     артефактом харнесс оборачивает файл сам, и одинокий doctype в теле парсер
+     игнорирует. Один файл работает в обоих местах — второго варианта не заводить. -->
+
+<title>Название страницы</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+
+<style>
+/* ВКЛЕИТЬ СЮДА references/tokens.css ЦЕЛИКОМ */
+
+/* Ниже — только предметное: слоты участников и то, чего нет в системе. */
+:root{
+  --s1:#3B82C4;  /* назвать участника */
+  --s2:#A8447E;
+  --s3:#3E8E56;
+}
+</style>
+
+<div class="page">
+
+<header>
+  <p class="eyebrow">KEY · раздел</p>
+  <h1>Заголовок, отвечающий на вопрос страницы</h1>
+  <p class="standfirst">Один абзац: что здесь и зачем читателю на это смотреть.</p>
+
+  <div class="readout">
+    <div class="cell"><span class="k">величина</span><span class="v num">42</span><span class="n">пояснение</span></div>
+    <div class="cell hot"><span class="k">величина</span><span class="v num">7</span><span class="n">пояснение</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head"><span class="rank">01</span><h2>Раздел</h2></div>
+
+  <p>Проза узкой колонкой. Ширина <code>--measure</code> задана по умолчанию.</p>
+
+  <!-- Графовая схема: связи, зависимости, последовательности. Раскладку считает mermaid. -->
+  <figure>
+    <div class="fig-head">
+      <div class="fig-title">Название схемы</div>
+      <div class="fig-sub">Что именно на ней показано</div>
+    </div>
+    <div class="fig-body">
+<pre class="mermaid">
+flowchart LR
+  A[Источник] --> B{Развилка}
+  B -->|условие| C[Ветка А]
+  B -->|иначе| D[Ветка Б]
+  C --> E[(Хранилище)]
+  D --> E
+</pre>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--s1)"></i>участник</span>
+      <span><i class="sw" style="background:var(--sig)"></i>сигнал</span>
+    </div>
+    <figcaption>Подпись говорит то, чего не видно на картинке. Если она пересказывает
+    схему — схему надо перерисовать, а подпись убрать.</figcaption>
+  </figure>
+
+  <div class="note"><b>Врезка.</b> Тонкость, ловушка или следствие. Не украшение.</div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Что</th><th>Роль</th><th class="n">Сколько</th></tr></thead>
+      <tbody>
+        <tr><td>строка</td><td>роль</td><td class="n">12</td></tr>
+        <tr><td>строка</td><td>роль</td><td class="n sig">340</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  Собрано скиллом <code>/page</code> · дизайн-система <code>skills/page/references/tokens.css</code>
+</footer>
+
+</div>
+
+<script>
+/* Mermaid. В артефакте он рендерится нативно — тогда этот загрузчик ничего не делает.
+   Локально (file://) подтягиваем библиотеку с CDN. Проверка поведенческая: смотрим,
+   появился ли svg, а не гадаем про окружение. */
+addEventListener('DOMContentLoaded', () => setTimeout(() => {
+  const blocks = document.querySelectorAll('pre.mermaid');
+  if (!blocks.length) return;
+  if ([...blocks].some(b => b.querySelector('svg'))) return;   // хост уже отрисовал
+
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches
+    || document.documentElement.dataset.theme === 'dark';
+
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+  s.onload = () => window.mermaid?.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+    themeVariables: {
+      darkMode: dark,
+      background: v('--surface'),
+      primaryColor: v('--surface-2'),
+      primaryTextColor: v('--ink'),
+      primaryBorderColor: v('--rule-strong'),
+      lineColor: v('--ink-3'),
+      secondaryColor: v('--s1'),
+      tertiaryColor: v('--surface'),
+    },
+  });
+  s.onerror = () => blocks.forEach(b => { b.style.color = 'var(--ink-3)'; });
+  document.head.appendChild(s);
+}, 250));
+</script>

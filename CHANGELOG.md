@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **`/quick <task>` skill** — lightweight single-session entry that collapses research → plan → implement for small tasks: fast recon, an inline plan (≤5 lines, no file), controlled edits, one compact changelog. Pushes back and suggests the full pipeline if the task looks too large or risky. Runs on `sonnet`; registered in `install.sh` and `start.sh` (`phase_to_model`, gum menu).
+### Changed — phase agents + `/devflow` driver
+DevFlow's three phases are now autonomous **phase agents** (`agents/{research,plan,implement}.md`, symlinked into `~/.claude/agents/`) with their model pinned in frontmatter (research/plan **opus**, implement **sonnet**) — which holds for the agent's whole run, unlike a skill's one-turn `model:` hint. Control shifts from confirming every implementation step to approving the research and plan artifacts at two gates; `implement` then runs the approved plan autonomously.
 
-### Changed
-- `/implement` gains a Step 4 "out-of-scope observations" step — tech debt/bugs/missing tests found outside the plan's scope get saved to `<vault>/notes/<slug>-observations.md` and linked from an optional changelog section. Distinct from the existing per-step "Capture learnings".
-- README gains a **Cheat sheet** section — copy-paste command reference for the full pipeline vs. `/quick`, `/note`/`/project` anytime-commands, and per-phase launch commands.
-- `AGENTS.md` (devflow's own) and `AGENTS.md.template` (copied into every other project) now mention `/quick` in the Workflow section. Template's stale `/recall <query>` reference fixed to `/note search <query>`.
+### Added
+- **`/tokens` skill + `skills/tokens/token-stats.py`** — token spend accounting over the local Claude Code transcripts (`~/.claude/projects/**/*.jsonl`). Aggregates by task, project, phase, model, day, or session; reports input / output / cache-write / cache-read and a dollar cost that prices cache-write by its actual TTL (×1.25 at 5m, ×2 at 1h), cache-read at ×0.1, and fast mode separately. Output as a terminal table, `--json`, or `--html` (self-contained dashboard: daily stacked bars by model, ranked task bars, per-dimension tables; light/dark, no external assets).
+- **Task attribution ledger** (`~/.claude/devflow/task-ledger.jsonl`) — `/devflow` appends a line when it routes a task, and `/tokens --tag <KEY>` pins an ad-hoc session. Ledger entries and Jira keys found in the user's own messages are both treated as timestamped markers on the session timeline, so a session spanning two tasks splits at the right point instead of collapsing to one label. Untagged history still attributes via the heuristic alone (~81% of output tokens on the existing corpus).
+- **`/devflow` driver skill** — one interactive opus session that runs the pipeline: Jira standup → pick a task → route by vault artifacts → spawn the phase agent → show the artifact → **approval gate** (open questions relayed to the same agent via SendMessage) → next phase, looping until a changelog exists. `/devflow <slug>` skips standup and resumes at the routed phase — this replaces the removed per-phase entry points.
+- **`/standup` skill** — thin front-end over `jira-digest.sh`: shows "what's new on my tasks since last time" across both Jira instances, helps pick a task, and computes the route (research → plan → implement → closed). `/standup peek` glances without marking items seen.
+- **`jira-digest.sh`** (`~/.config/devflow/integrations/`) — bash+jq digest engine: `assignee=currentUser()` across resolventa + productsearch, diffed against `jira-seen.json`; prints new comments (author + `(ты)` label + time) and description-edit flags. First run shows a 7-day window; `--peek` doesn't advance state.
+- **Design-first plan format** — the `plan` agent now writes data flow, class responsibilities, function contracts (signatures, no bodies), and an explicit architecture-boundary check, instead of atomic commit-sized steps.
+
+### Removed
+- **`/quick` skill** — superseded by `/devflow <slug>` for lightweight single-phase entry (it was only ever in Unreleased).
+- **Per-phase skills `/research` `/plan` `/implement`** — their logic moved into the phase agents; manual single-phase entry is now `/devflow <slug>`.
+- **`start.sh` phase→model menu** (`phase_to_model`, gum phase picker) — the per-phase model lives in agent frontmatter now; `start.sh <project>` launches the opus driver directly.
 
 ## [1.0.0] - 2026-05-03
 

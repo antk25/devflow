@@ -1,17 +1,14 @@
 #!/bin/bash
 # start.sh — DevFlow launcher
-# Shows interactive project selection menu, then launches Claude Code.
+# Shows interactive project selection menu, then launches the Claude Code driver session.
 #
 # Usage:
-#   ./start.sh                        # interactive gum menu → claude
-#   ./start.sh <project>              # direct project switch → claude
-#   ./start.sh <project> <phase>      # phase picks the model (see below)
-#   ./start.sh --current [phase]      # skip menu, use current active project
+#   ./start.sh                # interactive gum menu → claude (opus driver)
+#   ./start.sh <project>      # direct project switch → claude (opus driver)
+#   ./start.sh --current      # skip menu, use the current active project
 #
-# <phase> maps to a session model:
-#   research | plan | review  → opus    (deep reasoning)
-#   implement | quick         → sonnet  (writing / edits)
-# Omit <phase> to launch with your default model (interactive menu asks if gum is present).
+# The session runs on opus (the /devflow driver). Per-phase models — research/plan on opus,
+# implement on sonnet — live in the agent frontmatter and hold for each agent's whole run.
 #
 # Reads/writes the project registry in .claude/data/projects.json (v3.0 schema).
 
@@ -22,16 +19,6 @@ PROJECTS_FILE="$SCRIPT_DIR/.claude/data/projects.json"
 GUM="${GUM:-$(command -v gum 2>/dev/null || echo "$HOME/bin/gum")}"
 
 py() { python3 -c "$1" 2>/dev/null; }
-
-# Map a devflow phase to the model its session should run on.
-# research/plan/review = deep reasoning → opus; implement/quick = writing/edits → sonnet.
-phase_to_model() {
-    case "$1" in
-        research|plan|review)  echo "opus" ;;
-        implement|impl|quick)  echo "sonnet" ;;
-        *)                     echo "" ;;
-    esac
-}
 
 get_active() {
     py "
@@ -113,8 +100,6 @@ if [ $# -ge 1 ]; then
     esac
 fi
 
-PHASE="${2:-}"
-
 # --- Interactive menu ---
 
 if [ -z "$SELECTED" ]; then
@@ -180,40 +165,10 @@ if [ ! -f "$PROJECT_PATH/AGENTS.md" ]; then
     fi
 fi
 
-# --- Resolve session model from phase ---
-
-if [ -z "$PHASE" ] && [ -x "$GUM" ]; then
-    phase_pick=$("$GUM" choose --header "Phase → model:" \
-        "research   → opus" \
-        "plan       → opus" \
-        "implement  → sonnet" \
-        "quick      → sonnet" \
-        "review     → opus" \
-        "(default model)") || phase_pick=""
-    case "$phase_pick" in
-        research*)  PHASE="research" ;;
-        plan*)      PHASE="plan" ;;
-        implement*) PHASE="implement" ;;
-        quick*)     PHASE="quick" ;;
-        review*)    PHASE="review" ;;
-        *)          PHASE="" ;;
-    esac
-fi
-
-MODEL=$(phase_to_model "$PHASE")
-if [ -n "$PHASE" ] && [ -z "$MODEL" ]; then
-    echo "⚠  Unknown phase '$PHASE' — launching with default model." >&2
-fi
+# --- Launch the opus driver session ---
 
 cd "$PROJECT_PATH"
-[ -n "$PHASE" ] && export DEVFLOW_PHASE="$PHASE"
 
-if [ -n "$MODEL" ]; then
-    echo "Launching Claude Code for $SELECTED on '$MODEL' (path: $PROJECT_PATH)..."
-    echo ""
-    exec claude --model "$MODEL"
-else
-    echo "Launching Claude Code for $SELECTED (path: $PROJECT_PATH)..."
-    echo ""
-    exec claude
-fi
+echo "Launching Claude Code (opus driver) for $SELECTED (path: $PROJECT_PATH)..."
+echo ""
+exec claude --model opus

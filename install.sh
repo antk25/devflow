@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# devflow installer — symlinks devflow skills into ~/.claude/skills/
+# devflow installer — symlinks devflow skills into ~/.claude/skills/ and phase agents
+# into ~/.claude/agents/.
 #
 # Usage:
-#   ./install.sh           # install/update symlinks
+#   ./install.sh           # install/update symlinks (and retire stale ones)
 #   ./install.sh --check   # show what would change without doing it
-#   ./install.sh --remove  # remove devflow skills from ~/.claude/skills/
+#   ./install.sh --remove  # remove devflow skills and agents from ~/.claude/
 
 set -euo pipefail
 
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
 
 # Skills shipped by devflow (directory names under skills/)
-SKILLS=(research plan implement quick note project)
+SKILLS=(note project devflow standup tokens page)
 
 # Optional skills (installed if present)
 OPTIONAL_SKILLS=(autoresearch)
+
+# Phase agents (file names under agents/, without .md)
+AGENTS=(research plan implement)
+
+# Skills retired by the phase-agents redesign — unlink our stale symlinks if present
+RETIRED_SKILLS=(research plan implement quick)
 
 mode="install"
 case "${1:-}" in
@@ -25,62 +31,90 @@ case "${1:-}" in
     *) echo "Usage: $0 [--check|--remove]"; exit 1 ;;
 esac
 
-mkdir -p "$CLAUDE_SKILLS_DIR"
+mkdir -p "$HOME/.claude/skills" "$HOME/.claude/agents"
 
-link_skill() {
-    local name=$1
-    local src="$DEVFLOW_DIR/skills/$name"
-    local dst="$CLAUDE_SKILLS_DIR/$name"
+# link_item <kind> <name>   kind: skills (dir) | agents (file .md)
+link_item() {
+    local kind=$1 name=$2
+    local suffix=""; [ "$kind" = "agents" ] && suffix=".md"
+    local src="$DEVFLOW_DIR/$kind/$name$suffix"
+    local dst="$HOME/.claude/$kind/$name$suffix"
 
-    if [ ! -d "$src" ]; then
-        echo "  skip   $name (no source: $src)"
+    if [ ! -e "$src" ]; then
+        echo "  skip   $kind/$name (no source: $src)"
         return
     fi
 
     case "$mode" in
         check)
             if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-                echo "  ok     $name → $src"
+                echo "  ok     $kind/$name → $src"
             elif [ -e "$dst" ]; then
-                echo "  CONFL  $name (exists, not our symlink): $dst"
+                echo "  CONFL  $kind/$name (exists, not our symlink): $dst"
             else
-                echo "  MISS   $name (would link → $src)"
+                echo "  MISS   $kind/$name (would link → $src)"
             fi
             ;;
         install)
             if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-                echo "  CONFL  $name (exists as real file/dir, not replacing): $dst" >&2
+                echo "  CONFL  $kind/$name (exists as real file/dir, not replacing): $dst" >&2
                 return 1
             fi
             ln -sfn "$src" "$dst"
-            echo "  link   $name → $src"
+            echo "  link   $kind/$name → $src"
             ;;
         remove)
             if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
                 rm "$dst"
-                echo "  unlink $name"
+                echo "  unlink $kind/$name"
             else
-                echo "  skip   $name (not our symlink)"
+                echo "  skip   $kind/$name (not our symlink)"
             fi
             ;;
     esac
 }
 
-echo "devflow: $mode @ $CLAUDE_SKILLS_DIR"
+# retire_skill <name> — drop a stale ~/.claude/skills/<name> symlink that points into
+# this devflow repo (left behind when a skill was removed). Only touches our own symlinks.
+retire_skill() {
+    local name=$1
+    local dst="$HOME/.claude/skills/$name"
+    [ -L "$dst" ] || return 0
+    [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ] || return 0
+    if [ "$mode" = "check" ]; then
+        echo "  RETIRE $name (stale devflow symlink → would remove)"
+    else
+        rm "$dst"
+        echo "  retire $name (stale devflow symlink removed)"
+    fi
+}
+
+echo "devflow: $mode"
 echo ""
 
+echo "skills:"
 for s in "${SKILLS[@]}"; do
-    link_skill "$s"
+    link_item skills "$s"
+done
+for s in "${OPTIONAL_SKILLS[@]}"; do
+    [ -d "$DEVFLOW_DIR/skills/$s" ] && link_item skills "$s"
 done
 
 echo ""
-for s in "${OPTIONAL_SKILLS[@]}"; do
-    [ -d "$DEVFLOW_DIR/skills/$s" ] && link_skill "$s"
+echo "agents:"
+for a in "${AGENTS[@]}"; do
+    link_item agents "$a"
+done
+
+echo ""
+echo "retired:"
+for s in "${RETIRED_SKILLS[@]}"; do
+    retire_skill "$s"
 done
 
 echo ""
 case "$mode" in
-    install) echo "✓ Done. Skills: ${SKILLS[*]}" ;;
+    install) echo "✓ Done. Skills: ${SKILLS[*]}  ·  Agents: ${AGENTS[*]}" ;;
     check)   echo "(check mode — no changes made)" ;;
-    remove)  echo "✓ Removed devflow skills from $CLAUDE_SKILLS_DIR" ;;
+    remove)  echo "✓ Removed devflow skills and agents from ~/.claude/" ;;
 esac
