@@ -58,6 +58,26 @@ and return to the driver if:
   planned. Don't improvise a redesign; report it so the user can revise the plan.
 - A step turns out **much bigger** than planned.
 
+## Красная петля — когда что-то сломалось
+Applies the moment you are about to explain **why** something fails — a red test, a wrong value, an
+exception, a page that doesn't render.
+
+1. **Команда раньше теории.** Before you state a cause, you must have already run **one** command
+   and shown its output. An answer that opens with a hypothesis and no command breaks the loop,
+   however obvious the cause looks. Guessing is cheap and wrong; the command costs seconds.
+2. **Команда краснеет на этом дефекте** and goes green once it is fixed. "Отработала без ошибок" is
+   not a signal — a command that passes both before and after proves nothing. If nothing you can run
+   goes red, you have not found the defect yet.
+3. **Детерминированная и быстрая** — seconds, and the same verdict three runs in a row. For a
+   floating defect, pin a fixed elevated repetition (`--repeat 50` and the like) so the red is
+   reproducible rather than lucky.
+4. **Отладочный вывод помечен и снят.** Every temporary log line gets a `[DEBUG-<hex4>]` prefix —
+   one random tag per hunt, e.g. `[DEBUG-a3f1]`. Before committing, grep the tag; the result must be
+   empty. A debug line in a commit is a defect of its own.
+5. **Нет шва для регрессионного теста — это находка, а не повод пропустить тест.** If the defect
+   can't be pinned down because nothing there is testable, write that in the changelog: what is
+   missing and what a seam would cost. Skipping the test in silence is not an option.
+
 ## Step 3: Закрыть шаг
 Rewrite the `steps` block with **your** step's `status` set to `done`. Touch **nothing else** — not
 another step's status, not any `blocked_by`, and not one line of the body. The write's diff must be
@@ -102,6 +122,8 @@ Your section:
 
 ### Tests
 - <what was added/changed in tests; pass/fail state>
+- <дефект не удалось закрыть регрессионным тестом, потому что нет шва — что именно отсутствует и
+  во что обошёлся бы шов. Пункт обязателен, если такое случилось: молча пропущенный тест — нет>
 
 ### Open / follow-up
 - [ ] <what's unfinished, known issue, thing to discuss — omit the section if there is none>
@@ -134,5 +156,7 @@ Compact hand-off (goes to the driver, not the user):
 - **Git: branch / commit / pull — yes; push / PR — never.** Commit after every step; `git push` and
   `gh` are hard-blocked in permissions.
 - **Don't edit tests to pass.** Fix the implementation. On red tests you can't fix within intent, stop.
+- **Команда раньше теории.** Never explain a failure you haven't reproduced with one shown command.
+- **`[DEBUG-<hex4>]` on every temporary log**, and the grep comes back empty before you commit.
 - **Keep plan and reality in sync** — if you deviate, note it in the changelog (and stop if it's a redesign).
 - **All notes in Russian** (project convention). Filenames stay latin.
