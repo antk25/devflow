@@ -12,13 +12,13 @@ set -euo pipefail
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Skills shipped by devflow (directory names under skills/)
-SKILLS=(note project devflow standup tokens page)
+SKILLS=(note project devflow standup tokens page review)
 
 # Optional skills (installed if present)
 OPTIONAL_SKILLS=(autoresearch)
 
 # Phase agents (file names under agents/, without .md)
-AGENTS=(research plan implement)
+AGENTS=(research plan implement review-standards review-conformance)
 
 # Skills retired by the phase-agents redesign — unlink our stale symlinks if present
 RETIRED_SKILLS=(research plan implement quick)

@@ -18,6 +18,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
 | `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
 | `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
+| `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
 
 The driver spawns three **phase agents** (`~/.claude/agents/`), each with its model pinned in frontmatter, each writing one artifact:
 
@@ -54,7 +55,17 @@ The artifact from one phase is the input to the next; the driver re-routes after
 /note search <query>           grep the whole vault
 /note read <title>             read a note (fuzzy match)
 /note list [folder]            list notes, optionally by folder
+/note tz <slug>                read a TZ and check it against the contract shape
+/note tz new <slug>            scaffold a TZ from the template
 /project list|add|info|remove  manage the project registry
+```
+
+**Review** — two axes, separately, never merged into one list:
+
+```
+/review                        current branch vs the base from AGENTS.md
+/review --uncommitted          the working tree
+/review <slug|sha|range>       a task's branch, a commit, a range
 ```
 
 **Token spend:**
