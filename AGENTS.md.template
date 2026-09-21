@@ -36,6 +36,12 @@ It spawns a phase agent, shows the artifact, and waits for your approval at the 
 2. `plan` agent → `vault/plans/<slug>.md`   (gate)
 3. `implement` agent → `vault/changelog/<date>-<slug>.md`   (autonomous)
 
+Execution state and version-specific approvals live in SQLite; the shared
+`~/.claude/skills/devflow/devflow` CLI controls routing. `.devflow/project.json` holds this
+project's stable local identity: back it up with the database and vault; exclude `.devflow/`
+from git. Plan step IDs are stable; completion flags belong in the database, not Markdown.
+Git remains manual: no automatic branches, commits, pulls, pushes or PRs.
+
 Vault layout: `tz/` `research/` `plans/` `changelog/` `notes/`
 
 ## Notes

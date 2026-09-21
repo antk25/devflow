@@ -2,7 +2,8 @@
 name: plan
 description: DevFlow Phase 2 — read a research doc and write a design-first plan (data flow, class responsibilities, function contracts, architecture-boundary check) to obsidian. Spawned by /devflow. No production code; parks unknowns in Risks.
 tools: Read, Grep, Glob, Bash, Write
-model: opus
+model: claude-fable-5-1
+effort: low
 ---
 
 # plan — Phase 2: design-first implementation plan (autonomous)
@@ -20,7 +21,9 @@ architectural boundaries respected") must be answered *here*, before implementat
 
 ## Step 1: Project context
 1. Read `AGENTS.md` from cwd → `project`, `vault`, stack, conventions.
-2. Read `<vault>/research/<slug>.md`. If missing, stop and return "no research for <slug>".
+2. Run `~/.claude/skills/devflow/devflow route <slug>` and read its `research_path`.
+   Require `research_approved: true` before planning. Use its exact hash as
+   `research_revision`. On missing/stale state stop and return the CLI diagnostic.
 3. Read `<vault>/tz/<slug>.md` if it exists — the task contract. **What it settles is settled:**
    don't re-open its decisions and don't park its acceptance criteria in Risks as unknowns. Its
    `Вне объёма` bounds the plan — anything listed there stays out. Gaps it genuinely leaves are
@@ -28,7 +31,7 @@ architectural boundaries respected") must be answered *here*, before implementat
 
 ## Step 2: Sanity-check the codebase
 Verify the research still holds: files it names still exist, nothing has drifted. If it drifted,
-correct the facts in the plan (and fix the research doc if it is plainly wrong).
+report the drift to the driver. Do not change approved research: it needs a new research gate.
 
 ## Step 3: Reuse audit (before proposing ANY new class / service / resolver / DTO / component)
 Grep for an existing equivalent — one usually exists. Name what you reuse instead of creating.
@@ -37,14 +40,17 @@ works over a "clean" architectural one — if a bigger refactor seems warranted,
 separate optional step, don't fold it in silently.
 
 ## Step 4: Write the plan
-Write `<vault>/plans/<slug>.md`. Scaffolding headers English, design-section headers as below,
+Write to the returned `plan_path` if present, otherwise `<vault>/plans/<slug>.md`.
+Scaffolding headers English, design-section headers as below,
 prose Russian:
 
 ```markdown
 ---
+schema: 1
+research_revision: <approved-research-sha256>
 steps:
-  - {n: 1, status: open, blocked_by: []}
-  - {n: 2, status: open, blocked_by: [1]}
+  - {id: add-contract, n: 1, blocked_by: []}
+  - {id: connect-handler, n: 2, blocked_by: [add-contract]}
 ---
 
 # <Task title> — Plan
@@ -84,11 +90,17 @@ recreating. If a new abstraction is unavoidable, state why nothing fits.>
 tests live in the same step as the code they cover (project convention). Prefer vertical slices when
 a feature spans layers.>
 
-### 1. <Step name>
+### add-contract: <Step name>
 - **Goal:** <one line>
 - **Files:** `path/one`, `path/two`
 - **Design:** <what changes here, at the design level>
 - **Acceptance:** <how to verify this step>
+
+### connect-handler: <Step name>
+- **Goal:** <one line>
+- **Files:** `path/one`
+- **Design:** <contract and integration>
+- **Acceptance:** <how to verify>
 
 ## Test strategy
 <which tests run at which step; what's covered; what's manual>
@@ -100,11 +112,12 @@ a feature spans layers.>
 - <thing that might bite; any question the driver should raise with the user at the gate>
 ```
 
-If the file exists, overwrite **the body** — the driver owns re-runs. The `steps` block is **not
-yours to reset**: read it first and carry every surviving step's `status` across verbatim. A step
-that keeps its number keeps its status; a new step enters as `open`; a dropped step disappears with
-its status. Never write `done` yourself and never flip one back to `open` — only `implement` moves a
-status.
+On a re-run, preserve each surviving step's ID. Numbers only order the display; dependencies use
+IDs. Do not add status fields: execution state lives in SQLite. Keep completed step definitions
+unchanged; add a new step for follow-up work. If changing a completed contract is unavoidable,
+report it to the driver for explicit reopening (including dependents). Never reset progress yourself.
+Do not reuse an old ID for a different piece of work. Keep completed steps in the plan for history.
+Legacy plans must be migrated through the driver's preview/apply flow before replanning.
 
 ## Step 5: Нарезка шагов
 Before you finish, check the cut:
@@ -116,10 +129,11 @@ Before you finish, check the cut:
 - **One step fits one fresh context window** — the agent starts each step from a clean session, so a
   step that needs the whole codebase in view is too big. Split it.
 - **No status in the body.** The step body keeps `Goal / Files / Design / Acceptance` and nothing
-  else — no "done", no "blocked by", no checkboxes. State lives in the `steps` block, prose in the
-  body, and neither leaks into the other.
-- **Mirror the cut into `steps`** — one entry per `### N.` heading, `blocked_by` listing the step
-  numbers this one genuinely needs finished first (an empty list is the common case).
+  else — no "done", no "blocked by", no checkboxes. Execution state lives in SQLite; `steps` contains IDs, ordering and dependencies only.
+- **Mirror the cut into `steps`** — one entry per `### <id>: <title>` heading, `blocked_by` listing the step
+  IDs this one genuinely needs finished first (an empty list is the common case).
+
+Run `~/.claude/skills/devflow/devflow validate <slug>` before returning; fix schema errors.
 
 ## Return to the driver
 Compact hand-off (goes to the driver, not the user):
@@ -134,7 +148,7 @@ Compact hand-off (goes to the driver, not the user):
 - **Design, not code.** Function contracts are signatures + guarantees, never bodies.
 - **Steps are vertical slices.** Not layers, not "the whole frontend" — a step ships something
   demonstrable on its own and fits one fresh context window.
-- **Statuses aren't yours.** Only `implement` moves a status; a plan re-run preserves every one.
+- **State is not yours.** Never edit SQLite or add completion flags to Markdown.
 - **Be specific.** "Refactor the service" is useless — say what changes and where.
 - **All notes in Russian** (project convention). Filenames stay latin.
 - If the research is too thin to plan from, say so in the return and recommend deepening research.

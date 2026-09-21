@@ -12,7 +12,7 @@ arguments:
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)
 
 Interactive orchestrator. Spawns the `research` / `plan` / `implement` phase agents (each with its
-own frontmatter model — opus / opus / sonnet), shows you each artifact, and **waits for your
+own frontmatter model — claude-fable-5-1, effort low), shows you each artifact, and **waits for your
 explicit approval at each gate** before the next phase. You control git throughout — the driver
 never branches or commits, and neither does `implement`.
 
@@ -25,87 +25,78 @@ phase logic lives in the agent bodies** — don't re-implement a phase here.
   old per-phase `/research` `/plan` `/implement` entry points).
 
 ## Step 0: Project context
-Read `AGENTS.md` from cwd → `project`, `vault`. Each phase agent re-reads it itself; you need
-`vault` for routing.
+Read `AGENTS.md` from cwd. The shared CLI is `~/.claude/skills/devflow/devflow` (called `df` below
+for brevity; invoke the full path, not an assumed shell alias). Commands return JSON.
+Run `df context`. A new project needs `df init` once; the launcher does this automatically.
+A missing database for an existing identity is an error: restore it, never silently reset progress.
 
-## Step 1: Pick the task  (skip if a slug was given)
-Run the standup flow (same script `/standup` uses, never MCP):
-```bash
-bash ~/.config/devflow/integrations/jira-digest.sh
+## Step 1: Pick the task (skip if a slug was given)
+Run `bash ~/.config/devflow/integrations/jira-digest.sh`. Show its output unchanged, waiting bucket
+first. On errors stop; never fall back to MCP. Let the user select a key. `df route <key>` resolves
+existing slugs; if ambiguous, ask for one of the listed slugs. For a new task agree a full slug
+`<key-lowercase>-<short-summary>` and keep it stable across phases.
+
+## Step 2: Route using the shared CLI
+Run `df route <slug>`. Never derive completion or approval from file existence yourself.
+
+| Returned state | Action |
+|---|---|
+| `research` | Spawn research; pass the returned TZ path if present |
+| `plan` / `plan_outdated` | Spawn plan with the current `research_revision` |
+| `approval_required` | Show the named artifact and hold its phase gate |
+| `ready` | Name step `n` of `total`, start that step as below |
+| `completed` | Show changelog; stop |
+| `running` | Show the run ID; inspect whether its agent is still working. Never start a duplicate |
+| `blocked` | Show reason; stop. Resume only after the user decides how to proceed |
+| `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
+| `migration_required` / `migration_pending` | Follow the migration flow below |
+| `legacy_review` / CLI error | Show the diagnostic; resolve the ambiguity before proceeding |
+
+Tag token attribution best-effort with `python3 ~/.claude/skills/tokens/token-stats.py --tag <KEY>`.
+Failure to tag does not block work.
+
+## Step 3: Run phase, gate, repeat
+Spawn `research` or `plan` via Agent (`subagent_type` matches the phase), passing cwd, stable slug,
+and the current input revision. Agent bodies hold the phase logic.
+
+After research/plan returns, run `df route <slug>`, read and show the artifact, and retain the returned
+`revision`. Relay questions/edits to the same agent via SendMessage. Show each updated version.
+**Only after explicit user approval**, run:
 ```
-Show the digest **as printed**, `⏳ ждут тебя` bucket first — those are the tasks where the last
-comment isn't yours, oldest on top. Let the user pick a Jira key. Derive the slug: the matched artifact's stem, or —
-for a new task — propose `<key-lowercase>-<short-kebab-summary>` (the research agent finalizes it).
-If the digest errors (creds / network / 401), surface it plainly and stop; do **not** use MCP.
-
-## Step 2: Route
-Glob the vault case-insensitively (key is the slug prefix). **The plan is checked before the
-changelog** — with steps, a changelog appears after the *first* step, so its mere existence no
-longer means the task is closed.
-
-- `plans/<slug>*.md` exists → read **its frontmatter only**, not the body. Parse the YAML block
-  between the leading `---` fences; never grep the file for `steps:` — a plan that documents the
-  format has that word in a code fence, and grep will route off a worked example:
-  - `steps` present → the **frontier** is every step with `status: open` whose every `blocked_by`
-    entry is `done`. Non-empty → start at **implement, step N** (lowest number on the frontier).
-    Empty (all `done`) → **closed**.
-  - `steps` absent → legacy plan, written before steps existed. A changelog for it → **closed**
-    (that is how a task finished the old way looks; don't reopen it as step 1). No changelog → all
-    steps open, no blockers: count the `### <n>.` headings in the body, offer **step 1**, and let
-    the user name a different number.
-- `changelog/*-<slug>*.md` exists and the plan has no open frontier → **closed**. Ask: reopen
-  (→ pick a phase) or stop.
-- `research/<slug>*.md`, no plan → start at **plan**.
-- `tz/<slug>*.md`, no research → start at **research по готовому ТЗ**, not as a new task: the
-  contract already exists, so research starts from it instead of from the Jira summary. Pass that to
-  the agent, and say if the TZ fails its `/note tz` checks — a draft contract is still a draft.
-- nothing matches → start at **research** (new task).
-
-Say the step out loud when you report the route: `implement, шаг 3 из 5` — never "продолжаю план".
-
-Then tag the session so `/tokens` attributes this task's spend exactly. Best-effort —
-if it fails, note it and carry on; never block the pipeline on it:
-```bash
-python3 ~/.claude/skills/tokens/token-stats.py --tag <KEY>
+df approve <slug> <research|plan> --revision <hash-that-was-shown>
 ```
+If the CLI rejects a stale revision, show the changed artifact and ask again. This command records
+the user's decision; its availability is never permission for the agent to approve its own work.
+Then route again. Existing files with no recorded approval go through the same gate.
 
-## Step 3: Run the phase → gate → repeat
-Loop from the routed phase until the plan's frontier is empty.
+For `ready`, run `df start <slug> --step <id> --revision <plan-hash>`. Pass its `run_id`, step ID,
+number, revision and cwd to a **fresh** implement agent. Never spawn implementation before start
+succeeds. Each run covers one step. On return, route again: continue only on `ready`; stop on
+`blocked`, `running`, errors or `completed`. The implement agent records its result with `df finish`.
+A prose claim of success without a recorded result does not close a step.
 
-**a. Spawn the phase agent** with the Agent tool:
-- `subagent_type: research | plan | implement`
-- Thin prompt only: the cwd, the slug, and "read AGENTS.md and your input artifact, do your phase,
-  write the artifact, return your hand-off." Nothing more — the agent body holds the logic.
-- For `implement`, the prompt also carries **the step number**. Never spawn it without one — it
-  refuses, by design: one run is one step, from a fresh context window.
+## Recovery and replanning
+- For an abandoned `running` attempt, inspect code/changelog first. If the result is recoverable,
+  finish the same run with its existing evidence. Otherwise, after the user chooses to stop it,
+  use `df interrupt <run-id> --reason <reason>`.
+- After the user resolves a blocked/partial attempt: `df resume <slug> --reason <decision>`;
+  re-route before spawning anything. A partial attempt's changes must be inspected before retry.
+- Use `df history <slug>` and `df artifact <slug> <phase> --revision <hash>` to compare saved versions.
+- Replanning is an explicit user-selected phase; spawn plan, then route and hold the new gate.
+- To redo a done step, after the user's decision run
+  `df reopen <slug> --step <id> --revision <current-plan-hash> --reason <decision>`.
+  This also reopens dependent steps and requires plan approval again. Never reopen silently.
 
-**b. On return — `research` / `plan` (gated):**
-1. Read and show the artifact (`<vault>/research/<slug>.md` or `<vault>/plans/<slug>.md`).
-2. If the agent returned **Open questions / open decisions**, ask the user, then **SendMessage the
-   answers to the same agent** (its context is intact) so it finalizes the doc in place. Re-show the
-   changed sections.
-3. **GATE:** ask for explicit approval ("одобряешь?"). Advance only on a clear yes. On "no" or edits,
-   relay them via SendMessage to the same agent and re-gate.
-
-**c. On return — `implement` (autonomous, not gated):**
-- Status `done` → show the step's changelog section, then **re-read the plan's frontmatter** and
-  recompute the frontier:
-  - frontier non-empty → spawn a **fresh** `implement` agent on the next step. A new agent per step
-    is the point; never continue in the one that just finished.
-  - frontier empty → the pipeline is complete; show the changelog.
-- Status `blocked` / `partial` → the step stays `open` on the frontier. Show the stop reason +
-  changelog and **stop; the user decides** (fix manually, or `/devflow <slug>` back into plan to
-  revise). Never push through a red state, and never skip ahead to a later step.
-
-**d. Advance:** after a gate approval, re-route (Step 2) — the just-written artifact moves the task
-to the next phase — and spawn the next agent. Continue until the frontier is empty.
+## Legacy migration
+Run `df migrate <slug>` for a read-only preview. Show the proposed document and imported done IDs.
+Only after the user agrees, run `df migrate <slug> --apply <old_revision>` from that preview.
+The command backs up the old plan and can resume an interrupted migration using the same revision.
+Historical done marks are preserved; approvals are not inferred. Route and approve research/plan.
+Plans without step statuses or with ambiguous history require manual reconciliation first.
 
 ## Rules
-- **Gates are explicit.** Never advance research → plan → implement without a clear user "yes".
-  Steps inside `implement` are not gates — they run one after another, each in a fresh agent.
-- **The frontier comes from the frontmatter.** Compute it by parsing the `steps` block; don't read
-  the plan body to work out what's done.
-- **git is manual** end to end. No auto-branch, no auto-commit, no push — driver or agent.
-- **One task at a time.** Finish or stop the current task before starting another.
-- **Slug ↔ key:** the key is the slug's prefix; routing and digest both derive from it, no mapping file.
-- **Degradation:** digest errors surface to the user; never fall back to Atlassian MCP.
+- Explicit research/plan gates, including across sessions. No automatic approvals or state resets.
+- Only the CLI changes execution state. Markdown contains definitions, not completion flags.
+- Git is manual: no auto-branch, commit, pull, push or PR, for driver or phase agents.
+- One task at a time. A blocked step is not permission to skip to another one.
+- No direct SQL, no replacement state files, no independent routing algorithm in the prompt.

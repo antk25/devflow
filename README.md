@@ -26,11 +26,13 @@ The driver spawns three **phase agents** (`~/.claude/agents/`), each with its mo
 
 | Phase agent | Model | Output |
 |-------------|-------|--------|
-| `research` | opus | `<vault>/research/<slug>.md` |
-| `plan` | opus | `<vault>/plans/<slug>.md` |
-| `implement` | sonnet | `<vault>/changelog/<date>-<slug>.md` |
+| `research` | fable 5.1 (effort low) | `<vault>/research/<slug>.md` |
+| `plan` | fable 5.1 (effort low) | `<vault>/plans/<slug>.md` |
+| `implement` | fable 5.1 (effort low) | `<vault>/changelog/<date>-<slug>.md` |
 
-The artifact from one phase is the input to the next; the driver re-routes after each gate.
+The artifact from one phase is the input to the next; the driver re-routes after each gate through
+one Python CLI. Markdown stores definitions; SQLite stores approvals, attempts and completion.
+Approvals persist across sessions and apply to the exact document revision that was shown.
 
 ---
 
@@ -93,7 +95,7 @@ is read from the local transcripts in `~/.claude/projects/` — nothing leaves t
 ./start.sh --current       current project → opus driver
 ```
 
-The driver session runs on opus; each phase agent picks its own model (research/plan opus, implement sonnet) from its frontmatter. Already in a session? `/model` switches it manually.
+The driver session runs on opus; each phase agent picks its own model (all three on fable 5.1, effort low) from its frontmatter. Already in a session? `/model` switches it manually.
 
 ---
 
@@ -150,7 +152,15 @@ cd ~/projects/devflow
 ./install.sh --remove    # remove the symlinks
 ```
 
-After install, `/devflow`, `/standup`, `/note`, `/project` (and the research / plan / implement phase agents) are available in any Claude Code session.
+The installer creates `.venv` (reusing system packages when available), installs PyYAML if missing,
+and initializes `.claude/data/projects.json` with this checkout when no registry exists. Existing
+registries are preserved and validated. Foreign files or symlinks cause an error before installation.
+`--check` never writes and exits nonzero for missing/conflicting items. `--remove` removes only our
+links; it preserves the registry, environment and workflow state.
+
+After install, skills and agents are available in any Claude Code session. The shared CLI is
+`~/.claude/skills/devflow/devflow`, or `./scripts/devflow-cli.sh` from this checkout.
+`DEVFLOW_CLAUDE_DIR` overrides the symlink destination for isolated installation checks.
 
 ---
 
@@ -162,16 +172,21 @@ After install, `/devflow`, `/standup`, `/note`, `/project` (and the research / p
 ./start.sh --current      # use the currently active project
 ```
 
-`start.sh` updates `active` in the registry, then `cd`s into the project and runs `claude --model opus` (the driver session). The `SessionStart` hook reads the project's `AGENTS.md` and greets you with active TZ / research / plans.
+`start.sh` validates the registry, directory, Claude executable and project metadata before changing
+`active`. On a project's first launch it creates the local identity and database. It then runs
+`claude --model opus` with additional settings pointing to DevFlow's SessionStart hook and Git
+publication restrictions. No hook is copied into the target project. A cancelled launch or failed
+preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
+The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
 ### Model per phase
 
-Reasoning is worth Opus; mechanical edits are cheaper on Sonnet. The model is pinned **per phase agent** in its frontmatter and holds for that agent's whole run — no per-session juggling:
+Все три фазы идут на **Claude Fable 5.1** с `effort: low` — на новых моделях низкий effort закрывает рутину не хуже, чем прежний high на прошлом поколении, а токенов тратит меньше. Модель закреплена **в frontmatter каждого фазового агента** и держится весь его прогон — без переключений внутри сессии:
 
-| Phase agent | Model |
-|-------------|-------|
-| `research`, `plan` | **opus** |
-| `implement` | **sonnet** |
+| Phase agent | Model | Effort |
+|-------------|-------|--------|
+| `research`, `plan` | **claude-fable-5-1** | low |
+| `implement` | **claude-fable-5-1** | low |
 
 The `/devflow` driver session itself runs on opus (`./start.sh` launches `claude --model opus`); it spawns each phase agent, and the agent's frontmatter model takes over for that phase. `/code-review` and ad-hoc reasoning also default to opus — switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
 
@@ -188,7 +203,11 @@ cp ~/projects/devflow/AGENTS.md.template /path/to/project/AGENTS.md
 $EDITOR /path/to/project/AGENTS.md
 ```
 
-Configure the SessionStart hook locally (optional but recommended) by copying `.claude/settings.json.example` and replacing `__PROJECT_ROOT__` with the project's absolute path.
+The launcher supplies the hook settings automatically. For sessions started directly with `claude`,
+merge `.claude/settings.json.example` into the project's existing settings and replace
+`__DEVFLOW_ROOT__` with the **DevFlow checkout** path, not the target project's path. Quote the
+command's script path if it contains spaces. Initialize workflow state once from the project root
+with `~/.claude/skills/devflow/devflow init` before using the workflow directly.
 
 ---
 
@@ -197,8 +216,9 @@ Configure the SessionStart hook locally (optional but recommended) by copying `.
 | Tool | Why |
 |------|-----|
 | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) 2.0+ | runtime |
-| Python 3.10+ | hook scripts |
-| Bash / Git | basics |
+| Python 3.10+ with venv / pip and SQLite support | workflow CLI, launcher and hooks |
+| PyYAML 6.x | YAML parsing; installed by `install.sh` when missing |
+| Bash / Git / Linux or WSL utilities (`readlink`, `ln`) | launch and installation |
 | [gum](https://github.com/charmbracelet/gum) | optional, for `./start.sh` interactive menu |
 
 ---
@@ -219,14 +239,121 @@ devflow/
 │   ├── tokens/                — /tokens + token-stats.py (spend analyzer)
 │   └── autoresearch/          — optional, skill self-optimization tool
 ├── scripts/
-│   └── obsidian-active.sh     — used by SessionStart hook
+│   ├── devflow/               — document validation, SQLite state, routing and registry
+│   ├── devflow-cli.sh         — shared JSON CLI
+│   ├── launch.py              — project selection and launch
+│   └── obsidian-active.sh     — delegates to the shared CLI
 └── .claude/
     ├── hooks/project-restore.sh
     ├── data/projects.json     — local registry (gitignored)
     └── settings.json          — local settings (gitignored)
 ```
 
-The Jira digest engine itself (`jira-digest.sh`) lives outside the repo in `~/.config/devflow/integrations/`, alongside the other tracker scripts.
+The Jira digest engine itself (`jira-digest.sh`) lives outside the repo in
+`~/.config/devflow/integrations/`, alongside the other tracker scripts. These integrations and their
+credentials must be provisioned separately; installation does not make Jira available. Missing
+integrations stop standup with a diagnostic; `/devflow <slug>` can start without the digest.
+
+---
+
+## Workflow state and document format
+
+Each project has a stable UUID in `.devflow/project.json` (local, not committed). Execution state is
+stored at `~/.local/share/devflow/projects/<uuid>/state.sqlite3`; `DEVFLOW_STATE_DIR` overrides that
+parent directory. Project name/path changes do not change identity if this file is retained.
+Use a separate identity for an independent copy; never run two independent copies with one ID.
+
+Definitions remain in the vault. A schema-1 plan has YAML like:
+
+```yaml
+schema: 1
+research_revision: <sha256 returned by route after research approval>
+steps:
+  - {id: add-contract, n: 1, blocked_by: []}
+  - {id: connect-handler, n: 2, blocked_by: [add-contract]}
+```
+
+The body has `## Steps`, with matching `### add-contract: Contract` and
+`### connect-handler: Handler` sections. IDs are permanent; `n` controls ordering only.
+No execution statuses belong in the plan. Keep completed definitions; use new steps for follow-ups.
+The parser rejects duplicate YAML keys, unknown dependencies, cycles and mismatched headings.
+
+The CLI emits JSON; errors go to stderr with a nonzero exit. From the project root:
+
+```bash
+~/.claude/skills/devflow/devflow route <slug>
+~/.claude/skills/devflow/devflow validate <slug>
+~/.claude/skills/devflow/devflow history <slug>
+```
+
+`route` distinguishes research, plan, approval-required, outdated-plan, ready, running, blocked,
+review-required and completed states. It also reports legacy migration/reconciliation cases.
+A plan is complete only when every defined step is done at its current definition revision and
+its research/plan approvals are valid. Invalid plans are errors, not completed tasks.
+
+Approval and execution commands (normally called by the driver):
+
+```bash
+# Only after the user approved this exact displayed revision:
+~/.claude/skills/devflow/devflow approve <slug> research --revision <hash>
+~/.claude/skills/devflow/devflow approve <slug> plan --revision <hash>
+~/.claude/skills/devflow/devflow start <slug> --step <id> --revision <plan-hash>
+~/.claude/skills/devflow/devflow finish <run-id> --status done --changelog <path>
+```
+
+Approvals store snapshots of the document text. Changing research requires its approval again and
+updating the plan's `research_revision`; changing a plan requires a new plan approval. Execution
+updates SQLite, so finishing a step does not change the approved plan hash. `approve` records a
+human decision; it is not an authentication mechanism and agents must never self-approve.
+
+One implementation run may be active per project. Its changelog section begins with
+`<!-- devflow-run: <run-id> -->` and includes `**Status:** done`, `partial` or `blocked`.
+Write and verify that section before `finish`; partial/blocked also require `--reason`.
+Repeating finish with the same run section is safe, including after later sections are appended.
+SQLite and Markdown do not share a transaction: an interruption after writing the changelog leaves
+`running`, and recovery reuses the same run ID and evidence rather than repeating the work blindly.
+
+Recovery commands require inspecting the work and the user's decision:
+
+```bash
+~/.claude/skills/devflow/devflow interrupt <run-id> --reason <why>
+~/.claude/skills/devflow/devflow resume <slug> --reason <decision>
+~/.claude/skills/devflow/devflow reopen <slug> --step <id> --revision <hash> --reason <decision>
+~/.claude/skills/devflow/devflow artifact <slug> plan --revision <saved-hash>
+```
+
+`reopen` also reopens dependent steps and invalidates plan approvals. It does not undo code changes.
+A stale `running` attempt is never automatically retried; first determine whether its agent still
+runs and inspect its code/changelog. Stop it explicitly if no result can be recovered.
+
+### Existing plans
+
+`migrate <slug>` is read-only and returns the converted document, original revision and done IDs.
+After reviewing that preview, `migrate <slug> --apply <old-revision>` creates a
+`<plan>.pre-devflow.bak`, assigns stable IDs, removes execution flags and imports historical done
+marks into SQLite. It does not infer approvals. Plans without per-step statuses require manual
+reconciliation; the existence of a changelog is not proof that every step was finished.
+
+An interrupted migration leaves a manifest in `.devflow/migrations/`. Routing stops until migration
+is resumed with the same preview revision. Conflicting document edits require reconciliation.
+
+### Backup and moving a project
+
+```bash
+~/.claude/skills/devflow/devflow backup /path/to/new-backup.sqlite3
+```
+
+This uses SQLite's backup API and refuses to overwrite a destination. Back up the vault and
+`.devflow/project.json` too; preserve pending migration manifests if any. For a consistent complete
+project backup, finish or stop active agents first. To move the project, retain its identity,
+restore the database under `<state-root>/<uuid>/state.sqlite3`, update the registry path and the
+vault path in AGENTS.md. Create or mount the vault directory before launch; a missing vault
+is an error, not an empty task list. The state directory is local; multi-machine shared execution is unsupported.
+
+If identity exists but its database is missing, startup stops. Restore the database; only use
+`init --fresh-state` when deliberately accepting loss of execution/approval history. The CLI never
+reconstructs approval from the presence of a document. Copying only Markdown does not move workflow
+state. Database schema version 1 is checked on opening; unknown versions are rejected.
 
 ---
 
@@ -235,7 +362,7 @@ The Jira digest engine itself (`jira-digest.sh`) lives outside the repo in `~/.c
 - **Gated control over full automation.** The driver routes and runs the phases, but stops at a gate for your approval on research and plan, and never touches git. You drive the decisions that matter.
 - **Persistence first.** The system's value is the artifact trail in obsidian — research, plan, changelog — not the orchestration around it.
 - **Model-agnostic artifacts.** `AGENTS.md` and the vault docs are plain markdown, readable in any tool.
-- **Small surface.** Four skills, three phase agents, one Jira digest script, one hook.
+- **Shared mechanics.** Skills handle reasoning and interaction; the Python CLI owns state transitions and routing.
 
 ---
 

@@ -22,7 +22,9 @@ NO_TASK = "(без задачи)"
 
 # $ за 1M токенов, прайс-лист Anthropic. cache write ×1.25 (5m) / ×2.0 (1h), cache read ×0.1.
 PRICES = {
+    "claude-fable-5-1": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5-1": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),

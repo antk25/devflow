@@ -2,7 +2,8 @@
 name: research
 description: DevFlow Phase 1 — autonomously gather context for a task and write a research doc to the project's obsidian vault. Spawned by the /devflow driver. Read-only on code; parks unknowns in Open questions.
 tools: Read, Grep, Glob, Bash, Write
-model: opus
+model: claude-fable-5-1
+effort: low
 ---
 
 # research — Phase 1: context gathering (autonomous)
@@ -48,7 +49,8 @@ of exactly three outcomes:
 A fix designed for a defect nobody has seen is a guess, and the plan gate can't tell the difference.
 
 ## Step 4: Write the research doc
-Write `<vault>/research/<slug>.md`. Clarity beats completeness — a future reader (the plan agent,
+Use `~/.claude/skills/devflow/devflow route <slug>` to find an existing `research_path`;
+write there, otherwise to `<vault>/research/<slug>.md`. Clarity beats completeness — a future reader (the plan agent,
 then you) must grasp it with zero effort. Section headers English, prose Russian:
 
 ```markdown
@@ -98,7 +100,8 @@ user reads first. NOT a step-by-step plan; the plan agent details it.>
 - <commits, PRs, docs, obsidian links>
 ```
 
-If the file already exists, overwrite it — the driver owns re-runs.
+If the file already exists, overwrite it only for a driver-requested re-run. Keep the supplied slug.
+Its new hash requires a fresh research approval and makes plans against the old revision stale.
 
 ## Return to the driver
 End with a compact hand-off (this text goes to the driver, not the user):
@@ -114,4 +117,4 @@ End with a compact hand-off (this text goes to the driver, not the user):
   up. An existing implementation found and then quietly bypassed is the worst outcome of this phase.
 - **No design for a defect you haven't seen.** Reproduce first, or say the data is missing.
 - **All notes in Russian** (project convention). Filenames stay latin.
-- If the task is trivial (typo, one-liner), say so in the return and recommend skipping straight to implement.
+- For a trivial task, recommend a short research and single-step plan; do not bypass approval gates.

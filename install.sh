@@ -1,120 +1,103 @@
 #!/usr/bin/env bash
-# devflow installer — symlinks devflow skills into ~/.claude/skills/ and phase agents
-# into ~/.claude/agents/.
-#
-# Usage:
-#   ./install.sh           # install/update symlinks (and retire stale ones)
-#   ./install.sh --check   # show what would change without doing it
-#   ./install.sh --remove  # remove devflow skills and agents from ~/.claude/
-
+# Install DevFlow's Claude skills; all conflicts are checked before writing.
 set -euo pipefail
-
+export PYTHONDONTWRITEBYTECODE=1
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Skills shipped by devflow (directory names under skills/)
+CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 SKILLS=(note project devflow standup tokens page review jira xreview)
-
-# Optional skills (installed if present)
-OPTIONAL_SKILLS=(autoresearch)
-
-# Phase agents (file names under agents/, without .md)
+[ ! -d "$DEVFLOW_DIR/skills/autoresearch" ] || SKILLS+=(autoresearch)
 AGENTS=(research plan implement review-standards review-conformance)
-
-# Skills retired by the phase-agents redesign — unlink our stale symlinks if present
 RETIRED_SKILLS=(research plan implement quick)
-
-mode="install"
+mode=install
 case "${1:-}" in
-    --check)  mode="check" ;;
-    --remove) mode="remove" ;;
-    "")       mode="install" ;;
-    *) echo "Usage: $0 [--check|--remove]"; exit 1 ;;
+    --check) mode=check ;;
+    --remove) mode=remove ;;
+    '') ;;
+    *) echo "Usage: $0 [--check|--remove]" >&2; exit 1 ;;
 esac
+[ "$#" -le 1 ] || { echo 'Too many arguments' >&2; exit 1; }
 
-mkdir -p "$HOME/.claude/skills" "$HOME/.claude/agents"
+sources=() destinations=()
+for name in "${SKILLS[@]}"; do
+    sources+=("$DEVFLOW_DIR/skills/$name")
+    destinations+=("$CLAUDE_DIR/skills/$name")
+done
+for name in "${AGENTS[@]}"; do
+    sources+=("$DEVFLOW_DIR/agents/$name.md")
+    destinations+=("$CLAUDE_DIR/agents/$name.md")
+done
 
-# link_item <kind> <name>   kind: skills (dir) | agents (file .md)
-link_item() {
-    local kind=$1 name=$2
-    local suffix=""; [ "$kind" = "agents" ] && suffix=".md"
-    local src="$DEVFLOW_DIR/$kind/$name$suffix"
-    local dst="$HOME/.claude/$kind/$name$suffix"
-
-    if [ ! -e "$src" ]; then
-        echo "  skip   $kind/$name (no source: $src)"
-        return
+issues=0
+for i in "${!sources[@]}"; do
+    src="${sources[$i]}" dst="${destinations[$i]}"
+    if [ "$mode" = remove ]; then
+        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+            rm -- "$dst"
+            echo "unlink $dst"
+        fi
+    elif [ ! -e "$src" ]; then
+        echo "MISS source: $src" >&2; issues=1
+    elif [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+        echo "ok $dst"
+    elif [ -e "$dst" ] || [ -L "$dst" ]; then
+        echo "CONFLICT (not replacing): $dst" >&2; issues=1
+    elif [ "$mode" = check ]; then
+        echo "MISS $dst"; issues=1
     fi
+done
 
-    case "$mode" in
-        check)
-            if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-                echo "  ok     $kind/$name → $src"
-            elif [ -e "$dst" ]; then
-                echo "  CONFL  $kind/$name (exists, not our symlink): $dst"
-            else
-                echo "  MISS   $kind/$name (would link → $src)"
-            fi
-            ;;
-        install)
-            if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-                echo "  CONFL  $kind/$name (exists as real file/dir, not replacing): $dst" >&2
-                return 1
-            fi
-            ln -sfn "$src" "$dst"
-            echo "  link   $kind/$name → $src"
-            ;;
-        remove)
-            if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-                rm "$dst"
-                echo "  unlink $kind/$name"
-            else
-                echo "  skip   $kind/$name (not our symlink)"
-            fi
-            ;;
-    esac
-}
-
-# retire_skill <name> — drop a stale ~/.claude/skills/<name> symlink that points into
-# this devflow repo (left behind when a skill was removed). Only touches our own symlinks.
-retire_skill() {
-    local name=$1
-    local dst="$HOME/.claude/skills/$name"
-    [ -L "$dst" ] || return 0
-    [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ] || return 0
-    if [ "$mode" = "check" ]; then
-        echo "  RETIRE $name (stale devflow symlink → would remove)"
-    else
-        rm "$dst"
-        echo "  retire $name (stale devflow symlink removed)"
+if [ "$mode" = check ]; then
+    PYTHON="$DEVFLOW_DIR/.venv/bin/python"
+    if [ ! -x "$PYTHON" ]; then
+        echo 'MISS Python environment; run ./install.sh'; issues=1
+    elif ! "$PYTHON" -c 'import sys, yaml; assert sys.version_info >= (3, 10)' 2>/dev/null; then
+        echo 'MISS Python 3.10+ / PyYAML'; issues=1
     fi
-}
+    if [ ! -f "$DEVFLOW_DIR/.claude/data/projects.json" ]; then
+        echo 'MISS project registry'; issues=1
+    elif [ -x "$PYTHON" ]; then
+        if ! "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from devflow.registry import load; load(sys.argv[2])' \
+            "$DEVFLOW_DIR/scripts" "$DEVFLOW_DIR/.claude/data/projects.json"; then
+            issues=1
+        fi
+    fi
+    for name in "${RETIRED_SKILLS[@]}"; do
+        dst="$CLAUDE_DIR/skills/$name"
+        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ]; then
+            echo "RETIRE $dst"; issues=1
+        fi
+    done
+    echo '(check mode — no changes made)'
+    exit "$issues"
+fi
+[ "$issues" -eq 0 ] || exit 1
 
-echo "devflow: $mode"
-echo ""
-
-echo "skills:"
-for s in "${SKILLS[@]}"; do
-    link_item skills "$s"
+if [ "$mode" = install ]; then
+    python3 -c 'import sys; assert sys.version_info >= (3, 10), "Python 3.10+ required"'
+    if [ ! -x "$DEVFLOW_DIR/.venv/bin/python" ]; then
+        python3 -m venv --system-site-packages "$DEVFLOW_DIR/.venv"
+    fi
+    PYTHON="$DEVFLOW_DIR/.venv/bin/python"
+    if ! "$PYTHON" -c 'import yaml' 2>/dev/null; then
+        "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
+    fi
+    "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
+    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents"
+    for i in "${!sources[@]}"; do
+        src="${sources[$i]}" dst="${destinations[$i]}"
+        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+            continue
+        fi
+        # No force: if a destination appeared after preflight, stop without replacing it.
+        ln -sT -- "$src" "$dst"
+        echo "link $dst"
+    done
+fi
+for name in "${RETIRED_SKILLS[@]}"; do
+    dst="$CLAUDE_DIR/skills/$name"
+    if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ]; then
+        rm -- "$dst"
+        echo "retire $dst"
+    fi
 done
-for s in "${OPTIONAL_SKILLS[@]}"; do
-    [ -d "$DEVFLOW_DIR/skills/$s" ] && link_item skills "$s"
-done
-
-echo ""
-echo "agents:"
-for a in "${AGENTS[@]}"; do
-    link_item agents "$a"
-done
-
-echo ""
-echo "retired:"
-for s in "${RETIRED_SKILLS[@]}"; do
-    retire_skill "$s"
-done
-
-echo ""
-case "$mode" in
-    install) echo "✓ Done. Skills: ${SKILLS[*]}  ·  Agents: ${AGENTS[*]}" ;;
-    check)   echo "(check mode — no changes made)" ;;
-    remove)  echo "✓ Removed devflow skills and agents from ~/.claude/" ;;
-esac
+echo "DevFlow $mode complete. Project state and registry are preserved on removal."

@@ -14,6 +14,7 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Bash + Python 3 (scripts and hooks)
 - Markdown (skills are `SKILL.md` files with YAML frontmatter)
 - JSON (project registry at `.claude/data/projects.json`)
+- SQLite (execution state per project); PyYAML (document metadata)
 
 ## Run
 - Install/update skills + phase agents: `./install.sh` (symlinks `skills/<name>` → `~/.claude/skills/`, `agents/<name>.md` → `~/.claude/agents/`)
@@ -22,7 +23,7 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Launch with project picker: `./start.sh` (interactive gum menu → opus driver)
 
 ## Conventions
-- Model policy: per-phase models live in the **agent frontmatter** — `research` and `plan` on **opus**, `implement` on **sonnet** — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). The `/devflow` driver session runs on **opus** (`./start.sh <project>` launches it, or `claude --model opus`). `/code-review` and ad-hoc reasoning also default to opus; switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
+- Model policy: per-phase models live in the **agent frontmatter** — `research`, `plan` and `implement` all on **claude-fable-5-1** with `effort: low` — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). The `/devflow` driver session runs on **opus** (`./start.sh <project>` launches it, or `claude --model opus`). `/code-review` and ad-hoc reasoning also default to opus; switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
 - Branch base: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).
 - Skills are kept short (target ≤150 lines). Cut anything that isn't actionable.
@@ -41,6 +42,11 @@ It spawns a phase agent, shows you the artifact, and **waits for your approval a
 3. `implement` agent → `vault/changelog/<date>-<slug>.md`   (autonomous; stops on red tests / plan drift)
 
 `/standup` alone just shows the digest and recommends a route, without entering the loop.
+
+The shared CLI `~/.claude/skills/devflow/devflow` owns routing and state transitions. Markdown
+stores definitions; SQLite stores revision-specific approvals, run results and history. Plans use
+stable step IDs with dependencies, not completion flags. The driver records explicit approvals;
+changed documents require a fresh gate. See README for schema, migration, recovery and backup.
 
 Vault layout: `tz/` (specs in) · `research/` · `plans/` · `changelog/` · `notes/` (ad-hoc patterns/rules)
 

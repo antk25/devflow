@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__PROJECT_ROOT__/.claude/hooks/project-restore.sh",
+            "command": "__DEVFLOW_ROOT__/.claude/hooks/project-restore.sh",
             "timeout": 10,
             "statusMessage": "Restoring project context..."
           }
