@@ -1,8 +1,8 @@
 ---
 name: devflow
-description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on opus.
+description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on fable 5.1.
 user_invocable: true
-model: opus
+model: claude-fable-5-1
 arguments:
   - name: slug
     description: "Optional: task slug (e.g. dev-541-discount-on-invoices) to skip standup and route directly"

@@ -2,7 +2,8 @@
 name: review-standards
 description: Review axis 1 — does the diff follow the project's conventions and the global ones. Spawned in parallel with review-conformance by /review. Read-only; reports findings ranked inside its own axis and never judges whether the code does what the spec asked.
 tools: Read, Grep, Glob, Bash
-model: opus
+model: claude-fable-5-1
+effort: low
 ---
 
 # review-standards — ось «стандарты»

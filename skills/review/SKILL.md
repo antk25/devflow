@@ -2,7 +2,7 @@
 name: review
 description: Ревью в две оси — стандарты (конвенции AGENTS.md и глобальные) и соответствие (делает ли код то, что просило ТЗ). Две оси идут параллельными подагентами, находки не сливаются и не переранжируются между ними. Дополняет встроенный /code-review (один общий список) и /xreview (второе мнение от Codex).
 user_invocable: true
-model: opus
+model: claude-fable-5-1
 arguments:
   - name: target
     description: "Что смотреть: слаг задачи, `--uncommitted`, SHA или диапазон. Без аргумента — текущая ветка против базы из AGENTS.md"

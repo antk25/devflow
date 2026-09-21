@@ -67,9 +67,9 @@ def main():
     previous = data.get('active')
     os.chdir(path)
     select(registry, selected)
-    print(f'Launching Claude Code (opus) for {selected}: {path}', flush=True)
+    print(f'Launching Claude Code (fable 5.1) for {selected}: {path}', flush=True)
     try:
-        os.execv(executable, [executable, '--model', 'opus', '--settings', json.dumps(settings)])
+        os.execv(executable, [executable, '--model', 'claude-fable-5-1', '--settings', json.dumps(settings)])
     except OSError:
         # exec failed before the process was replaced; restore this launcher's selection.
         from devflow.storage import atomic_write

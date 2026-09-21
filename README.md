@@ -77,7 +77,7 @@ Approvals persist across sessions and apply to the exact document revision that 
 ```
 /tokens                        cost per task (default view)
 /tokens --by phase             research vs plan vs implement vs main session
-/tokens --by model             does sonnet-on-implement actually pay off
+/tokens --by model             what the switch to fable actually costs
 /tokens --task SE-2032 --by phase    where one task's budget went
 /tokens --html ~/tokens.html   dashboard: daily chart + ranked tables
 /tokens --tag SE-2044          pin this session to a task for exact attribution
@@ -90,12 +90,12 @@ is read from the local transcripts in `~/.claude/projects/` — nothing leaves t
 **Launch:**
 
 ```
-./start.sh                 interactive project menu → opus driver
-./start.sh <project>       switch project → opus driver
-./start.sh --current       current project → opus driver
+./start.sh                 interactive project menu → fable 5.1 driver
+./start.sh <project>       switch project → fable 5.1 driver
+./start.sh --current       current project → fable 5.1 driver
 ```
 
-The driver session runs on opus; each phase agent picks its own model (all three on fable 5.1, effort low) from its frontmatter. Already in a session? `/model` switches it manually.
+The driver session runs on fable 5.1, and each phase agent pins the same model with `effort: low` in its frontmatter. Already in a session? `/model` switches it manually.
 
 ---
 
@@ -174,7 +174,7 @@ After install, skills and agents are available in any Claude Code session. The s
 
 `start.sh` validates the registry, directory, Claude executable and project metadata before changing
 `active`. On a project's first launch it creates the local identity and database. It then runs
-`claude --model opus` with additional settings pointing to DevFlow's SessionStart hook and Git
+`claude --model claude-fable-5-1` with additional settings pointing to DevFlow's SessionStart hook and Git
 publication restrictions. No hook is copied into the target project. A cancelled launch or failed
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
@@ -188,7 +188,7 @@ The hook obtains active documents from the same router used by `/devflow` and `/
 | `research`, `plan` | **claude-fable-5-1** | low |
 | `implement` | **claude-fable-5-1** | low |
 
-The `/devflow` driver session itself runs on opus (`./start.sh` launches `claude --model opus`); it spawns each phase agent, and the agent's frontmatter model takes over for that phase. `/code-review` and ad-hoc reasoning also default to opus — switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
+Драйвер `/devflow` идёт на той же модели (`./start.sh` запускает `claude --model claude-fable-5-1`), и `/standup`, `/review` и оба ревью-агента тоже. `/code-review` встроенный и frontmatter'а не имеет — он наследует модель сессии.
 
 ---
 
@@ -230,7 +230,7 @@ devflow/
 ├── AGENTS.md                  — devflow's own AGENTS.md
 ├── AGENTS.md.template         — copy into other projects
 ├── install.sh                 — symlinks skills → ~/.claude/skills/, agents → ~/.claude/agents/
-├── start.sh                   — project launcher (opus driver)
+├── start.sh                   — project launcher (fable 5.1 driver)
 ├── agents/
 │   └── research.md  plan.md  implement.md   — phase agents (model pinned in frontmatter)
 ├── skills/

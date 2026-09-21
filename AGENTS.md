@@ -20,10 +20,10 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Install/update skills + phase agents: `./install.sh` (symlinks `skills/<name>` → `~/.claude/skills/`, `agents/<name>.md` → `~/.claude/agents/`)
 - Check install state: `./install.sh --check`
 - Remove: `./install.sh --remove`
-- Launch with project picker: `./start.sh` (interactive gum menu → opus driver)
+- Launch with project picker: `./start.sh` (interactive gum menu → fable 5.1 driver)
 
 ## Conventions
-- Model policy: per-phase models live in the **agent frontmatter** — `research`, `plan` and `implement` all on **claude-fable-5-1** with `effort: low` — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). The `/devflow` driver session runs on **opus** (`./start.sh <project>` launches it, or `claude --model opus`). `/code-review` and ad-hoc reasoning also default to opus; switch to sonnet with `/model` for a mostly-mechanical ad-hoc session.
+- Model policy: per-phase models live in the **agent frontmatter** — `research`, `plan` and `implement` all on **claude-fable-5-1** with `effort: low` — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). Драйвер `/devflow`, `/standup`, `/review` и оба ревью-агента — тоже на **claude-fable-5-1**; `./start.sh <project>` запускает сессию как `claude --model claude-fable-5-1`. `/code-review` встроенный, без frontmatter, поэтому идёт на модели сессии.
 - Branch base: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).
 - Skills are kept short (target ≤150 lines). Cut anything that isn't actionable.
