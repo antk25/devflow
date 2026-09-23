@@ -341,6 +341,8 @@ def _check(ctx, db, slug, run_id, all_, threshold, result):
         criteria, chunks = overall_criteria(plan['body']), [raw]
         if len(raw) > LIMIT:
             chunks = raw.split('<!-- devflow-run:')[1:] or [raw]
+            if any(len(c) > LIMIT for c in chunks):
+                return 'секция changelog больше лимита ' + str(LIMIT) + ' символов'
     else:
         run = db.execute('SELECT * FROM runs WHERE id=? AND slug=?', (run_id, slug)).fetchone()
         if not run:
@@ -354,19 +356,20 @@ def _check(ctx, db, slug, run_id, all_, threshold, result):
             return 'секция прогона больше лимита ' + str(LIMIT) + ' символов'
     if not criteria:
         return 'в плане нет критериев'
-    result['criteria'] = [{'criterion': c, 'noul': None, 'choice': None, 'flagged': None} for c in criteria]
+    items, model = [{'criterion': c, 'noul': None, 'choice': None, 'flagged': None} for c in criteria], None
     for chunk in chunks:
         out = jev.decide({'task': title, 'changelog': jev.mask(chunk.strip())}, jev.questions(criteria))
         if 'error' in out:
             return out['error']
-        result['model'] = out['model']
-        for n, item in enumerate(result['criteria']):
+        model = out['model']
+        for n, item in enumerate(items):
             noul = (out['answers'].get(f'ev_{n}') or {}).get('noul')
             if not isinstance(noul, (int, float)):
                 return 'в ответе нет noul для ev_' + str(n)
             if item['noul'] is None or noul > item['noul']:
                 item['noul'] = noul
                 item['choice'] = (out['answers'].get(f'st_{n}') or {}).get('choice')
-    for item in result['criteria']:
+    for item in items:
         item['flagged'] = jev.flag(item['noul'], threshold)
+    result.update(criteria=items, model=model)
     return None

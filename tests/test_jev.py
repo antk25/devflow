@@ -92,6 +92,18 @@ def test_mask():
     assert jev.mask('password=hunter2') == 'password=[REDACTED]'
 
 
+def test_mask_hides_auth_scheme_tokens():
+    assert jev.mask('Authorization: Bearer abc123secret456') == 'Authorization: [REDACTED]'
+    assert jev.mask('curl -H Bearer eyJhbGci1OiJIUzI1') == 'curl -H Bearer [REDACTED]'
+    assert jev.mask('Bearer authentication is used') == 'Bearer authentication is used'
+
+
+def test_mask_keeps_evidence_ids():
+    text = ('tests/test_check.py::test_check_all_splits_sections_when_over_limit_2 passed, '
+            'commit 7baee6a3f1c2d4e5b6a7980c1d2e3f4a5b6c7d8e')
+    assert jev.mask(text) == text
+
+
 def test_flag():
     assert jev.flag(0.5, 0.7)
     assert not jev.flag(0.9, 0.7)

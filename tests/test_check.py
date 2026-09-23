@@ -184,7 +184,7 @@ def test_oversized_run_section_skips(proj, monkeypatch):
 
 
 def test_oversized_all_splits_and_takes_max(proj, monkeypatch):
-    (proj['vault'] / 'changelog/2026-09-23-x.md').write_text(changelog(other='y ' * 31000))
+    (proj['vault'] / 'changelog/2026-09-23-x.md').write_text(changelog(body_one='x ' * 15500, other='y ' * 15500))
     sent = []
     monkeypatch.setattr(jev.urllib.request, 'urlopen', jev_answers([[0.9, 0.1], [0.05, 0.3]], sent))
     out = workflow.check(proj['ctx'], proj['db'], 'x', None, True)
@@ -192,6 +192,33 @@ def test_oversized_all_splits_and_takes_max(proj, monkeypatch):
     assert [c['noul'] for c in out['criteria']] == [0.9, 0.3]
     assert out['criteria'][0]['choice'] == 'verified'
     assert flagged(out) == ['общий 2']
+
+
+def test_oversized_all_section_skips(proj):
+    (proj['vault'] / 'changelog/2026-09-23-x.md').write_text(changelog(other='y ' * 31000))
+    out = workflow.check(proj['ctx'], proj['db'], 'x', None, True)
+    assert out['status'] == 'skipped' and 'лимит' in out['reason']
+
+
+def test_error_on_later_chunk_leaves_no_partial_noul(proj, monkeypatch):
+    (proj['vault'] / 'changelog/2026-09-23-x.md').write_text(changelog(body_one='x ' * 15500, other='y ' * 15500))
+    ok, calls = jev_answers([0.9, 0.1]), []
+
+    def flaky(req, timeout):
+        calls.append(1)
+        if len(calls) > 1:
+            raise urllib.error.URLError('down')
+        return ok(req, timeout)
+    monkeypatch.setattr(jev.urllib.request, 'urlopen', flaky)
+    out = workflow.check(proj['ctx'], proj['db'], 'x', None, True)
+    assert out['status'] == 'skipped' and out['criteria'] == [] and out['model'] is None
+    ev = proj['db'].execute("SELECT data FROM events WHERE action='check' ORDER BY id DESC").fetchone()
+    assert json.loads(ev['data'])['noul'] == []
+
+
+def test_step_criteria_keeps_inline_criterion():
+    assert documents.step_criteria('- **Acceptance:** inline\n  - a\n  - b\n') == ['inline', 'a', 'b']
+    assert documents.step_criteria('- **Acceptance:** проверяется так:\n  - a\n') == ['a']
 
 
 def test_events_written_and_state_untouched(proj, monkeypatch):

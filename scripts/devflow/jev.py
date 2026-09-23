@@ -22,17 +22,26 @@ CLASSES = {
 
 SECRETS = [
     re.compile(r"(?i)\b(sk|pk|rk|ghp|gho|github_pat|xox[abp]|glpat)[-_][A-Za-z0-9_\-]{10,}"),
-    re.compile(r"(?i)(bearer|token|password|passwd|pwd|secret|api[_-]?key|authorization)(\s*[:=]\s*)\S+"),
+    re.compile(r"(?i)(bearer|token|password|passwd|pwd|secret|api[_-]?key|authorization)(\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?\S+"),
+    re.compile(r"(?i)\b(bearer|basic)(\s+)(?=\S*\d)[A-Za-z0-9._~+/=-]{8,}"),
     re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s:/@]+:[^\s@]+@"),
     re.compile(r"\b[A-Za-z0-9+=_]{40,}\b"),
 ]
+# Commit SHAs and snake_case test names are the evidence the changelog must keep.
+EVIDENCE_IDS = re.compile(r"[0-9a-f]+|[a-z0-9]+(?:_[a-z0-9]+)+")
+
+
+def _long(m):
+    s = m.group(0)
+    return s if not re.search(r"\d", s) or EVIDENCE_IDS.fullmatch(s) else PLACEHOLDER
 
 
 def mask(text: str) -> str:
     text = SECRETS[0].sub(PLACEHOLDER, text)
     text = SECRETS[1].sub(lambda m: m.group(1) + m.group(2) + PLACEHOLDER, text)
-    text = SECRETS[2].sub(lambda m: m.group(1) + PLACEHOLDER + '@', text)
-    return SECRETS[3].sub(PLACEHOLDER, text)
+    text = SECRETS[2].sub(lambda m: m.group(1) + m.group(2) + PLACEHOLDER, text)
+    text = SECRETS[3].sub(lambda m: m.group(1) + PLACEHOLDER + '@', text)
+    return SECRETS[4].sub(_long, text)
 
 
 def flag(noul: float, threshold: float) -> bool:

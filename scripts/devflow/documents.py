@@ -200,8 +200,9 @@ def step_criteria(section):
             if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
                 break
             block.append(nxt)
-        items = list_items(textwrap.dedent('\n'.join(block)))
-        return items or ([m[2].strip()] if m[2].strip() else [])
+        items, inline = list_items(textwrap.dedent('\n'.join(block))), m[2].strip()
+        # A lead-in ending with ':' introduces the list; any other inline text is a criterion itself.
+        return ([inline] if inline and not (items and inline.endswith(':')) else []) + items
     return []
 
 
