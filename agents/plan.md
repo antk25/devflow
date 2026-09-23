@@ -2,7 +2,7 @@
 name: plan
 description: DevFlow Phase 2 — read a research doc and write a design-first plan (data flow, class responsibilities, function contracts, architecture-boundary check) to obsidian. Spawned by /devflow. No production code; parks unknowns in Risks.
 tools: Read, Grep, Glob, Bash, Write
-model: claude-fable-5-1
+model: inherit
 effort: low
 ---
 

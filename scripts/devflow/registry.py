@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from .documents import WorkflowError
+from .project import registry_path
 from .storage import atomic_write
 
 
@@ -21,7 +22,7 @@ def load(path):
 
 
 def initialize(root):
-    path = root / '.claude/data/projects.json'
+    path = registry_path(root)
     if path.exists():
         load(path)
         return
@@ -35,3 +36,17 @@ def select(path, name):
         raise WorkflowError(f'Unknown project: {name}')
     data['active'] = name
     atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+
+def register(path, name, project_path, description=''):
+    path = Path(path)
+    data = load(path) if path.exists() else {'version': '3.0', 'active': None, 'projects': {}}
+    project_path = Path(project_path).resolve()
+    entry = data['projects'].get(name)
+    if entry:
+        if Path(entry['path']).resolve() != project_path:
+            raise WorkflowError(f'Project name {name} is already registered for {entry["path"]}')
+        return data
+    data['projects'][name] = {'path': str(project_path), 'description': description}
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+    return data

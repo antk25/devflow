@@ -2,7 +2,7 @@
 name: research
 description: DevFlow Phase 1 — autonomously gather context for a task and write a research doc to the project's obsidian vault. Spawned by the /devflow driver. Read-only on code; parks unknowns in Open questions.
 tools: Read, Grep, Glob, Bash, Write
-model: claude-fable-5-1
+model: inherit
 effort: low
 ---
 

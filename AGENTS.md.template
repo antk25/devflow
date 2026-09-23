@@ -20,7 +20,8 @@ vault: /mnt/f/notes_2/projects/<project-name>
 - Lint: `<command>`
 
 ## Conventions
-- Branch base: `<dev|main>`
+- Base branch: `<dev|main>`
+- Production branch: `<main|master>`
 - Commit format: `<example>`
 - <other non-obvious rules: code style, test isolation, type rules>
 
@@ -40,7 +41,10 @@ Execution state and version-specific approvals live in SQLite; the shared
 `~/.claude/skills/devflow/devflow` CLI controls routing. `.devflow/project.json` holds this
 project's stable local identity: back it up with the database and vault; exclude `.devflow/`
 from git. Plan step IDs are stable; completion flags belong in the database, not Markdown.
-Git remains manual: no automatic branches, commits, pulls, pushes or PRs.
+
+Git: the assistant creates branches, commits and runs `git pull` itself; it may push the
+**current feature branch** and open a PR into the base branch. Pushing to the production branch,
+force pushes, merges and releases are denied globally — publication to production stays with you.
 
 Vault layout: `tz/` `research/` `plans/` `changelog/` `notes/`
 

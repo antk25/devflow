@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from . import project
 from .documents import WorkflowError, artifact, context, document, plan_steps, resolve_slug
 from .storage import connect, db_path, identity
 from .workflow import approve, finish, interrupt, migrate, reopen, resume, route, start
@@ -49,10 +50,18 @@ def parser():
     a = commands.add_parser('migrate'); a.add_argument('slug'); a.add_argument('--apply', metavar='PREVIEW_REVISION')
     a = commands.add_parser('artifact'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan', 'changelog']); a.add_argument('--revision', required=True)
     a = commands.add_parser('backup'); a.add_argument('destination')
+    project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
+    a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
+    a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
     return p
 
 
 def execute(args):
+    if args.command == 'project':
+        # Runs before context(): init creates the AGENTS.md and vault that context() requires.
+        if args.project_command == 'sync':
+            return project.sync(args.names, all_projects=args.all, dry_run=args.dry_run)
+        return project.init(Path(args.path), args.name, draft=args.agents_draft, dry_run=args.dry_run)
     ctx = context(args.cwd)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}

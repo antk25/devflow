@@ -23,11 +23,13 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Launch with project picker: `./start.sh` (interactive gum menu → fable 5.1 driver)
 
 ## Conventions
-- Model policy: per-phase models live in the **agent frontmatter** — `research`, `plan` and `implement` all on **claude-fable-5-1** with `effort: low` — and hold for each agent's whole run (unlike a skill's `model:` hint, which lasts one turn). Драйвер `/devflow`, `/standup`, `/review` и оба ревью-агента — тоже на **claude-fable-5-1**; `./start.sh <project>` запускает сессию как `claude --model claude-fable-5-1`. `/code-review` встроенный, без frontmatter, поэтому идёт на модели сессии.
-- Branch base: `main`
+- Model policy: phase and review agents carry `model: inherit` + `effort: low` — they run on the session's model, low effort, for their whole run. `./start.sh` starts the session on **claude-fable-5-1**; when Fable limits run out, `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` or `/model opus` inside the session — the next agent picks it up. `/devflow`, `/standup`, `/review` pin no model either.
+- Base branch: `main`
+- Production branch: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).
 - Skills are kept short (target ≤150 lines). Cut anything that isn't actionable.
-- `git push` and `gh` are blocked by `.claude/settings.json` — pushing/PR-creation is always manual.
+- Publication: the assistant may push the **current feature branch** and open a PR into the base branch; pushes to `main`/`master`, force pushes, `gh pr merge`, `gh api`, releases and workflow runs are denied by the global `~/.claude/settings.json` (`settings.global.example.json`).
+- Где живёт новая настройка окружения: сначала ищи ей место в **глобальном слое** (`~/.claude/settings.json`, `~/.claude/devflow-instructions.md`, `settings.global.example.json`). Проектной (в `AGENTS.md`, `.devflow/`, каталогах vault) она становится только если одновременно добавлена в `project init` **и** `project sync` (`scripts/devflow/project.py`) вместе с тестами — иначе уже подключённые проекты её не получат.
 
 ## Workflow
 The `/devflow` driver orchestrates the whole pipeline in one interactive session:

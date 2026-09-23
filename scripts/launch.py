@@ -3,20 +3,20 @@
 import argparse
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from devflow.documents import WorkflowError, context
+from devflow.project import registry_path
 from devflow.registry import load, select
 from devflow.storage import connect
 
 
 def main():
     root = Path(__file__).resolve().parent.parent
-    registry = root / '.claude/data/projects.json'
+    registry = registry_path(root)
     p = argparse.ArgumentParser(description='Choose a project and launch DevFlow')
     p.add_argument('project', nargs='?')
     p.add_argument('--current', '-c', action='store_true')
@@ -53,23 +53,20 @@ def main():
     if not executable:
         raise WorkflowError('Claude CLI is missing from PATH')
     if not (path / 'AGENTS.md').exists():
-        print(f'{path} has no AGENTS.md. Template: {root / "AGENTS.md.template"}')
+        print(f'{path} has no AGENTS.md. Run /project init {path} inside Claude Code, '
+              f'or: devflow project init {path}')
         if input('Launch without DevFlow project context? [y/N] ').lower() not in ('y', 'yes'):
             return 0
     else:
         ctx = context(path)
         connect(ctx, create=True).close()
-    settings = {
-        'hooks': {'SessionStart': [{'hooks': [{'type': 'command',
-            'command': shlex.quote(str(root / '.claude/hooks/project-restore.sh')), 'timeout': 10}]}]},
-        'permissions': {'deny': ['Bash(git push:*)', 'Bash(git push *)', 'Bash(*git push*)',
-                                  'Bash(gh:*)', 'Bash(gh *)', 'Bash(*gh *)']}}
     previous = data.get('active')
     os.chdir(path)
     select(registry, selected)
-    print(f'Launching Claude Code (fable 5.1) for {selected}: {path}', flush=True)
+    model = os.environ.get('DEVFLOW_MODEL', 'claude-fable-5-1')
+    print(f'Launching Claude Code ({model}) for {selected}: {path}', flush=True)
     try:
-        os.execv(executable, [executable, '--model', 'claude-fable-5-1', '--settings', json.dumps(settings)])
+        os.execv(executable, [executable, '--model', model])
     except OSError:
         # exec failed before the process was replaced; restore this launcher's selection.
         from devflow.storage import atomic_write

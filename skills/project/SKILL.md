@@ -1,137 +1,119 @@
 ---
 name: project
-description: Manage the project registry. Lists registered projects, adds new ones, shows info. Switching is done outside Claude Code via start.sh.
+description: Project registry and onboarding. init/add a project (AGENTS.md draft + vault + identity + database + registry), sync missing pieces, list, info, remove. Switching is done outside Claude Code via start.sh.
 user_invocable: true
 arguments:
   - name: command
-    description: "list | add | info | remove"
+    description: "init | add | sync | list | info | remove"
     required: true
   - name: target
-    description: "Project name or path (depending on command)"
+    description: "Project path (init/add), project name or --all (sync/info/remove)"
     required: false
 ---
 
-# /project — Project Registry
+# /project — Project onboarding and registry
 
-Manages a small JSON registry of known projects. Each entry maps a project name to its filesystem path. Vault paths and project metadata live in each project's own `AGENTS.md` — the registry only knows where projects are on disk.
+Thin wrapper over the shared CLI `~/.claude/skills/devflow/devflow project …`. The CLI owns what
+a project consists of (vault directories, `AGENTS.md`, `.devflow/project.json`, database, registry
+entry) and reports as JSON `{project, path, items: [{item, status, detail}]}`. This skill only runs
+the dialogue: gathers facts, shows drafts and reports, asks before writing.
 
-## Registry location
+Registry: `<DEVFLOW_DIR>/.claude/data/projects.json` (`{version, active, projects: {name: {path,
+description}}}`). Everything project-specific lives in the project's own `AGENTS.md`.
 
-`<DEVFLOW_DIR>/.claude/data/projects.json`
+## Umbrella directory rule
 
-## Schema
+A DevFlow project is the **umbrella directory** `<project>/` that contains one or more repositories
+(`<project>/backend`, `<project>/frontend`). `AGENTS.md`, `.devflow/` and personal settings live in
+the umbrella and are **never committed into the repositories**. `init` works only at umbrella level;
+if the umbrella itself is a git repository the CLI reports `git: attention` — relay the warning and
+ask the user to check `.gitignore` before continuing.
 
-```json
-{
-  "version": "3.0",
-  "active": "<project name or null>",
-  "projects": {
-    "<name>": {
-      "path": "/absolute/path",
-      "description": "<one line, optional>"
-    }
-  }
-}
-```
+## Report table
 
-That's it. No `type`, `repositories`, `testing`, `docker`, `git`, `agent_config`. Anything project-specific belongs in the project's `AGENTS.md`.
-
----
-
-## Command: (no args) or `/project`
-
-Show current active project + available commands.
+Print every CLI report the same way, then one line for each `attention` item:
 
 ```
-**Active project:** <name>
-**Path:** <path>
+| Item | Status | Detail |
+|------|--------|--------|
+| agents_md | create | из черновика |
+| identity  | skipped | /path/.devflow/project.json |
+```
 
-Commands: list | add <path> [name] | info [name] | remove <name>
+`created` — written now · `create` — would be written (`--dry-run`) · `skipped` — already there,
+untouched · `attention` — needs the user; nothing was changed for it.
+
+## Command: (no args)
+
+```
+**Active project:** <name>   **Path:** <path>
+Commands: init|add <path> [name] | sync [name|--all] | list | info [name] | remove <name>
 To switch projects: exit Claude Code and run `./start.sh [name]`.
 ```
 
----
+## Command: `init <path> [name]` (`add` is an alias)
+
+1. `ls <path>` — stop if the directory does not exist. Name defaults to the basename.
+2. **`<path>/AGENTS.md` exists** → skip discovery, go to step 6 without `--agents-draft`
+   (the CLI keeps the file and takes the name from its frontmatter).
+3. **No `AGENTS.md`** → spawn the built-in `Explore` subagent (read-only, session model) with:
+
+   > Только чтение, ничего не менять. Каталог `<path>` — общий каталог проекта, внутри могут быть
+   > несколько репозиториев. Прочитай `AGENTS.md`/`CLAUDE.md`/`README*` в корне и в подкаталогах
+   > первого уровня, файлы стека (`composer.json`, `package.json`, `pyproject.toml`, `go.mod`,
+   > `Makefile`, `docker-compose*`), CI-конфиги и `git log --oneline -30` каждого репозитория.
+   > Верни факты, **каждый с файлом-источником**: что делает проект; язык/фреймворк и версии;
+   > команды install/dev/test/lint; базовая и продовая ветки; формат коммитов (по реальной
+   > истории); неочевидные конвенции; список репозиториев. Чего в файлах нет — пиши `неизвестно`,
+   > не додумывай.
+
+4. Render a draft from `<DEVFLOW_DIR>/AGENTS.md.template` into
+   `<scratchpad>/AGENTS-<name>.md`: frontmatter `project: <name>`,
+   `vault: /mnt/f/notes_2/projects/<name>`; each fact goes into its section with a trailing
+   `<!-- источник: file -->`; unknown facts keep the template placeholder. Keep the template's
+   Workflow and Notes sections verbatim.
+5. Show the draft and the list of `неизвестно` items. Wait for confirmation; apply requested edits
+   to the draft file, not the target directory. Nothing is written to `<path>` before this point.
+6. Run `devflow project init <path> --name <name> [--agents-draft <draft>]` and print the table.
+   `WorkflowError` (name already registered, draft names another project) → show it, do not retry
+   with another name silently.
+7. Finish with: `To activate: exit Claude Code and run ./start.sh <name>.`
+
+Re-running `init` is safe: everything present comes back `skipped`, files are not rewritten.
+
+## Command: `sync [name…|--all]`
+
+1. Without arguments ask: one project or `--all`.
+2. `devflow project sync <names|--all> --dry-run` → table. `sync` never touches `AGENTS.md` or
+   the registry; a missing `AGENTS.md`, a name mismatch, identity without database or a vanished
+   directory come back as `attention` — route those to `init` or a manual fix.
+3. If any item is `create`, ask for confirmation, then rerun without `--dry-run` and print the
+   final table. All `skipped` → say so and stop.
 
 ## Command: `list`
 
-1. Read `projects.json`.
-2. Print a table:
-
-```
-| Active | Name | Path |
-|--------|------|------|
-|   *    | devflow  | /home/smg25/projects/devflow |
-|        | captivia | /home/smg25/projects/captivia |
-```
-
----
-
-## Command: `add <path> [name]`
-
-1. Validate `<path>` exists (`ls`).
-2. If `name` not given — derive from the directory basename.
-3. If `<path>/AGENTS.md` exists — parse frontmatter, suggest using `project:` value as the registry name.
-4. Ask the user for a one-line `description` (optional).
-5. Update `projects.json` — add the entry. Don't change `active`.
-6. Confirm:
-
-```
-✓ Added: <name>
-  Path: <path>
-  AGENTS.md: <found | missing — create from AGENTS.md.template>
-
-To activate: exit Claude Code and run `./start.sh <name>`.
-```
-
-If `AGENTS.md` is missing, suggest copying from `<DEVFLOW_DIR>/AGENTS.md.template` and filling it in.
-
----
+Read the registry, print `| Active | Name | Path |` with `*` on the active entry.
 
 ## Command: `info [name]`
 
-1. If `name` not given — use `active`.
-2. Read registry entry for `<name>`.
-3. If `<path>/AGENTS.md` exists — read its frontmatter and show key fields.
-4. Display:
-
-```
-## <name>
-
-**Path:** <path>
-**Description:** <description or —>
-
-### From AGENTS.md
-**Project:** <project>
-**Vault:** <vault>
-
-<first 5 lines of AGENTS.md body>
-```
-
-If `AGENTS.md` missing — say so and suggest creating it.
-
----
+Default name = `active`. Show path, description, and — if `AGENTS.md` exists — `project`, `vault`
+from its frontmatter plus the first 5 lines of the body. Missing `AGENTS.md` → suggest `init`.
 
 ## Command: `remove <name>`
 
-1. Read registry. Stop if `<name>` not present.
-2. Remove the entry. If it was `active`, set `active: null`.
-3. Save. Confirm:
-
-```
-✓ Removed: <name> (files were not deleted)
-```
-
----
+Stop if `<name>` is absent. Delete the entry from `projects.json`; if it was `active`, set
+`active: null`. Confirm `✓ Removed: <name> (files were not deleted)`. No CLI command yet — this
+is the one place the skill edits the registry directly.
 
 ## Errors
 
-- **Project not found** — list near matches by simple substring.
+- **Project not found** — list near matches by substring.
 - **Path doesn't exist** — print the path; ask the user to check.
-- **Registry corrupt** — back up `projects.json` to `projects.json.bak.<ts>`, ask user how to recover (re-create empty / restore manually).
-
----
+- **Registry corrupt** — back up to `projects.json.bak.<ts>`, ask how to recover.
 
 ## Notes
 
-- Switching active project is intentionally outside this skill — `./start.sh <name>` exits and re-launches Claude Code in the chosen directory, so the SessionStart hook reads the right `AGENTS.md`.
-- This skill never edits files inside a project — only the central registry.
+- Switching the active project stays outside this skill: `./start.sh <name>` relaunches Claude Code
+  in the chosen directory so the global SessionStart hook reads the right `AGENTS.md`.
+- The hook and publication rules live in the global `~/.claude/settings.json`
+  (`settings.global.example.json`, checked by `./install.sh --check`) — `init` does not write them.

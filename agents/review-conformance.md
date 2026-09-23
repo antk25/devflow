@@ -2,7 +2,7 @@
 name: review-conformance
 description: Review axis 2 — does the diff do what the TZ asked. Spawned in parallel with review-standards by /review. Read-only; every finding quotes the line of the TZ it comes from. No TZ — returns that fact and nothing else.
 tools: Read, Grep, Glob, Bash
-model: claude-fable-5-1
+model: inherit
 effort: low
 ---
 

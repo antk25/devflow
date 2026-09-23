@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — модель фаз наследуется от сессии
+- Агенты `research`, `plan`, `implement`, `crossreview` и оба ревью-агента: `model: inherit` + `effort: low`; скиллы `/devflow`, `/standup`, `/review` модель не пинят. `launch.py` берёт модель из `DEVFLOW_MODEL` (по умолчанию `claude-fable-5-1`). Кончились лимиты на Fable — `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` или `/model opus` в сессии; автоматического переключения Claude Code не даёт (`--fallback-model` — только `-p` и только при перегрузке API).
+
+### Added — агент `crossreview`: кросс-ревью после реализации
+- **`agents/crossreview.md`** — драйвер `/devflow` запускает его один раз на задачу, когда `df route` вернул `completed`. Агент сначала делает своё ревью ветки на корректность, потом берёт второе мнение у Codex (`codex review --base <base>`, вывод в файл), каждую находку с обеих сторон проверяет в коде (изолированная проба, тест, трассировка; ноль ошибок от упавшего инструмента нулём не считается) и пишет `<vault>/notes/<slug>-cross-review.md`. Драйверу возвращает только сводку и держит гейт: чинить в сессии, `df reopen` шага или закрыть находку. Репозиторий не правит; Codex не залогинен — сторона пропускается с пометкой.
+
+### Added — DF-10: `devflow project init|sync`, единый источник окружения
+- `install.sh` ставит симлинк `~/.local/bin/devflow` на общий CLI (`devflow project sync --all` из любой оболочки).
+- **`devflow project init <path> [--name N] [--agents-draft F] [--dry-run]`** (`scripts/devflow/project.py`) — создаёт проектный слой DevFlow в одном порядке: каталоги vault → `AGENTS.md` (существующий не трогается, имя берётся из frontmatter) → `.devflow/project.json` → база → запись в реестре. Отчёт — JSON `{item, status, detail}` со статусами `created | skipped | attention`; повторный запуск идемпотентен. Проект — общий каталог с репозиториями внутри; `.git` в самом каталоге даёт `git: attention`.
+- **`devflow project sync [names…|--all] [--dry-run]`** — догоняет уже зарегистрированные проекты до той же раскладки: создаёт только недостающее, `AGENTS.md` и реестр не пишет (нет `AGENTS.md`, имя не совпадает, идентичность без базы, пропавший каталог — `attention`).
+- **`/project init|add|sync`** — скилл стал тонкой обёрткой над CLI: `init` (и его синоним `add`) запускает только читающий `Explore`-подагент, собирает факты с файлами-источниками (чего нет — `неизвестно`), показывает черновик `AGENTS.md` и лишь после подтверждения зовёт CLI; `sync` сначала печатает таблицу `--dry-run`, применяет только по подтверждению. `list`/`info`/`remove` без изменений.
+- **`settings.global.example.json` + `install.sh --check`** — эталон глобального `~/.claude/settings.json` (хук SessionStart, разрешение пуша feature-веток и `gh pr create`, запреты пуша в `main`/`master`, force push, `gh pr merge`, `gh api`, релизов). `--check` печатает `MISS`/`STALE` записи, файл не пишет; сливается руками.
+- Тесты `tests/` (pytest, без модели): `settings_drift`, `project init`, `project sync`.
+
+### Changed — DF-10
+- `launch.py`/`start.sh` больше не передают `--settings`: хук и правила публикации приходят из глобального `~/.claude/settings.json`, поэтому голый `claude` в каталоге проекта получает то же окружение. Хук `project-restore.sh` печатает контекст один раз за запуск (маркер в `$XDG_RUNTIME_DIR`).
+- `AGENTS.md.template`: поля `Base branch` / `Production branch` и новая политика публикации (пуш текущей feature-ветки и PR в базовую — можно, продовая ветка — только руками).
+- `AGENTS.md` DevFlow: правило о месте новых настроек окружения — сначала глобальный слой; проектной настройка становится только вместе с `project init` **и** `project sync`.
+
 ### Changed — phase agents + `/devflow` driver
 DevFlow's three phases are now autonomous **phase agents** (`agents/{research,plan,implement}.md`, symlinked into `~/.claude/agents/`) with their model pinned in frontmatter (research/plan **opus**, implement **sonnet**) — which holds for the agent's whole run, unlike a skill's one-turn `model:` hint. Control shifts from confirming every implementation step to approving the research and plan artifacts at two gates; `implement` then runs the approved plan autonomously.
 

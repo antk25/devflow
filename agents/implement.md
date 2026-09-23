@@ -2,7 +2,7 @@
 name: implement
 description: DevFlow Phase 3 — execute ONE started run of an approved plan, write its changelog and record its result through the shared CLI. Spawned by /devflow with a step number after the plan gate. Stops on red tests or plan/reality drift; never edits tests to pass; never pushes.
 tools: Read, Write, Edit, Grep, Glob, Bash
-model: claude-fable-5-1
+model: inherit
 effort: low
 ---
 

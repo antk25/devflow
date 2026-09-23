@@ -4,9 +4,10 @@ set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
+BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 SKILLS=(note project devflow standup tokens page review jira xreview)
 [ ! -d "$DEVFLOW_DIR/skills/autoresearch" ] || SKILLS+=(autoresearch)
-AGENTS=(research plan implement review-standards review-conformance)
+AGENTS=(research plan implement review-standards review-conformance crossreview)
 RETIRED_SKILLS=(research plan implement quick)
 mode=install
 case "${1:-}" in
@@ -26,6 +27,8 @@ for name in "${AGENTS[@]}"; do
     sources+=("$DEVFLOW_DIR/agents/$name.md")
     destinations+=("$CLAUDE_DIR/agents/$name.md")
 done
+sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
+destinations+=("$BIN_DIR/devflow")
 
 issues=0
 for i in "${!sources[@]}"; do
@@ -53,11 +56,9 @@ if [ "$mode" = check ]; then
     elif ! "$PYTHON" -c 'import sys, yaml; assert sys.version_info >= (3, 10)' 2>/dev/null; then
         echo 'MISS Python 3.10+ / PyYAML'; issues=1
     fi
-    if [ ! -f "$DEVFLOW_DIR/.claude/data/projects.json" ]; then
-        echo 'MISS project registry'; issues=1
-    elif [ -x "$PYTHON" ]; then
-        if ! "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from devflow.registry import load; load(sys.argv[2])' \
-            "$DEVFLOW_DIR/scripts" "$DEVFLOW_DIR/.claude/data/projects.json"; then
+    if [ -x "$PYTHON" ]; then
+        if ! "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.project import registry_path; from devflow.registry import load; p = registry_path(Path(sys.argv[1])); p.exists() or sys.exit("MISS project registry"); load(p)' \
+            "$DEVFLOW_DIR"; then
             issues=1
         fi
     fi
@@ -67,6 +68,20 @@ if [ "$mode" = check ]; then
             echo "RETIRE $dst"; issues=1
         fi
     done
+    if [ -x "$PYTHON" ]; then
+        drift="$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1])
+from devflow.project import settings_drift
+d = settings_drift(sys.argv[2], sys.argv[3])
+for c in d["hooks"]: print("MISS global hook", c)
+for p in d["allow"]: print("MISS global allow", p)
+for p in d["deny"]: print("MISS global deny", p)
+for p in d["extra_deny"]: print("STALE global deny", p)' \
+            "$DEVFLOW_DIR/scripts" "$CLAUDE_DIR/settings.json" "$DEVFLOW_DIR/settings.global.example.json")" || issues=1
+        if [ -n "$drift" ]; then
+            echo "$drift"; issues=1
+            echo "(merge settings.global.example.json into $CLAUDE_DIR/settings.json by hand; __DEVFLOW_ROOT__ = $DEVFLOW_DIR)"
+        fi
+    fi
     echo '(check mode — no changes made)'
     exit "$issues"
 fi
@@ -82,7 +97,7 @@ if [ "$mode" = install ]; then
         "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
     fi
     "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
-    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents"
+    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$BIN_DIR"
     for i in "${!sources[@]}"; do
         src="${sources[$i]}" dst="${destinations[$i]}"
         if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then

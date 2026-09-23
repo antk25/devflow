@@ -16,7 +16,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/devflow <slug>` | Skip standup, resume the pipeline at the phase the artifacts imply | — |
 | `/standup [peek]` | Jira digest ("what's new on my tasks") across both instances, then recommend a route | — |
 | `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
-| `/project list\|add\|info\|remove` | Manage the project registry | `.claude/data/projects.json` |
+| `/project init\|sync\|list\|info\|remove` | Onboard projects and manage the registry | `.claude/data/projects.json` |
 | `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
 | `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
 | `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
@@ -26,9 +26,10 @@ The driver spawns three **phase agents** (`~/.claude/agents/`), each with its mo
 
 | Phase agent | Model | Output |
 |-------------|-------|--------|
-| `research` | fable 5.1 (effort low) | `<vault>/research/<slug>.md` |
-| `plan` | fable 5.1 (effort low) | `<vault>/plans/<slug>.md` |
-| `implement` | fable 5.1 (effort low) | `<vault>/changelog/<date>-<slug>.md` |
+| `research` | session model (effort low) | `<vault>/research/<slug>.md` |
+| `plan` | session model (effort low) | `<vault>/plans/<slug>.md` |
+| `implement` | session model (effort low) | `<vault>/changelog/<date>-<slug>.md` |
+| `crossreview` | session model (effort low) | `<vault>/notes/<slug>-cross-review.md` — after the last step: own review + Codex second opinion, every finding verified in code |
 
 The artifact from one phase is the input to the next; the driver re-routes after each gate through
 one Python CLI. Markdown stores definitions; SQLite stores approvals, attempts and completion.
@@ -61,7 +62,7 @@ Approvals persist across sessions and apply to the exact document revision that 
 /note list [folder]            list notes, optionally by folder
 /note tz <slug>                read a TZ and check it against the contract shape
 /note tz new <slug>            scaffold a TZ from the template
-/project list|add|info|remove  manage the project registry
+/project init|sync|list|info|remove  onboard projects, manage the registry
 ```
 
 **Review** — two axes, separately, never merged into one list:
@@ -95,7 +96,7 @@ is read from the local transcripts in `~/.claude/projects/` — nothing leaves t
 ./start.sh --current       current project → fable 5.1 driver
 ```
 
-The driver session runs on fable 5.1, and each phase agent pins the same model with `effort: low` in its frontmatter. Already in a session? `/model` switches it manually.
+The driver session runs on fable 5.1; phase agents carry `model: inherit` + `effort: low` and follow the session. Fable limits exhausted? `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>`, or `/model opus` in a running session.
 
 ---
 
@@ -147,7 +148,7 @@ DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `
 ```bash
 git clone <repo> ~/projects/devflow
 cd ~/projects/devflow
-./install.sh             # creates symlinks (skills + phase agents)
+./install.sh             # creates symlinks (skills + phase agents + ~/.local/bin/devflow)
 ./install.sh --check     # show status without changing anything
 ./install.sh --remove    # remove the symlinks
 ```
@@ -174,40 +175,61 @@ After install, skills and agents are available in any Claude Code session. The s
 
 `start.sh` validates the registry, directory, Claude executable and project metadata before changing
 `active`. On a project's first launch it creates the local identity and database. It then runs
-`claude --model claude-fable-5-1` with additional settings pointing to DevFlow's SessionStart hook and Git
-publication restrictions. No hook is copied into the target project. A cancelled launch or failed
+`claude --model ${DEVFLOW_MODEL:-claude-fable-5-1}` — nothing else: the SessionStart hook and Git publication rules come
+from the global `~/.claude/settings.json`, so a bare `claude` in the project directory gets the same
+environment. A project without `AGENTS.md` is not launched blind: the launcher points to
+`/project init <path>` and asks before continuing without context. A cancelled launch or failed
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
 ### Model per phase
 
-Все три фазы идут на **Claude Fable 5.1** с `effort: low` — на новых моделях низкий effort закрывает рутину не хуже, чем прежний high на прошлом поколении, а токенов тратит меньше. Модель закреплена **в frontmatter каждого фазового агента** и держится весь его прогон — без переключений внутри сессии:
+Все три фазы идут с `effort: low` на модели сессии — по умолчанию **Claude Fable 5.1**: на новых моделях низкий effort закрывает рутину не хуже, чем прежний high на прошлом поколении, а токенов тратит меньше. Во frontmatter агентов стоит `model: inherit`, поэтому смена модели сессии переводит на неё и следующий фазовый прогон:
 
 | Phase agent | Model | Effort |
 |-------------|-------|--------|
-| `research`, `plan` | **claude-fable-5-1** | low |
-| `implement` | **claude-fable-5-1** | low |
+| `research`, `plan`, `implement` | модель сессии (`inherit`) | low |
 
-Драйвер `/devflow` идёт на той же модели (`./start.sh` запускает `claude --model claude-fable-5-1`), и `/standup`, `/review` и оба ревью-агента тоже. `/code-review` встроенный и frontmatter'а не имеет — он наследует модель сессии.
+`./start.sh` запускает `claude --model ${DEVFLOW_MODEL:-claude-fable-5-1}`; драйвер, `/standup`, `/review` и ревью-агенты модель не пинят и идут на модели сессии. Кончились лимиты на Fable — `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` или `/model opus` в идущей сессии. `/code-review` встроенный и frontmatter'а не имеет — он наследует модель сессии.
 
 ---
 
 ## Adding a new project
 
-```bash
-# from any directory
-/project add /path/to/project [name]
+A DevFlow project is an **umbrella directory** that holds one or more repositories
+(`<project>/backend`, `<project>/frontend`). `AGENTS.md`, `.devflow/` and personal settings live in
+the umbrella and are never committed into the repositories.
 
-# then create AGENTS.md
-cp ~/projects/devflow/AGENTS.md.template /path/to/project/AGENTS.md
-$EDITOR /path/to/project/AGENTS.md
+```bash
+# inside any Claude Code session
+/project init /path/to/project [name]     # `add` is an alias
 ```
 
-The launcher supplies the hook settings automatically. For sessions started directly with `claude`,
-merge `.claude/settings.json.example` into the project's existing settings and replace
+The skill runs a read-only `Explore` subagent over the directory (README, stack files, CI, git
+history), renders a draft `AGENTS.md` from `AGENTS.md.template` — every fact with its source file,
+unknown ones marked explicitly — shows it, and only after confirmation calls the CLI:
+
+```bash
+~/.claude/skills/devflow/devflow project init <path> [--name N] [--agents-draft F] [--dry-run]
+~/.claude/skills/devflow/devflow project sync --all --dry-run     # what is missing anywhere
+~/.claude/skills/devflow/devflow project sync <name>|--all        # create only what is missing
+```
+
+`init` creates, in order: vault directories → `AGENTS.md` (kept as is if present) → local identity
+`.devflow/project.json` → database → registry entry. Every item is reported as `created | skipped |
+attention`; re-running is idempotent. `sync` brings already registered projects up to the same
+layout but never generates `AGENTS.md` or edits the registry — those cases come back as
+`attention`. `/project sync` in a session always shows the `--dry-run` table first.
+
+The SessionStart hook and the publication permissions live in the **global**
+`~/.claude/settings.json`: merge `settings.global.example.json` into it by hand and replace
 `__DEVFLOW_ROOT__` with the **DevFlow checkout** path, not the target project's path. Quote the
-command's script path if it contains spaces. Initialize workflow state once from the project root
-with `~/.claude/skills/devflow/devflow init` before using the workflow directly.
+command's script path if it contains spaces. `./install.sh --check` reports what is still missing
+(`MISS global hook|allow|deny`) and which old blanket denies (`Bash(gh:*)`, `Bash(git push:*)`)
+would override the new rules (`STALE global deny`); it never writes the file. The hook prints the
+project context once per session (a marker under `$XDG_RUNTIME_DIR`, 10 s window), so `compact`
+and `resume` restore it again. A new environment setting goes to the global layer first; it becomes
+per-project only when added to both `project init` and `project sync`.
 
 ---
 
@@ -232,7 +254,7 @@ devflow/
 ├── install.sh                 — symlinks skills → ~/.claude/skills/, agents → ~/.claude/agents/
 ├── start.sh                   — project launcher (fable 5.1 driver)
 ├── agents/
-│   └── research.md  plan.md  implement.md   — phase agents (model pinned in frontmatter)
+│   └── research.md  plan.md  implement.md  crossreview.md   — phase agents (model pinned in frontmatter)
 ├── skills/
 │   ├── devflow/   standup/    — pipeline driver + Jira digest front-end
 │   ├── note/   project/

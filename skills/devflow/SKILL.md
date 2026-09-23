@@ -1,8 +1,7 @@
 ---
 name: devflow
-description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on fable 5.1.
+description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on the session model (fable 5.1 via start.sh).
 user_invocable: true
-model: claude-fable-5-1
 arguments:
   - name: slug
     description: "Optional: task slug (e.g. dev-541-discount-on-invoices) to skip standup and route directly"
@@ -12,7 +11,7 @@ arguments:
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)
 
 Interactive orchestrator. Spawns the `research` / `plan` / `implement` phase agents (each with its
-own frontmatter model — claude-fable-5-1, effort low), shows you each artifact, and **waits for your
+session model via `model: inherit`, effort low), shows you each artifact, and **waits for your
 explicit approval at each gate** before the next phase. You control git throughout — the driver
 never branches or commits, and neither does `implement`.
 
@@ -74,6 +73,12 @@ number, revision and cwd to a **fresh** implement agent. Never spawn implementat
 succeeds. Each run covers one step. On return, route again: continue only on `ready`; stop on
 `blocked`, `running`, errors or `completed`. The implement agent records its result with `df finish`.
 A prose claim of success without a recorded result does not close a step.
+
+On `completed`, spawn **one** `crossreview` agent with cwd, slug and the base branch from `AGENTS.md`.
+It reviews the whole branch itself, gets a second opinion from Codex, verifies every finding in the
+code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repository. Show its
+summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
+finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
 
 ## Recovery and replanning
 - For an abandoned `running` attempt, inspect code/changelog first. If the result is recoverable,

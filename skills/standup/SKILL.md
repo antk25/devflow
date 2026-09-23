@@ -2,7 +2,6 @@
 name: standup
 description: Morning Jira digest — "what's new on my tasks since last time" across both instances, then help pick a task and route it to the right devflow phase. Read-only; calls jira-digest.sh, never MCP.
 user_invocable: true
-model: claude-fable-5-1
 arguments:
   - name: mode
     description: "Optional: 'peek' to show the digest without marking items seen"
