@@ -94,19 +94,22 @@ a feature spans layers.>
 - **Goal:** <one line>
 - **Files:** `path/one`, `path/two`
 - **Design:** <what changes here, at the design level>
-- **Acceptance:** <how to verify this step>
+- **Acceptance:**
+  - <one verifiable criterion per line: a command and its expected result>
+  - <another criterion>
 
 ### connect-handler: <Step name>
 - **Goal:** <one line>
 - **Files:** `path/one`
 - **Design:** <contract and integration>
-- **Acceptance:** <how to verify>
+- **Acceptance:**
+  - <one criterion per line>
 
 ## Test strategy
 <which tests run at which step; what's covered; what's manual>
 
 ## Acceptance (overall)
-- [ ] <user-visible criterion>
+- [ ] <user-visible criterion — one per item; wrapped lines are indented two spaces>
 
 ## Risks / unknowns
 - <thing that might bite; any question the driver should raise with the user at the gate>

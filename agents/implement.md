@@ -124,6 +124,17 @@ the signal the cut was wrong, and the next plan re-run should split it.>
 If partial or blocked, be explicit about what's incomplete and why — the changelog is what the user
 shares or reads when the task comes back.
 
+## Проверка покрытия
+After Step 5, before Step 6, run `~/.claude/skills/devflow/devflow check <slug> --run <run-id>`.
+Jev never blocks; it only points at criteria your changelog section doesn't evidence.
+- `skipped` because `jev` is not enabled in `AGENTS.md` → do nothing: no changelog line, no action.
+- Any other `skipped` → add one line to `### Tests`: «проверка Jev не выполнялась: <reason>».
+- For each criterion with `flagged: true`: either run the missing check and append the command with
+  its output to your section, or move the criterion to `Open / follow-up` and finish as `partial`.
+  Writing «проверено» without running anything is forbidden.
+- Then re-run `check --run` exactly once. Flags that remain go into the hand-off to the driver; do
+  not loop.
+
 ## Step 6: Record the result
 Run `~/.claude/skills/devflow/devflow finish <run-id> --status <done|partial|blocked>
 --changelog <absolute-path>`, adding `--reason <reason>` for partial/blocked.
@@ -136,6 +147,7 @@ Compact hand-off (goes to the driver, not the user):
 - Step number + status: `done` | `partial` | `blocked`.
 - 2-3 lines: what got done; if blocked/partial, the exact stop reason.
 - Current branch and confirmation that changes are uncommitted.
+- Criteria still flagged by Jev after the single re-check, if any.
 - Result of `~/.claude/skills/devflow/devflow route <slug>`; do not compute the next step yourself.
 
 ## Rules
