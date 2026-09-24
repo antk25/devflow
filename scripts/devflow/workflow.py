@@ -1,13 +1,28 @@
 """Deterministic routing and guarded state transitions."""
 import json
+import os
 import re
 import uuid
 from pathlib import Path
 
 import yaml
 
-from .documents import WorkflowError, artifact, digest, document, headings, plan_steps, resolve_slug
+from . import jev
+from .documents import (WorkflowError, artifact, digest, document, headings, overall_criteria, plan_steps,
+                        requirement, resolve_slug, section_items, step_criteria)
 from .storage import approved, atomic_write, event, now, remember, transaction
+
+
+MARKER = '<!-- devflow-run: {} -->'
+LIMIT = 60000
+PLAN_LIMIT = 60000
+
+
+def run_section(raw, run_id):
+    marker = MARKER.format(run_id)
+    if raw.count(marker) != 1:
+        return None
+    return raw.split(marker, 1)[1].split('<!-- devflow-run:', 1)[0]
 
 
 def task_docs(ctx, query):
@@ -124,10 +139,9 @@ def finish(ctx, db, run_id, status, changelog, reason):
         if not path.is_relative_to((ctx['vault'] / 'changelog').resolve()):
             raise WorkflowError('Changelog must be inside this project vault/changelog')
         doc = document(path)
-        marker = '<!-- devflow-run: ' + run_id + ' -->'
-        if doc['raw'].count(marker) != 1:
-            raise WorkflowError('Changelog needs exactly one run marker: ' + marker)
-        section = doc['raw'].split(marker, 1)[1].split('<!-- devflow-run:', 1)[0]
+        section = run_section(doc['raw'], run_id)
+        if section is None:
+            raise WorkflowError('Changelog needs exactly one run marker: ' + MARKER.format(run_id))
         if not re.search(r'^\*\*Status:\*\* ' + status + r'\s*$', section, re.M):
             raise WorkflowError('Run section needs **Status:** ' + status)
         # Hash only this run section: later appends must not invalidate an idempotent finish.
@@ -296,3 +310,119 @@ def migrate(ctx, db, query, apply_revision=None):
             event(db, 'migrate', slug, imported_done=preview['imported_done'], revision=preview['new_revision'])
     pending.unlink()
     return {'slug': slug, 'migrated': True, 'imported_done': preview['imported_done'], 'approvals': 'none'}
+
+
+def check(ctx, db, query, run_id, all_, plan_=False):
+    slug = resolve_slug(ctx['vault'], query)
+    if plan_:
+        return check_plan(ctx, db, slug)
+    threshold = float(os.environ.get('DEVFLOW_JEV_THRESHOLD', '0.7'))
+    result = {'slug': slug, 'run_id': run_id, 'threshold': threshold, 'model': None, 'criteria': []}
+    reason = _check(ctx, db, slug, run_id, all_, threshold, result)
+    result = dict(result, status='skipped', reason=reason) if reason else dict(result, status='ok')
+    with transaction(db):
+        event(db, 'check', slug, run_id=run_id, all=all_, status=result['status'], reason=reason,
+              model=result['model'], threshold=threshold,
+              noul=[c['noul'] for c in result['criteria']], flagged=[c['flagged'] for c in result['criteria']])
+    return result
+
+
+def _check(ctx, db, slug, run_id, all_, threshold, result):
+    if document(ctx['cwd'] / 'AGENTS.md')['meta'].get('jev') is not True:
+        return 'jev не включён в AGENTS.md'
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        return 'OPENROUTER_API_KEY не задан'
+    plan = artifact(ctx['vault'], 'plans', slug)
+    if not plan:
+        return 'нет плана'
+    logs = list((ctx['vault'] / 'changelog').glob('*-' + slug + '.md'))
+    if len(logs) != 1:
+        return 'нужен ровно один changelog, найдено: ' + str(len(logs))
+    raw = logs[0].read_text(encoding='utf-8')
+    title = next((l[2:].strip() for l in plan['body'].splitlines() if l.startswith('# ')), slug)
+    if all_:
+        criteria, chunks = overall_criteria(plan['body']), [raw]
+        if len(raw) > LIMIT:
+            chunks = raw.split('<!-- devflow-run:')[1:] or [raw]
+            if any(len(c) > LIMIT for c in chunks):
+                return 'секция changelog больше лимита ' + str(LIMIT) + ' символов'
+    else:
+        run = db.execute('SELECT * FROM runs WHERE id=? AND slug=?', (run_id, slug)).fetchone()
+        if not run:
+            return 'прогон не найден'
+        step = next((s for s in plan_steps(plan) if s['id'] == run['step_id']), None)
+        section = run_section(raw, run_id)
+        if not step or section is None:
+            return 'нет шага или секции прогона в changelog'
+        criteria, chunks = step_criteria(step['text']), [section]
+        if len(section) > LIMIT:
+            return 'секция прогона больше лимита ' + str(LIMIT) + ' символов'
+    if not criteria:
+        return 'в плане нет критериев'
+    items, model = [{'criterion': c, 'noul': None, 'choice': None, 'flagged': None} for c in criteria], None
+    for chunk in chunks:
+        out = jev.decide({'task': title, 'changelog': jev.mask(chunk.strip())}, jev.questions(criteria))
+        if 'error' in out:
+            return out['error']
+        model = out['model']
+        for n, item in enumerate(items):
+            noul = (out['answers'].get(f'ev_{n}') or {}).get('noul')
+            if not isinstance(noul, (int, float)):
+                return 'в ответе нет noul для ev_' + str(n)
+            if item['noul'] is None or noul > item['noul']:
+                item['noul'] = noul
+                item['choice'] = (out['answers'].get(f'st_{n}') or {}).get('choice')
+    for item in items:
+        item['flagged'] = jev.flag(item['noul'], threshold)
+    result.update(criteria=items, model=model)
+    return None
+
+
+def check_plan(ctx, db, slug):
+    threshold = float(os.environ.get('DEVFLOW_JEV_PLAN_THRESHOLD', '0.95'))
+    result = {'slug': slug, 'kind': 'plan', 'threshold': threshold, 'model': None, 'requirements': []}
+    reason = _check_plan(ctx, slug, threshold, result)
+    result = dict(result, status='skipped', reason=reason) if reason else dict(result, status='ok', reason=None)
+    with transaction(db):
+        event(db, 'check', slug, kind='plan', status=result['status'], reason=reason, model=result['model'],
+              threshold=threshold, noul=[r['noul'] for r in result['requirements']],
+              flagged=[r['flagged'] for r in result['requirements']])
+    return result
+
+
+def _check_plan(ctx, slug, threshold, result):
+    if document(ctx['cwd'] / 'AGENTS.md')['meta'].get('jev') is not True:
+        return 'jev не включён в AGENTS.md'
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        return 'OPENROUTER_API_KEY не задан'
+    research = artifact(ctx['vault'], 'research', slug)
+    if not research:
+        return 'нет требований'
+    reqs = [r for r in map(requirement, section_items(research['body'], 'Requirements'))
+            if r['text'] and not r['wish'] and r['text'].lower().rstrip('.') != 'требований нет']
+    if not reqs:
+        return 'нет требований'
+    plan = artifact(ctx['vault'], 'plans', slug)
+    if not plan:
+        return 'нет плана'
+    texts = [r['text'] for r in reqs]
+    state = {'ticket': jev.mask('\n'.join(f"- {r['text']} ({r['source']})" if r['source'] else '- ' + r['text']
+                                           for r in reqs)),
+             'plan': jev.mask(plan['raw'])}
+    questions = jev.plan_questions(texts)
+    size = len(json.dumps({'state': state, 'questions': questions}, ensure_ascii=False))
+    if size > PLAN_LIMIT:
+        return f'план больше лимита: {size} символов'
+    out = jev.decide(state, questions)
+    if 'error' in out:
+        return out['error']
+    items = []
+    for n, r in enumerate(reqs, 1):
+        noul = (out['answers'].get(f'addr_{n}') or {}).get('noul')
+        if not isinstance(noul, (int, float)):
+            return f'в ответе нет noul для addr_{n}'
+        items.append({'n': n, 'text': r['text'], 'source': r['source'], 'noul': noul,
+                      'choice': (out['answers'].get(f'cov_{n}') or {}).get('choice'),
+                      'flagged': jev.flag(noul, threshold)})
+    result.update(requirements=items, model=out['model'])
+    return None

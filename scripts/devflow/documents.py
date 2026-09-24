@@ -1,6 +1,7 @@
 """Read workflow documents; definitions live in Markdown, execution lives in SQLite."""
 import hashlib
 import re
+import textwrap
 from pathlib import Path
 
 import yaml
@@ -151,7 +152,7 @@ def plan_steps(doc):
             raise WorkflowError(f'Missing heading: ### {ident}: <title>')
         # Ordering is presentation only. Contracts and dependency identities define the step.
         revision = digest(sections[ident] + '\n' + '\n'.join(sorted(deps)))
-        by_id[ident] = dict(step, revision=revision)
+        by_id[ident] = dict(step, revision=revision, text=sections[ident])
         numbers.add(n)
     if set(sections) != set(by_id):
         raise WorkflowError('Step headings and frontmatter IDs must match')
@@ -171,3 +172,56 @@ def plan_steps(doc):
     for ident in by_id:
         visit(ident)
     return sorted(by_id.values(), key=lambda s: s['n'])
+
+
+def list_items(text):
+    out, cur = [], None
+    for line in text.splitlines():
+        m = re.match(r'^\s{0,1}(?:[-*]|\d+[.)])\s+(?:\[[ xX]\]\s*)?(.*)$', line)
+        if m:
+            if cur:
+                out.append(cur)
+            cur = m[1].strip()
+        elif cur is not None and line.strip() and line.startswith('  '):
+            cur = (cur + ' ' + re.sub(r'^\s*(?:(?:[-*]|\d+[.)])\s+)?(?:\[[ xX]\]\s*)?', '', line).strip()).strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
+def step_criteria(section):
+    lines = section.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r'^(\s*)[-*]\s+\*\*Acceptance:\*\*\s*(.*)$', line)
+        if not m:
+            continue
+        indent, block = len(m[1]), []
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                break
+            block.append(nxt)
+        items, inline = list_items(textwrap.dedent('\n'.join(block))), m[2].strip()
+        # A lead-in ending with ':' introduces the list; any other inline text is a criterion itself.
+        return ([inline] if inline and not (items and inline.endswith(':')) else []) + items
+    return []
+
+
+def section_items(body, title):
+    hs = headings(body)
+    for i, (level, name, start) in enumerate(hs):
+        if level == 2 and name == title:
+            end = next((h[2] for h in hs[i + 1:] if h[0] <= 2), len(body))
+            return list_items(body[start:end].split('\n', 1)[1] if '\n' in body[start:end] else '')
+    return []
+
+
+def overall_criteria(body):
+    return section_items(body, 'Acceptance (overall)')
+
+
+def requirement(item):
+    m = re.search(r'\(((?:ТЗ|Jira:).*)\)\s*$', item)
+    if not m:
+        return {'text': item.strip(), 'source': '', 'wish': False}
+    source = m[1].strip()
+    return {'text': item[:m.start()].strip(), 'source': source, 'wish': 'пожелание' in source}

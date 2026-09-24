@@ -67,6 +67,8 @@ df approve <slug> <research|plan> --revision <hash-that-was-shown>
 If the CLI rejects a stale revision, show the changed artifact and ask again. This command records
 the user's decision; its availability is never permission for the agent to approve its own work.
 Then route again. Existing files with no recorded approval go through the same gate.
+At the plan gate, show the plan agent's Jev остаток (требование, источник, `noul`) ordered
+неразобранные → Отложено → учтено; a `skipped` check is one line.
 
 For `ready`, run `df start <slug> --step <id> --revision <plan-hash>`. Pass its `run_id`, step ID,
 number, revision and cwd to a **fresh** implement agent. Never spawn implementation before start
