@@ -23,6 +23,8 @@ def fake_curl(tmp_path):
     return run
 
 
+SAFE_PREFIX = ["-q", "--noproxy", "*", "--max-redirs", "0", "--proto", "=http,https"]
+
 LONG_FLAGS = ["--proxy", "--proxy1.0", "--preproxy", "--socks4", "--socks4a", "--socks5",
               "--socks5-hostname", "--resolve", "--connect-to", "--config", "--doh-url"]
 
@@ -52,10 +54,45 @@ def test_local_request_passes_args_through(fake_curl):
     args = ["-s", "-o", "/dev/null", "-w", "%{http_code}", URL]
     result = fake_curl(*args)
     assert result.returncode == 0
-    assert result.stdout.splitlines() == args
+    assert result.stdout.splitlines() == [*SAFE_PREFIX, *args]
 
 
 def test_external_host_refused(fake_curl):
     result = fake_curl("https://example.com")
     assert result.returncode == 3
     assert not fake_curl.marker.exists()
+
+
+@pytest.mark.parametrize("args", [
+    ["--url=https://evil.example"],
+    ["--url", "https://evil.example"],
+    ["evilhost:80"],
+    ["http://localhost@evil.example/"],
+    ["ftp://localhost/"],
+    ["http://localhost.evil.example/"],
+])
+def test_escaping_url_refused(fake_curl, args):
+    result = fake_curl(*args)
+    assert result.returncode == 3
+    assert not fake_curl.marker.exists()
+
+
+@pytest.mark.parametrize("args", [["-L", URL], ["--location", URL], ["--confi", "cfg", URL], ["-sL", URL]])
+def test_unknown_flag_refused(fake_curl, args):
+    result = fake_curl(*args)
+    assert result.returncode == 2
+    assert not fake_curl.marker.exists()
+
+
+@pytest.mark.parametrize("args", [
+    ["http://[::1]:8080/"],
+    ["-o", "body.json", URL],
+    ["-obody.json", URL],
+    ["-sS", "-X", "POST", "-H", "Content-Type: application/json", "--data={}", URL],
+    ["--url", "http://app.localhost/"],
+    ["http://127.0.0.1:3000/health?x=1"],
+])
+def test_local_forms_pass(fake_curl, args):
+    result = fake_curl(*args)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [*SAFE_PREFIX, *args]
