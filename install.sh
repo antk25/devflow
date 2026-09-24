@@ -70,7 +70,8 @@ if [ "$mode" = check ]; then
     done
     if [ -x "$PYTHON" ]; then
         drift="$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1])
-from devflow.project import settings_drift
+from devflow.project import guard_probe, settings_drift
+for c in guard_probe(sys.argv[2]): print("BROKEN global hook PreToolUse", c)
 d = settings_drift(sys.argv[2], sys.argv[3])
 for c in d["hooks"]: print("MISS global hook", c)
 for p in d["allow"]: print("MISS global allow", p)

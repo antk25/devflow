@@ -1,6 +1,7 @@
 """Project-layer setup for DevFlow: what a project needs and how to create the missing parts."""
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -27,11 +28,12 @@ def _read(path):
 
 def _hook_commands(data):
     commands = set()
-    for group in (data.get('hooks') or {}).get('SessionStart') or []:
-        for hook in group.get('hooks') or []:
-            command = hook.get('command')
-            if command:
-                commands.add(command)
+    for event, groups in (data.get('hooks') or {}).items():
+        for group in groups or []:
+            for hook in group.get('hooks') or []:
+                command = hook.get('command')
+                if command:
+                    commands.add((event, command))
     return commands
 
 
@@ -43,8 +45,8 @@ def settings_drift(actual, example):
     """Report what the example has and the actual file lacks; reads only."""
     wanted, have = _read(example), _read(actual)
     have_commands = _hook_commands(have)
-    hooks = [c for c in sorted(_hook_commands(wanted))
-             if not any(Path(c).name in h for h in have_commands)]
+    hooks = [f'{e} {c}' for e, c in sorted(_hook_commands(wanted))
+             if not any(e == he and Path(c).name in h for he, h in have_commands)]
     allow = [p for p in _permissions(wanted, 'allow') if p not in _permissions(have, 'allow')]
     deny = [p for p in _permissions(wanted, 'deny') if p not in _permissions(have, 'deny')]
     extra_deny = [p for p in _permissions(have, 'deny') if p in STALE_DENY]
@@ -57,6 +59,23 @@ def _meta(text, source):
         if not isinstance(doc.get(key), str) or not doc[key].strip():
             raise WorkflowError(f'{source} needs a non-empty {key} in frontmatter')
     return doc
+
+
+def guard_probe(actual):
+    """Run each registered guard hook on a harmless command; return the ones that fail."""
+    probe = json.dumps({'tool_name': 'Bash', 'tool_input': {'command': 'true'}})
+    broken = []
+    for event, command in sorted(_hook_commands(_read(actual))):
+        if event != 'PreToolUse' or 'devflow-cli.sh guard' not in command:
+            continue
+        try:
+            result = subprocess.run(command, shell=True, input=probe, capture_output=True, text=True, timeout=5)
+            ok = result.returncode == 0 and not result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            ok = False
+        if not ok:
+            broken.append(command)
+    return broken
 
 
 def document_text(text, source):

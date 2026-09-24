@@ -1,7 +1,7 @@
 import json
 import shutil
 
-from devflow.project import ROOT, settings_drift
+from devflow.project import ROOT, guard_probe, settings_drift
 
 EXAMPLE = ROOT / 'settings.global.example.json'
 
@@ -9,7 +9,10 @@ EXAMPLE = ROOT / 'settings.global.example.json'
 def test_missing_actual_reports_everything(tmp_path):
     wanted = json.loads(EXAMPLE.read_text())
     drift = settings_drift(tmp_path / 'settings.json', EXAMPLE)
-    assert drift['hooks'] == [wanted['hooks']['SessionStart'][0]['hooks'][0]['command']]
+    assert drift['hooks'] == [
+        'PreToolUse ' + wanted['hooks']['PreToolUse'][0]['hooks'][0]['command'],
+        'SessionStart ' + wanted['hooks']['SessionStart'][0]['hooks'][0]['command'],
+    ]
     assert drift['allow'] == wanted['permissions']['allow']
     assert drift['deny'] == wanted['permissions']['deny']
     assert drift['extra_deny'] == []
@@ -44,3 +47,34 @@ def test_stale_gh_deny_reported(tmp_path):
     drift = settings_drift(actual, EXAMPLE)
     assert drift['extra_deny'] == ['Bash(gh:*)']
     assert drift['deny'] == []
+
+
+def _with_guard(tmp_path, command):
+    actual = tmp_path / 'settings.json'
+    data = json.loads(EXAMPLE.read_text())
+    data['hooks']['SessionStart'][0]['hooks'][0]['command'] = f"{ROOT}/.claude/hooks/project-restore.sh"
+    if command is None:
+        del data['hooks']['PreToolUse']
+    else:
+        data['hooks']['PreToolUse'][0]['hooks'][0]['command'] = command
+    actual.write_text(json.dumps(data))
+    return actual
+
+
+def test_missing_guard_reported(tmp_path):
+    actual = _with_guard(tmp_path, None)
+    assert settings_drift(actual, EXAMPLE)['hooks'] == ['PreToolUse __DEVFLOW_ROOT__/scripts/devflow-cli.sh guard']
+    assert guard_probe(actual) == []
+
+
+def test_guard_on_missing_path_is_broken(tmp_path):
+    command = f'{tmp_path}/nowhere/scripts/devflow-cli.sh guard'
+    actual = _with_guard(tmp_path, command)
+    assert settings_drift(actual, EXAMPLE)['hooks'] == []
+    assert guard_probe(actual) == [command]
+
+
+def test_working_guard_reports_nothing(tmp_path):
+    actual = _with_guard(tmp_path, f'{ROOT}/scripts/devflow-cli.sh guard')
+    assert settings_drift(actual, EXAMPLE)['hooks'] == []
+    assert guard_probe(actual) == []

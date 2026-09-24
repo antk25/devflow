@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__DEVFLOW_ROOT__/scripts/devflow-cli.sh guard",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -41,8 +53,6 @@
       "Bash(git push --delete:*)",
       "Bash(git push * main)",
       "Bash(git push * master)",
-      "Bash(git push origin main)",
-      "Bash(git push origin master)",
       "Bash(rm -rf /)"
     ]
   }
