@@ -38,7 +38,8 @@
       "Bash(gh run view:*)",
       "Bash(gh run list:*)",
       "Bash(gh release view:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(lcurl:*)"
     ],
     "deny": [
       "Bash(gh api:*)",
@@ -53,7 +54,9 @@
       "Bash(git push --delete:*)",
       "Bash(git push * main)",
       "Bash(git push * master)",
-      "Bash(rm -rf /)"
+      "Bash(rm -rf /)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
     ]
   }
 }

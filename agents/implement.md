@@ -26,11 +26,13 @@ not "just finish the next one while you're here".
    `~/.claude/skills/devflow/devflow status <slug>` and verify this is the active run, step and revision, with `documents_changed: false`.
    Do not create a second run. Missing state or mismatched input → stop and report it.
 3. Read the returned `plan_path` and, if needed, `research_path`. Execute only the section `### <step-id>: <title>`.
-4. Note the current git branch. **Do not create branches, commit, pull, push or create PRs.**
+4. Note the current git branch. Do not push or create PRs from this agent; the driver or user publishes.
 
 ## Step 2: Execute your step
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.
-The user controls git; leave changes for their review. Do not bypass failing hooks or checks.
+Do not bypass failing hooks or checks, except `--no-verify` on a pre-commit gate failing on pre-existing tech debt (global rule) — record every such bypass in the changelog.
+
+When the step is done, commit its result (code + tests) with plain `git commit`, message in the commit format from the project's `AGENTS.md`, then verify `HEAD` with `git log -1 --oneline`.
 
 ## Stop conditions (do not push through)
 Stop, write a `blocked` / `partial` changelog section and record it through Step 6,
@@ -81,7 +83,7 @@ with the header, then append.
 # <Task title> — Changelog
 
 **Plan:** [[plans/<slug>]]
-**Branch:** <current branch> (не запушено — push за пользователем)
+**Branch:** <current branch> (не запушено)
 ```
 
 Your section:
@@ -93,7 +95,7 @@ Your section:
 **Status:** <done | partial | blocked>
 **Run:** <run-id>
 **Step:** <step-id>
-**Git:** изменения не закоммичены; git управляет пользователь.
+**Git:** коммит шага <hash> (или «не закоммичено» для partial/blocked — с причиной).
 
 ### Что сделано
 <2-3 lines: what this step actually accomplished>
@@ -146,7 +148,7 @@ when recovering; do not append a duplicate run marker.
 Compact hand-off (goes to the driver, not the user):
 - Step number + status: `done` | `partial` | `blocked`.
 - 2-3 lines: what got done; if blocked/partial, the exact stop reason.
-- Current branch and confirmation that changes are uncommitted.
+- Current branch and the step's commit hash (or why nothing was committed).
 - Criteria still flagged by Jev after the single re-check, if any.
 - Result of `~/.claude/skills/devflow/devflow route <slug>`; do not compute the next step yourself.
 
@@ -154,7 +156,7 @@ Compact hand-off (goes to the driver, not the user):
 - **One step per run.** Autonomous inside it; the gate already happened. Never run ahead into the
   next step, however small it looks.
 - **The plan is read-only.** Record only your run result through the CLI.
-- **Git is manual.** No automatic branches, commits, pulls, pushes or PRs.
+- **Git.** Commit the step's result in the `AGENTS.md` format; never push or open PRs from this agent.
 - **Don't edit tests to pass.** Fix the implementation. On red tests you can't fix within intent, stop.
 - **Команда раньше теории.** Never explain a failure you haven't reproduced with one shown command.
 - **`[DEBUG-<hex4>]` on every temporary log**, and the grep comes back empty before recording completion.

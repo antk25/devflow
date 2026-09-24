@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# lcurl — curl restricted to local dev hosts (localhost, *.localhost, 127.0.0.1, [::1]).
+# External hosts are refused, so the anti-exfiltration barrier stays intact while
+# local health-checks stop hitting the global `deny: Bash(curl:*)` rule.
+# Only known flags pass: any other curl flag could redirect the request, so an allowlist, not a denylist.
+set -euo pipefail
+
+SHORT_BARE=sSiIfvkGN46
+SHORT_VALUE=owXHdmubcFTer
+LONG_BARE=' silent show-error include head fail fail-with-body verbose insecure get compressed no-buffer
+  http1.1 http2 ipv4 ipv6 '
+LONG_VALUE=' output write-out request header data data-raw data-binary data-urlencode json max-time
+  connect-timeout user user-agent cookie cookie-jar form upload-file referer retry range '
+
+refuse() {
+  echo "lcurl: $1" >&2
+  echo "       For an external host or another flag run curl yourself via '! curl ...'." >&2
+  exit "$2"
+}
+
+check_url() {
+  local url=$1 rest host
+  [[ "$url" =~ ^https?:// ]] || refuse "refused '$url' — only http(s):// URLs to a local host are allowed." 3
+  rest="${url#*://}"
+  rest="${rest%%[/?#]*}"
+  [[ "$rest" != *@* ]] || refuse "refused credentials in URL '$url'." 3
+  if [[ "$rest" == \[* ]]; then host="${rest%%]*}]"; else host="${rest%%:*}"; fi
+  case "$host" in
+    localhost|127.0.0.1|'[::1]'|*.localhost) ;;
+    *) refuse "refused non-local host '$host' — only *.localhost / localhost / 127.0.0.1 / [::1] are allowed." 3 ;;
+  esac
+}
+
+args=("$@")
+i=0
+while (( i < ${#args[@]} )); do
+  arg=${args[i]}
+  case "$arg" in
+    --url=*) check_url "${arg#--url=}" ;;
+    --url)
+      (( i + 1 < ${#args[@]} )) || refuse "--url needs a value." 2
+      i=$((i + 1)); check_url "${args[i]}" ;;
+    --*=*)
+      name=${arg%%=*}; name=${name#--}
+      [[ "$LONG_VALUE" == *" $name "* ]] || refuse "refused flag '--$name'." 2 ;;
+    --*)
+      name=${arg#--}
+      if [[ "$LONG_VALUE" == *" $name "* ]]; then i=$((i + 1))
+      elif [[ "$LONG_BARE" != *" $name "* ]]; then refuse "refused flag '$arg'." 2
+      fi ;;
+    -?*)
+      flags=${arg#-}
+      for (( j = 0; j < ${#flags}; j++ )); do
+        c=${flags:j:1}
+        if [[ "$SHORT_VALUE" == *"$c"* ]]; then
+          (( j + 1 == ${#flags} )) && i=$((i + 1))
+          break
+        fi
+        [[ "$SHORT_BARE" == *"$c"* ]] || refuse "refused flag '-$c'." 2
+      done ;;
+    *) check_url "$arg" ;;
+  esac
+  i=$((i + 1))
+done
+
+exec curl -q --noproxy '*' --max-redirs 0 --proto =http,https "$@"
