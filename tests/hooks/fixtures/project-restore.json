@@ -1,0 +1,4 @@
+[
+  {"name": "no-agents", "agents": false, "calls": 1, "expect_last": ""},
+  {"name": "repeat-session", "agents": true, "calls": 2, "expect_last": ""}
+]
