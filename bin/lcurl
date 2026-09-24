@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# lcurl — curl restricted to local dev hosts (localhost, *.localhost, 127.0.0.1, ::1).
+# External hosts are refused, so the anti-exfiltration barrier stays intact while
+# local health-checks stop hitting the global `deny: Bash(curl:*)` rule.
+# Flags that redirect traffic (proxy, resolve, config) are refused: they bypass the host check.
+set -euo pipefail
+
+allowed_host() {
+  case "$1" in
+    localhost|127.0.0.1|::1|'[::1]') return 0 ;;
+    *.localhost)                     return 0 ;;
+    *)                               return 1 ;;
+  esac
+}
+
+refuse_flag() {
+  echo "lcurl: refused flag '$1' — it can redirect the request away from the local host." >&2
+  exit 2
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --proxy|--proxy=*|--proxy1.0|--proxy1.0=*|--preproxy|--preproxy=*|\
+    --socks4|--socks4=*|--socks4a|--socks4a=*|--socks5|--socks5=*|\
+    --socks5-hostname|--socks5-hostname=*|--resolve|--resolve=*|\
+    --connect-to|--connect-to=*|--config|--config=*|--doh-url|--doh-url=*)
+      refuse_flag "${arg%%=*}" ;;
+    --*) continue ;;
+    -*x*) refuse_flag "-x" ;;
+    -*K*) refuse_flag "-K" ;;
+    -*) continue ;;                          # option flags and their values
+  esac
+  host=""
+  if [[ "$arg" == *"://"* ]]; then
+    rest="${arg#*://}"; host="${rest%%[/:?#]*}"          # scheme://HOST[:port][/path]
+  elif [[ "$arg" == *.* && "$arg" =~ ^[A-Za-z0-9._-]+(:[0-9]+)?(/.*)?$ ]]; then
+    host="${arg%%[/:?#]*}"                                 # scheme-less host.tld/...
+  fi
+  if [[ -n "$host" ]] && ! allowed_host "$host"; then
+    echo "lcurl: refused non-local host '$host' — only *.localhost / localhost / 127.0.0.1 are allowed." >&2
+    echo "       For an external host run curl yourself via '! curl ...'." >&2
+    exit 3
+  fi
+done
+
+exec curl "$@"

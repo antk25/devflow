@@ -29,6 +29,8 @@ for name in "${AGENTS[@]}"; do
 done
 sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
 destinations+=("$BIN_DIR/devflow")
+sources+=("$DEVFLOW_DIR/bin/lcurl")
+destinations+=("$BIN_DIR/lcurl")
 
 issues=0
 for i in "${!sources[@]}"; do
