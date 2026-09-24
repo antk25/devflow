@@ -23,7 +23,24 @@ HISTORY_REWRITE = ('Перезапись удалённой истории де�
 PUSH_PROTECTED = 'Пушить можно только feature-ветку; слияние делает пользователь. Используй `git push -u origin {branch}`.'
 
 
+HEREDOC = re.compile(r'<<(-?)\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\2')
+
+
+def strip_heredocs(command):
+    kept, pending = [], []
+    for line in command.split('\n'):
+        if pending:
+            strip_tabs, delimiter = pending[0]
+            if (line.lstrip('\t') if strip_tabs else line) == delimiter:
+                pending.pop(0)
+            continue
+        kept.append(line)
+        pending = [(dash == '-', name) for dash, _, name in HEREDOC.findall(line)]
+    return '\n'.join(kept)
+
+
 def segments(command):
+    command = strip_heredocs(command)
     # posix=False keeps quotes on tokens, so a quoted ';' is not taken for an operator
     lexer = shlex.shlex(command, posix=False, punctuation_chars=';&|()<>\n')
     lexer.whitespace = ' \t\r'
