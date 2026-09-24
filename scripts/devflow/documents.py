@@ -206,10 +206,22 @@ def step_criteria(section):
     return []
 
 
-def overall_criteria(body):
+def section_items(body, title):
     hs = headings(body)
-    for i, (level, title, start) in enumerate(hs):
-        if level == 2 and title == 'Acceptance (overall)':
+    for i, (level, name, start) in enumerate(hs):
+        if level == 2 and name == title:
             end = next((h[2] for h in hs[i + 1:] if h[0] <= 2), len(body))
             return list_items(body[start:end].split('\n', 1)[1] if '\n' in body[start:end] else '')
     return []
+
+
+def overall_criteria(body):
+    return section_items(body, 'Acceptance (overall)')
+
+
+def requirement(item):
+    m = re.search(r'\(([^()]*)\)\s*$', item)
+    if not m:
+        return {'text': item.strip(), 'source': '', 'wish': False}
+    source = m[1].strip()
+    return {'text': item[:m.start()].strip(), 'source': source, 'wish': 'пожелание' in source}

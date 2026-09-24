@@ -138,10 +138,23 @@ Before you finish, check the cut:
 
 Run `~/.claude/skills/devflow/devflow validate <slug>` before returning; fix schema errors.
 
+## Step 6: Проверка по требованиям
+After `validate`, run `~/.claude/skills/devflow/devflow check <slug> --plan`. Jev never blocks; it
+points at research `## Requirements` items the plan may not address (`requirements[]` with `n`,
+`text`, `source`, `noul`, `choice`, `flagged`).
+- `skipped` with reason «jev не включён в AGENTS.md» → do nothing, no mention.
+- Any other `skipped` → one line in the hand-off: «проверка Jev не выполнялась: <reason>».
+- For each `flagged: true`: add a step or acceptance criterion to the plan, or add
+  «Отложено: <требование> — <причина>» to Risks, or note «учтено в шаге <id>» in the hand-off.
+  Never edit the plan just to please Jev (rewording without substance is forbidden).
+- If you changed the plan, re-run `validate`. Re-run `check --plan` exactly once; no second pass.
+
 ## Return to the driver
 Compact hand-off (goes to the driver, not the user):
 - 2-3 line summary of the approach.
 - Any open decisions from Risks that need the user (verbatim), or "нет открытых вопросов".
+- Jev остаток after the re-check: requirement, source, `noul`, how handled (неразобрано /
+  отложено / учтено); or the one-line `skipped`.
 - `Готово к одобрению (ГЕЙТ-2).`
 
 ## Rules

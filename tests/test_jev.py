@@ -116,3 +116,19 @@ def test_http_exception_becomes_error(monkeypatch, key):
         raise http.client.IncompleteRead(b'part')
     monkeypatch.setattr(jev.urllib.request, 'urlopen', boom)
     assert set(jev.decide({}, [])) == {'error'}
+
+
+def test_plan_questions_match_pilot_c():
+    q = jev.plan_questions(['a', 'b'])
+    assert [x['key'] for x in q] == ['addr_1', 'cov_1', 'addr_2', 'cov_2']
+    assert q[0]['type'] == 'noul' and q[1]['type'] == 'choice'
+    assert q[0]['instructions'] == (
+        "The state holds a customer ticket and the implementation plan written for it. Does the plan address the requirement "
+        "below with a concrete step, decision or acceptance criterion? Mentioning it only as background or context does not count.\n"
+        "Requirement: a")
+    assert q[3]['instructions'] == "Classify how the plan in the state handles the ticket requirement below.\nRequirement: b"
+    assert q[1]['criteria'] == {
+        "covered": "The plan contains a concrete step, decision or acceptance criterion that addresses the requirement.",
+        "partial": "The plan addresses only part of the requirement, or only diagnoses it without deciding what to do.",
+        "not_covered": "The plan does not address the requirement, mentions it only as background, or explicitly defers it.",
+    }

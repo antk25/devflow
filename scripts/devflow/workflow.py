@@ -9,12 +9,13 @@ import yaml
 
 from . import jev
 from .documents import (WorkflowError, artifact, digest, document, headings, overall_criteria, plan_steps,
-                        resolve_slug, step_criteria)
+                        requirement, resolve_slug, section_items, step_criteria)
 from .storage import approved, atomic_write, event, now, remember, transaction
 
 
 MARKER = '<!-- devflow-run: {} -->'
 LIMIT = 60000
+PLAN_LIMIT = 60000
 
 
 def run_section(raw, run_id):
@@ -311,8 +312,10 @@ def migrate(ctx, db, query, apply_revision=None):
     return {'slug': slug, 'migrated': True, 'imported_done': preview['imported_done'], 'approvals': 'none'}
 
 
-def check(ctx, db, query, run_id, all_):
+def check(ctx, db, query, run_id, all_, plan_=False):
     slug = resolve_slug(ctx['vault'], query)
+    if plan_:
+        return check_plan(ctx, db, slug)
     threshold = float(os.environ.get('DEVFLOW_JEV_THRESHOLD', '0.7'))
     result = {'slug': slug, 'run_id': run_id, 'threshold': threshold, 'model': None, 'criteria': []}
     reason = _check(ctx, db, slug, run_id, all_, threshold, result)
@@ -372,4 +375,54 @@ def _check(ctx, db, slug, run_id, all_, threshold, result):
     for item in items:
         item['flagged'] = jev.flag(item['noul'], threshold)
     result.update(criteria=items, model=model)
+    return None
+
+
+def check_plan(ctx, db, slug):
+    threshold = float(os.environ.get('DEVFLOW_JEV_PLAN_THRESHOLD', '0.95'))
+    result = {'slug': slug, 'kind': 'plan', 'threshold': threshold, 'model': None, 'requirements': []}
+    reason = _check_plan(ctx, slug, threshold, result)
+    result = dict(result, status='skipped', reason=reason) if reason else dict(result, status='ok', reason=None)
+    with transaction(db):
+        event(db, 'check', slug, kind='plan', status=result['status'], reason=reason, model=result['model'],
+              threshold=threshold, noul=[r['noul'] for r in result['requirements']],
+              flagged=[r['flagged'] for r in result['requirements']])
+    return result
+
+
+def _check_plan(ctx, slug, threshold, result):
+    if document(ctx['cwd'] / 'AGENTS.md')['meta'].get('jev') is not True:
+        return 'jev не включён в AGENTS.md'
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        return 'OPENROUTER_API_KEY не задан'
+    research = artifact(ctx['vault'], 'research', slug)
+    if not research:
+        return 'нет research'
+    reqs = [r for r in map(requirement, section_items(research['body'], 'Requirements'))
+            if r['text'] and not r['wish'] and r['text'].lower().rstrip('.') != 'требований нет']
+    if not reqs:
+        return 'нет требований'
+    plan = artifact(ctx['vault'], 'plans', slug)
+    if not plan:
+        return 'нет плана'
+    texts = [r['text'] for r in reqs]
+    state = {'ticket': jev.mask('\n'.join(f"- {r['text']} ({r['source']})" if r['source'] else '- ' + r['text']
+                                           for r in reqs)),
+             'plan': jev.mask(plan['raw'])}
+    questions = jev.plan_questions(texts)
+    size = len(json.dumps({'state': state, 'questions': questions}, ensure_ascii=False))
+    if size > PLAN_LIMIT:
+        return f'план больше лимита: {size} символов'
+    out = jev.decide(state, questions)
+    if 'error' in out:
+        return out['error']
+    items = []
+    for n, r in enumerate(reqs, 1):
+        noul = (out['answers'].get(f'addr_{n}') or {}).get('noul')
+        if not isinstance(noul, (int, float)):
+            return f'в ответе нет noul для addr_{n}'
+        items.append({'n': n, 'text': r['text'], 'source': r['source'], 'noul': noul,
+                      'choice': (out['answers'].get(f'cov_{n}') or {}).get('choice'),
+                      'flagged': jev.flag(noul, threshold)})
+    result.update(requirements=items, model=out['model'])
     return None

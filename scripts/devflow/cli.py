@@ -44,7 +44,7 @@ def parser():
     a = commands.add_parser('approve'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan']); a.add_argument('--revision', required=True)
     a = commands.add_parser('start'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True)
     a = commands.add_parser('finish'); a.add_argument('run_id'); a.add_argument('--status', choices=['done', 'blocked', 'partial'], required=True); a.add_argument('--changelog', required=True); a.add_argument('--reason')
-    a = commands.add_parser('check'); a.add_argument('slug'); g = a.add_mutually_exclusive_group(required=True); g.add_argument('--run'); g.add_argument('--all', action='store_true')
+    a = commands.add_parser('check'); a.add_argument('slug'); g = a.add_mutually_exclusive_group(required=True); g.add_argument('--run'); g.add_argument('--all', action='store_true'); g.add_argument('--plan', action='store_true')
     a = commands.add_parser('interrupt'); a.add_argument('run_id'); a.add_argument('--reason', required=True)
     a = commands.add_parser('resume'); a.add_argument('slug'); a.add_argument('--reason', required=True)
     a = commands.add_parser('reopen'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True); a.add_argument('--reason', required=True)
@@ -95,7 +95,7 @@ def execute(args):
         if args.command == 'finish':
             return finish(ctx, db, args.run_id, args.status, args.changelog, args.reason)
         if args.command == 'check':
-            return check(ctx, db, args.slug, args.run, args.all)
+            return check(ctx, db, args.slug, args.run, args.all, args.plan)
         if args.command == 'interrupt':
             return interrupt(db, args.run_id, args.reason)
         if args.command == 'resume':

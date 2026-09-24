@@ -24,6 +24,10 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 ## Step 2: Investigate (autonomously)
 - **Read the TZ** if present: `<vault>/tz/<slug>.md`, or scan `<vault>/tz/` for a matching spec.
   What it settles is settled — don't re-open its decisions in Open questions.
+- **Read the Jira ticket.** Key = slug prefix up to the second hyphen, upper-cased (`SE-2039`).
+  `SE-*` → `jira-issue.sh <KEY>`, other keys → `/jira`; no key in the slug → skip. Read the
+  description and comments written before this research by every author except the user (git
+  `user.name`). Attachments and screenshots are not read.
 - **Look for what already exists — by the domain concept, not by the ticket's wording.** Name the
   thing the task is about in the domain's own words (скидка, получатель вознаграждения, импорт
   прайса), then grep that concept and its synonyms — Russian and English, singular and plural, the
@@ -62,6 +66,12 @@ then you) must grasp it with zero effort. Section headers English, prose Russian
 
 ## Problem
 <2-4 lines, plain language: what must happen and why>
+
+## Requirements
+<one checkable requirement per bullet, source in the last parentheses: `(ТЗ)`, `(Jira: описание)`,
+`(Jira: комментарий <автор>, <дата>)`. A wish goes in the same parentheses: `(Jira: описание;
+пожелание)`. Split compound requirements. Nothing to list → a single bullet «требований нет».>
+- <требование> (<источник>)
 
 ## Context
 ### Relevant files

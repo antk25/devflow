@@ -20,6 +20,16 @@ CLASSES = {
     "not_met": "The changelog says it is not done, deferred, pending (waits for deploy, prod smoke, review, a human step), failed, or does not mention it at all.",
 }
 
+ADDR = ("The state holds a customer ticket and the implementation plan written for it. Does the plan address the requirement "
+        "below with a concrete step, decision or acceptance criterion? Mentioning it only as background or context does not count.\n"
+        "Requirement: {r}")
+COVER = "Classify how the plan in the state handles the ticket requirement below.\nRequirement: {r}"
+PLAN_CLASSES = {
+    "covered": "The plan contains a concrete step, decision or acceptance criterion that addresses the requirement.",
+    "partial": "The plan addresses only part of the requirement, or only diagnoses it without deciding what to do.",
+    "not_covered": "The plan does not address the requirement, mentions it only as background, or explicitly defers it.",
+}
+
 SECRETS = [
     re.compile(r"(?i)\b(sk|pk|rk|ghp|gho|github_pat|xox[abp]|glpat)[-_][A-Za-z0-9_\-]{10,}"),
     re.compile(r"(?i)(bearer|token|password|passwd|pwd|secret|api[_-]?key|authorization)(\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?\S+"),
@@ -53,6 +63,14 @@ def questions(criteria: list[str]) -> list[dict]:
     for n, c in enumerate(criteria):
         out.append({'key': f'ev_{n}', 'type': 'noul', 'instructions': EVIDENCE.format(c=c)})
         out.append({'key': f'st_{n}', 'type': 'choice', 'instructions': STATUS.format(c=c), 'criteria': CLASSES})
+    return out
+
+
+def plan_questions(reqs: list[str]) -> list[dict]:
+    out = []
+    for n, r in enumerate(reqs, 1):
+        out.append({'key': f'addr_{n}', 'type': 'noul', 'instructions': ADDR.format(r=r)})
+        out.append({'key': f'cov_{n}', 'type': 'choice', 'instructions': COVER.format(r=r), 'criteria': PLAN_CLASSES})
     return out
 
 
