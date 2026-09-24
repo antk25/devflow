@@ -22,7 +22,7 @@ asked belongs to the other axis, and you never see its findings.
    style, tests in the same commit as the code they cover.
 
 ## Step 2: Read the diff, then its neighbours
-Get the diff (`rtk git diff <range>`). For every touched file, read enough of the surrounding code
+Get the diff (`git diff <range>`). For every touched file, read enough of the surrounding code
 to know what "matching the neighbours" means here — a convention violation is only visible against
 the local style, not against a general idea of good code.
 

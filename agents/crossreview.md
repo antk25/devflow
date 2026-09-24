@@ -24,7 +24,7 @@ result in the vault. **You change nothing in the repository.**
    report `Codex: не залогинен, пропущен` and continue with your own review only.
 
 ## Step 2: Your own review — before Codex
-Read the diff (`rtk git diff <base>...HEAD`) and, for every touched file, enough of the neighbours
+Read the diff (`git diff <base>...HEAD`) and, for every touched file, enough of the neighbours
 to see the real behaviour. Look for **correctness**: wrong types, nulls that reach code expecting
 values, changed error modes, broken invariants, missing test coverage for changed behaviour.
 Conventions and TZ-conformance belong to `/review` — not here.
