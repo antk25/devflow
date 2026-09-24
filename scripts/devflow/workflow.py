@@ -397,7 +397,7 @@ def _check_plan(ctx, slug, threshold, result):
         return 'OPENROUTER_API_KEY не задан'
     research = artifact(ctx['vault'], 'research', slug)
     if not research:
-        return 'нет research'
+        return 'нет требований'
     reqs = [r for r in map(requirement, section_items(research['body'], 'Requirements'))
             if r['text'] and not r['wish'] and r['text'].lower().rstrip('.') != 'требований нет']
     if not reqs:

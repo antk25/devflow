@@ -19,3 +19,9 @@ def test_section_items_joins_wrapped_lines():
 
 def test_section_items_missing():
     assert documents.section_items('# T\n\n## Problem\n- x\n', 'Requirements') == []
+
+
+def test_requirement_source_only_from_known_prefix():
+    r = documents.requirement('Кнопка (Jira: комментарий Иван (PM), 2026-09-20)')
+    assert r['source'] == 'Jira: комментарий Иван (PM), 2026-09-20' and r['text'] == 'Кнопка'
+    assert documents.requirement('Выгрузка отчёта (CSV)') == {'text': 'Выгрузка отчёта (CSV)', 'source': '', 'wish': False}

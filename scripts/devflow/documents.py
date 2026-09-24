@@ -220,7 +220,7 @@ def overall_criteria(body):
 
 
 def requirement(item):
-    m = re.search(r'\(([^()]*)\)\s*$', item)
+    m = re.search(r'\(((?:ТЗ|Jira:).*)\)\s*$', item)
     if not m:
         return {'text': item.strip(), 'source': '', 'wish': False}
     source = m[1].strip()

@@ -104,6 +104,11 @@ def test_mask_keeps_evidence_ids():
     assert jev.mask(text) == text
 
 
+def test_question_texts_masked():
+    for q in jev.questions(['доступ password=hunter2']) + jev.plan_questions(['доступ password=hunter2']):
+        assert 'hunter2' not in q['instructions'] and '[REDACTED]' in q['instructions']
+
+
 def test_flag():
     assert jev.flag(0.5, 0.7)
     assert not jev.flag(0.9, 0.7)

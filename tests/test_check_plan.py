@@ -87,7 +87,7 @@ def test_skips_without_network(pp, case):
     else:
         (pp['vault'] / 'plans/x.md').unlink()
     out = run(pp)
-    expected = {'no_research': 'нет research', 'no_section': 'нет требований', 'empty': 'нет требований',
+    expected = {'no_research': 'нет требований', 'no_section': 'нет требований', 'empty': 'нет требований',
                 'wishes': 'нет требований', 'no_jev': 'jev не включён в AGENTS.md', 'no_plan': 'нет плана'}
     assert out['status'] == 'skipped' and out['reason'] == expected[case]
 
@@ -111,6 +111,14 @@ def test_state_keys_full_plan_no_wish(pp, monkeypatch):
     assert state['plan'].endswith('хвост плана\n') and '## Risks' in state['plan']
     assert 'иконка' not in state['ticket'] and '(Jira: описание)' in state['ticket']
     assert set(sent[0]['questions']) == {'addr_1', 'cov_1', 'addr_2', 'cov_2', 'addr_3', 'cov_3'}
+
+
+def test_secret_in_requirement_masked_in_questions(pp, monkeypatch):
+    sent = []
+    (pp['vault'] / 'research/x.md').write_text(RESEARCH.replace('Фильтр по дате', 'Доступ password=hunter2'))
+    monkeypatch.setattr(jev.urllib.request, 'urlopen', answers([0.99, 0.99, 0.99], sent))
+    run(pp)
+    assert 'hunter2' not in json.dumps(sent[0], ensure_ascii=False)
 
 
 def test_events_for_ok_and_skipped(pp, monkeypatch):

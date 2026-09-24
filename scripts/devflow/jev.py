@@ -60,7 +60,7 @@ def flag(noul: float, threshold: float) -> bool:
 
 def questions(criteria: list[str]) -> list[dict]:
     out = []
-    for n, c in enumerate(criteria):
+    for n, c in enumerate(map(mask, criteria)):
         out.append({'key': f'ev_{n}', 'type': 'noul', 'instructions': EVIDENCE.format(c=c)})
         out.append({'key': f'st_{n}', 'type': 'choice', 'instructions': STATUS.format(c=c), 'criteria': CLASSES})
     return out
@@ -68,7 +68,7 @@ def questions(criteria: list[str]) -> list[dict]:
 
 def plan_questions(reqs: list[str]) -> list[dict]:
     out = []
-    for n, r in enumerate(reqs, 1):
+    for n, r in enumerate(map(mask, reqs), 1):
         out.append({'key': f'addr_{n}', 'type': 'noul', 'instructions': ADDR.format(r=r)})
         out.append({'key': f'cov_{n}', 'type': 'choice', 'instructions': COVER.format(r=r), 'criteria': PLAN_CLASSES})
     return out
