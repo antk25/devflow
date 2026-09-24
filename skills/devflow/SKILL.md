@@ -12,8 +12,8 @@ arguments:
 
 Interactive orchestrator. Spawns the `research` / `plan` / `implement` phase agents (each with its
 session model via `model: inherit`, effort low), shows you each artifact, and **waits for your
-explicit approval at each gate** before the next phase. You control git throughout — the driver
-never branches or commits, and neither does `implement`.
+explicit approval at each gate** before the next phase. Git follows the global rule:
+the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's; `implement` commits each step.
 
 Keep this thin: the driver only routes, shows artifacts, holds gates, and relays answers. **All
 phase logic lives in the agent bodies** — don't re-implement a phase here.
@@ -104,6 +104,6 @@ Plans without step statuses or with ambiguous history require manual reconciliat
 ## Rules
 - Explicit research/plan gates, including across sessions. No automatic approvals or state resets.
 - Only the CLI changes execution state. Markdown contains definitions, not completion flags.
-- Git is manual: no auto-branch, commit, pull, push or PR, for driver or phase agents.
+- Git: the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's.
 - One task at a time. A blocked step is not permission to skip to another one.
 - No direct SQL, no replacement state files, no independent routing algorithm in the prompt.

@@ -63,5 +63,5 @@ the user's messages. Use `--by phase` to see how much work bypasses the pipeline
 
 ## Notes
 - Skills are model-agnostic markdown — readable by Codex/Cursor/Aider in principle, though only Claude Code currently invokes them as `/<name>`.
-- The user controls git: no auto-branches, no auto-commits.
+- Git (global rule): the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's.
 - Tests, planning docs, and review documents are not auto-generated — only the workflow artifacts above (research / plan / changelog).
