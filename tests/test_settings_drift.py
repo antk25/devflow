@@ -42,11 +42,22 @@ def test_hook_matched_by_script_name_with_real_root(tmp_path):
 def test_stale_gh_deny_reported(tmp_path):
     actual = tmp_path / 'settings.json'
     data = json.loads(EXAMPLE.read_text())
-    data['permissions']['deny'] += ['Bash(gh:*)', 'Bash(curl:*)']
+    data['permissions']['deny'] += ['Bash(gh:*)', 'Bash(nc:*)']
     actual.write_text(json.dumps(data))
     drift = settings_drift(actual, EXAMPLE)
     assert drift['extra_deny'] == ['Bash(gh:*)']
     assert drift['deny'] == []
+
+
+def test_missing_lcurl_curl_wget_reported(tmp_path):
+    actual = tmp_path / 'settings.json'
+    data = json.loads(EXAMPLE.read_text())
+    data['permissions']['allow'].remove('Bash(lcurl:*)')
+    data['permissions']['deny'] = [r for r in data['permissions']['deny'] if r not in ('Bash(curl:*)', 'Bash(wget:*)')]
+    actual.write_text(json.dumps(data))
+    drift = settings_drift(actual, EXAMPLE)
+    assert drift['allow'] == ['Bash(lcurl:*)']
+    assert drift['deny'] == ['Bash(curl:*)', 'Bash(wget:*)']
 
 
 def _with_guard(tmp_path, command):
