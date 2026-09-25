@@ -42,8 +42,11 @@ def _json_default(v):
 
 
 class App:
-    def __init__(self, rules, state=ts.STATE_DIR, fetch=ts.fetch_worklogs, compute=None, run=subprocess.run):
+    def __init__(self, rules, state=ts.STATE_DIR, fetch=ts.fetch_worklogs, compute=None, run=subprocess.run,
+                 candidates=None):
         self.rules, self.state, self.fetch, self.run = rules, state, fetch, run
+        self.candidates = candidates or (ts.week_candidates if fetch is ts.fetch_worklogs else lambda rules, logs: {})
+        self.cands = {}
         self.write_lock = threading.Lock()
         self.compute = compute or (lambda rules, logs, week: ts.draft(
             rules, logs, ts.load_activity(rules, week), ts.load_manual(week, state), week))
@@ -53,6 +56,7 @@ class App:
         with self.lock:
             if fresh or week not in self.cache:
                 self.cache[week] = self.fetch(self.rules, week)
+                self.cands.pop(week, None)
                 ts.remember_comments(self.cache[week], self.state)
             return self.cache[week]
 
@@ -61,6 +65,13 @@ class App:
         start, end = ts.week_range(week)
         path = self.state / f'draft-{week}.json'
         draft = json.loads(path.read_text()) if path.exists() else None
+        if {'client', 'employer'} <= set(self.rules.sheets):
+            with self.lock:
+                if week not in self.cands:
+                    self.cands[week] = self.candidates(self.rules, logs)
+            diff = ts.discrepancies(self.rules, logs, self.cands[week], week)
+        else:
+            diff = []
         sheets = {}
         for name, s in ts.summary(self.rules, logs, week).items():
             data = {k: v for k, v in s.items() if k != 'days'}
@@ -70,7 +81,8 @@ class App:
             sheets[name] = data
         return {'week': week, 'start': start, 'end': end, 'current': ts.current_week(),
                 'sheets': sheets, 'draft': draft, 'manual': ts.load_manual(week, self.state),
-                'hints': ts.comment_hints(self.state), 'pending': self._pending(week, logs)}
+                'hints': ts.comment_hints(self.state), 'pending': self._pending(week, logs),
+                'discrepancies': diff}
 
     def _pending(self, week: str, logs: dict) -> dict:
         out = {name: {'count': 0, 'seconds': 0, 'skipped': 0, 'days': {}} for name in self.rules.sheets}

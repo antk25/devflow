@@ -258,6 +258,17 @@ function SheetPanel({ m, sel, today, dim, pend, canSend, onOpen, onAdd, onSend }
   </section>`;
 }
 
+function Discrepancies({ items }) {
+  if (!items?.length) return '';
+  const line = x => x.kind === 'missing'
+    ? html`<li title=${x.pair ? `пара ${x.pair} есть, но в этой неделе на неё не списано` : 'пары в другом табеле не нашлось'}>
+        <b class="mono">${x.key}</b> ${hu(x.seconds)} — нет в ${x.sheet}${x.pair ? ` (пара ${x.pair})` : ' (пары нет)'}</li>`
+    : html`<li title="green в employer должен равняться green в client минус CAP и COM за тот же день">
+        ${shortDay(x.day)}: green в employer ${hu(x.employer)} ≠ client ${hu(x.client)} − прочее ${hu(x.other)}, разница ${x.diff < 0 ? '−' : '+'}${hu(Math.abs(x.diff))}</li>`;
+  return html`<div class="note warn"><p><b>Расхождения между табелями.</b></p>
+    <ul style="margin:0;padding-left:1.2rem;flex-basis:100%">${items.map(line)}</ul></div>`;
+}
+
 function Skeleton() {
   return [0, 1].map(k => html`<section class="sheet" key=${k} aria-hidden="true">
     <div class="sh"><div class="sk" style="width:9rem;height:1.3rem"></div><div class="sk" style="width:16rem;height:1.3rem;margin-left:auto"></div></div>
@@ -773,6 +784,7 @@ function App() {
           <button class="btn" onClick=${recompute} disabled=${busy}>↻ Пересчитать</button></div>` : ''}
         ${data && !loading && pp.skipped ? html`<div class="note warn"><p>
           ${pp.skipped} ${plural(pp.skipped, ['строка', 'строки', 'строк'])} черновика не ${pp.skipped === 1 ? 'уйдёт' : 'уйдут'} в Jira — ${pp.skipped === 1 ? 'на ней метка' : 'на них метки'} вроде «нет зеркала». Откройте ячейку с жёлтой точкой: впишите ключ, поправьте часы или подтвердите строку как есть.</p></div>` : ''}
+        ${data && !loading ? html`<${Discrepancies} items=${data.discrepancies} />` : ''}
         ${!data || (loading && data.week !== week) ? html`<${Skeleton} />`
           : names.map(n => html`<${SheetPanel} key=${n} m=${model[n]} sel=${sel} today=${today} dim=${!!started}
               pend=${data.pending?.[n]?.days} canSend=${!busy && !loading} onOpen=${open} onAdd=${add}

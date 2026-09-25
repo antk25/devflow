@@ -50,3 +50,29 @@ def test_worklog_error_body_makes_sheet_unavailable_not_empty():
     logs = fetch_worklogs(RULES, WEEK, call)
     assert isinstance(logs['client'], Unavailable)
     assert 'permission' in logs['client'].reason
+
+
+def test_w38_discrepancies_issue_without_pair_and_day_mismatch():
+    from devflow.timesheet import discrepancies, render_discrepancies
+    tue = date(2026, 9, 15)
+    logs = {'client': [Worklog('client', 'SE-2158', MON, 6 * 3600), Worklog('client', 'SE-2141', MON, 2 * 3600),
+                       Worklog('client', 'SE-2158', tue, 8 * 3600)],
+            'employer': [Worklog('employer', 'GS-1243', MON, 7 * 3600), Worklog('employer', 'COM-1', MON, 3600),
+                         Worklog('employer', 'GS-1243', tue, 7 * 3600), Worklog('employer', 'COM-1', tue, 3600),
+                         Worklog('employer', 'GS-1300', tue, 900)]}
+    cands = {'GS': [('GS-1243', 'SE-2158 Поиск'), ('GS-1300', 'SE-2199 Другое')]}
+    out = discrepancies(RULES, logs, cands, WEEK)
+    missing = [x for x in out if x['kind'] == 'missing']
+    assert {(x['key'], x['sheet'], x['pair']) for x in missing} == {('SE-2141', 'employer', ''),
+                                                                 ('GS-1300', 'client', 'SE-2199')}
+    days = {x['day']: x['diff'] for x in out if x['kind'] == 'day'}
+    assert days == {tue: 900}
+    assert 'SE-2141' in render_discrepancies(out)
+
+
+def test_no_discrepancies_when_sheets_agree():
+    from devflow.timesheet import discrepancies, render_discrepancies
+    logs = {'client': [Worklog('client', 'SE-2045', MON, 8 * 3600)],
+            'employer': [Worklog('employer', 'GS-1214', MON, 6 * 3600), Worklog('employer', 'CAP-1', MON, 7200)]}
+    assert discrepancies(RULES, logs, {'GS': []}, WEEK) == []
+    assert render_discrepancies([]) == 'Расхождений между табелями нет'

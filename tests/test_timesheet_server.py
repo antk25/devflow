@@ -417,3 +417,24 @@ def test_apply_with_bad_selection_is_rejected_before_jira(writable, body):
     plan = call(server, f'/api/week/{WEEK}/plan')
     assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash'], **body}) == 400
     assert jira.calls == [] and not (state / 'sent.jsonl').exists()
+
+
+def test_week_payload_carries_discrepancies_and_caches_candidates(tmp_path):
+    two = Rules({'client': Sheet('client', 'se', 'me', 8, 40), 'employer': Sheet('employer', 'gs', 'me', 8, 40)},
+                [ProjectRule('green', 'client', 'per-issue', 'SE'),
+                 ProjectRule('green', 'employer', 'per-issue', 'GS', mirror_prefix='SE')])
+    asked = []
+
+    def fetch(rules, week):
+        return {'client': [Worklog('client', 'SE-1', MON, 3600)], 'employer': []}
+
+    def cands(rules, logs):
+        asked.append(1)
+        return {'GS': [('GS-5', 'SE-1 задача')]}
+
+    app = App(two, tmp_path, fetch, lambda *a: [], candidates=cands)
+    data = app.week(WEEK)
+    app.week(WEEK)
+    kinds = {(x['kind'], x.get('key')) for x in data['discrepancies']}
+    assert ('missing', 'SE-1') in kinds and ('day', None) in kinds
+    assert asked == [1]

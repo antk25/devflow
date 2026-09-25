@@ -265,6 +265,65 @@ def summary(rules: Rules, worklogs: dict, week: str) -> dict:
     return out
 
 
+def discrepancies(rules: Rules, worklogs: dict, candidates: dict, week: str,
+                  client: str = 'client', sheet: str = 'employer') -> list:
+    c_logs, e_logs = worklogs.get(client), worklogs.get(sheet)
+    if not isinstance(c_logs, list) or not isinstance(e_logs, list):
+        return []
+    client_projects = {r.project for r in rules.projects if r.sheet == client}
+    c_keys, e_keys = defaultdict(int), defaultdict(int)
+    for w in c_logs:
+        if rules.project_of(client, w.key):
+            c_keys[w.key] += w.seconds
+    for w in e_logs:
+        if rules.project_of(sheet, w.key) in client_projects:
+            e_keys[w.key] += w.seconds
+    out, paired = [], set()
+    for src, sec in sorted(c_keys.items()):
+        rule = _mirror_rule(rules, sheet, src)
+        if rule is None:
+            continue
+        found, _ = find_mirror(src, rule, candidates.get(rule.jira_project))
+        paired.add(found)
+        if not e_keys.get(found):
+            out.append({'kind': 'missing', 'sheet': sheet, 'key': src, 'pair': found, 'seconds': sec})
+    for key, sec in sorted(e_keys.items()):
+        if key in paired:
+            continue
+        rule = next(r for r in rules.projects if r.sheet == sheet and r.owns(key))
+        src = next((s for s, m in rule.mirrors.items() if m == key), '')
+        if not src:
+            head = re.match(rf'\s*({re.escape(rule.mirror_prefix)}-\d+)(?!\d)',
+                            dict(candidates.get(rule.jira_project) or []).get(key, ''), re.I)
+            src = head.group(1).upper() if head else ''
+        out.append({'kind': 'missing', 'sheet': client, 'key': key, 'pair': src, 'seconds': sec})
+    start, _ = week_range(week)
+    for day in (start + timedelta(days=i) for i in range(7)):
+        green_c = sum(w.seconds for w in c_logs if w.day == day and w.key in c_keys)
+        green_e = sum(w.seconds for w in e_logs if w.day == day and w.key in e_keys)
+        other = sum(w.seconds for w in e_logs if w.day == day and w.key not in e_keys
+                    and rules.project_of(sheet, w.key))
+        if green_e != green_c - other:
+            out.append({'kind': 'day', 'day': day, 'client': green_c, 'other': other, 'employer': green_e,
+                        'diff': green_e - (green_c - other)})
+    return out
+
+
+def render_discrepancies(items: list) -> str:
+    if not items:
+        return 'Расхождений между табелями нет'
+    lines = ['Расхождения между табелями:']
+    for x in items:
+        if x['kind'] == 'missing':
+            pair = f' (пара {x["pair"]})' if x['pair'] else ' (пары нет)'
+            lines.append(f'  {x["key"]:<10} {hours(x["seconds"]):>5} ч — нет в {x["sheet"]}{pair}')
+        else:
+            d = x['day']
+            lines.append(f'  {WEEKDAYS[d.weekday()]} {d:%d.%m}  green employer {hours(x["employer"])} ≠ '
+                         f'client {hours(x["client"])} − прочее {hours(x["other"])}, разница {hours(x["diff"])}')
+    return '\n'.join(lines)
+
+
 def hours(seconds: float) -> str:
     return f'{seconds / 3600:.1f}'.replace('.', ',')
 
@@ -579,6 +638,11 @@ def draft_employer(rules: Rules, worklogs: dict, act: dict, manual: list, client
             if need > 0:
                 out.append(DraftLine(sheet, day, key, need, flags=list(flags), mirror_of=src))
     return out
+
+
+def week_candidates(rules: Rules, worklogs: dict, call=jira) -> dict:
+    prefixes = {w.key.split('-')[0].upper() for logs in worklogs.values() if isinstance(logs, list) for w in logs}
+    return fetch_candidates(rules, 'employer', prefixes, call)
 
 
 def draft(rules: Rules, worklogs: dict, act: dict, manual: list, week: str, call=jira) -> list:
@@ -920,6 +984,8 @@ def main(argv=None) -> int:
     worklogs = fetch_worklogs(rules, week)
     if args.cmd == 'summary':
         print(render(summary(rules, worklogs, week), week))
+        if {'client', 'employer'} <= set(rules.sheets):
+            print('\n' + render_discrepancies(discrepancies(rules, worklogs, week_candidates(rules, worklogs), week)))
         return 0
     lines = draft(rules, worklogs, load_activity(rules, week), load_manual(week), week)
     path = save_draft(week, lines)
