@@ -8,7 +8,7 @@ import pytest
 
 from devflow.timesheet import (DraftLine, ProjectRule, Rules, Sheet, Worklog, comment_hints, remember_comments,
                                save_draft, save_manual)
-from devflow.timesheet_server import App, make_server
+from devflow.timesheet_server import App, make_server, merge_edits
 
 WEEK = '2026-W38'
 MON = date(2026, 9, 14)
@@ -204,6 +204,17 @@ def test_manual_entry_added_during_recompute_stays_in_draft(served):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_edited_line_of_same_issue_does_not_swallow_manual_entry():
+    edited = {'sheet': 'employer', 'day': MON.isoformat(), 'key': 'COM-1', 'seconds': 2400, 'comment': 'AI developer',
+              'source': 'activity', 'flags': [], 'sent_id': '176666', 'mirror_of': '', 'edited': True}
+    old_manual = {**edited, 'seconds': 900, 'comment': 'старая', 'source': 'manual', 'sent_id': ''}
+    fresh = [DraftLine('employer', MON, 'COM-1', 2100, 'Комитет по AI', 'manual'),
+             DraftLine('employer', MON, 'COM-1', 600)]
+    merged = merge_edits(fresh, {'lines': [edited, old_manual]})
+    assert sorted((ln.key, ln.seconds, ln.source) for ln in merged) == [('COM-1', 2100, 'manual'),
+                                                                      ('COM-1', 2400, 'activity')]
 
 
 @pytest.mark.parametrize('body', [{'seconds': -1}, {'key': 'нет'}, {'day': '2026-09-30'}, {'sheet': 'x'}])

@@ -369,11 +369,12 @@ def sync_manual(lines: list, manual: list) -> list:
 def merge_edits(lines: list, old: dict | None) -> list:
     if not old:
         return lines
-    kept = [ts.DraftLine(**{**r, 'day': date.fromisoformat(r['day'])}) for r in old['lines'] if r.get('edited')]
+    kept = [ts.DraftLine(**{**r, 'day': date.fromisoformat(r['day'])}) for r in old['lines']
+            if r.get('edited') and r.get('source') != 'manual']
     drop = {(r['sheet'], r['day'], r['key']) for r in old.get('removed', [])}
     drop |= {(k.sheet, k.day.isoformat(), k.key) for k in kept}
     busy = {(k.sheet, k.day) for k in kept}
-    fresh = [ln for ln in lines if (ln.sheet, ln.day.isoformat(), ln.key) not in drop
+    fresh = [ln for ln in lines if ln.source == 'manual' or (ln.sheet, ln.day.isoformat(), ln.key) not in drop
              and not ('empty-day' in ln.flags and (ln.sheet, ln.day) in busy)]
     return sorted(fresh + kept, key=lambda ln: (ln.day, ln.sheet))
 
