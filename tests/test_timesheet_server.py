@@ -118,6 +118,32 @@ def test_explicit_key_clears_mirror_flags_and_hours_clear_overflow(served):
     assert second['flags'] == ['no-mirror']
 
 
+def test_manual_edit_replaces_entry_and_its_draft_line_in_one_step(served):
+    server, _, state = served
+    tue = '2026-09-15'
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-9', 900), DraftLine('client', date(2026, 9, 15), '', 0, flags=['empty-day'])],
+               state)
+    call(server, f'/api/week/{WEEK}/manual', 'POST',
+         {'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-5', 'seconds': 3600, 'comment': 'созвон'})
+    data = call(server, f'/api/week/{WEEK}/manual/0', 'PUT', {'seconds': 5400, 'comment': 'встреча', 'day': tue})
+    assert data['manual'] == [{'sheet': 'client', 'day': tue, 'key': 'SE-5', 'seconds': 5400, 'comment': 'встреча'}]
+    lines = [(ln['day'], ln['key'], ln['seconds'], ln['comment'], ln['source']) for ln in data['draft']['lines']]
+    assert lines == [(MON.isoformat(), 'SE-9', 900, '', 'activity'), (tue, 'SE-5', 5400, 'встреча', 'manual')]
+    assert status(server, f'/api/week/{WEEK}/manual/3', 'PUT', {'seconds': 60}) == 400
+    assert status(server, f'/api/week/{WEEK}/manual/0', 'PUT', {'seconds': 0}) == 400
+    assert call(server, f'/api/week/{WEEK}')['manual'][0]['seconds'] == 5400
+
+
+def test_week_counts_what_apply_would_send_per_sheet(served):
+    server, _, state = served
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-1', 3600, 'ревью'), DraftLine('client', MON, 'SE-2', 1800),
+                      DraftLine('client', MON, 'SE-3', 900, flags=['no-mirror']), DraftLine('client', MON, 'SE-4', 600),
+                      DraftLine('client', date(2026, 9, 15), '', 0, flags=['empty-day'])], state)
+    (state / 'sent.jsonl').write_text(json.dumps({'sheet': 'client', 'key': 'SE-4', 'day': MON.isoformat(),
+                                                  'seconds': 600, 'comment': ''}) + '\n')
+    assert call(server, f'/api/week/{WEEK}')['pending'] == {'client': {'count': 1, 'seconds': 1800, 'skipped': 1}}
+
+
 def test_line_edit_and_manual_entry_survive_restart(served):
     server, calls, state = served
     save_draft(WEEK, [DraftLine('client', MON, 'SE-9', 900), DraftLine('client', MON, 'SE-8', 900)], state)

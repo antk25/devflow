@@ -65,6 +65,11 @@ button,input,select{font:inherit;color:inherit}
 .grow{flex:1}
 .stamp{font-size:.82rem;color:var(--ink-3)}
 .actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.prefs{display:flex;gap:.4rem}
+.seg{display:inline-flex;border:1px solid var(--rule-strong);border-radius:var(--r);overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--ink-3);font-size:.78rem;padding:.2rem .5rem;cursor:pointer;min-height:1.9rem}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button.on{background:var(--surface-2);color:var(--ink);font-weight:600}
 .actions .btn.primary{min-width:17rem}
 .narrow{display:none}
 .progress{height:2px;background:transparent;overflow:hidden}
@@ -192,14 +197,21 @@ button.c.sel{outline:2px solid var(--ink);outline-offset:1px}
 .card.mn{border-left:3px dashed var(--manual)}
 .card.log{border-left:3px solid var(--ink-3)}
 .card .tags{margin:0 0 .45rem}
-.fields{display:grid;grid-template-columns:5.2rem 1fr;gap:.45rem}
-.fields.k3{grid-template-columns:7rem 5.2rem 1fr}
-.fields .full{grid-column:1/-1}
-label.f{display:flex;flex-direction:column;gap:.15rem;font-size:.75rem;color:var(--ink-3);min-width:0}
+label.f,div.f{display:flex;flex-direction:column;gap:.15rem;font-size:.75rem;color:var(--ink-3);min-width:0;margin-bottom:.45rem}
+.tp{margin-bottom:.45rem}
+.tp-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem}
+.tp-val{font-weight:600;font-size:1rem;font-variant-numeric:tabular-nums}
+.tp-val.none{font-weight:400;font-size:.85rem;color:var(--ink-3)}
+.tp-row{display:grid;grid-template-columns:1.1rem repeat(11,1fr);gap:.2rem;align-items:center;margin-bottom:.2rem}
+.tp-row.m{grid-template-columns:1.1rem repeat(12,1fr)}
+.tp-l{font-size:.72rem;color:var(--ink-3)}
+.tp-row button{height:1.9rem;min-width:0;padding:0;border-radius:var(--r);border:1px solid var(--rule);background:var(--surface);cursor:pointer;font-size:.8rem;font-family:var(--mono);color:var(--ink-2)}
+.tp-row button:hover:not(:disabled){border-color:var(--ink-3);color:var(--ink)}
+.tp-row button.on{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.tp-row button:disabled{opacity:.5;cursor:default}
 .in{height:2.1rem;padding:0 .5rem;border:1px solid var(--rule-strong);border-radius:var(--r);background:var(--paper);width:100%;min-width:0;color:var(--ink);font-size:.92rem}
 .in:focus{border-color:var(--focus);outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--focus) 25%,transparent)}
-.in.h,.in.k{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.in.h{text-align:right}
+.in.k{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .in.err{border-color:var(--bad)}
 .in::placeholder{color:var(--ink-3);opacity:.7}
 .chips{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
@@ -212,7 +224,7 @@ label.f{display:flex;flex-direction:column;gap:.15rem;font-size:.75rem;color:var
 .ferr{font-size:.78rem;color:var(--bad);margin-top:.3rem}
 .confirm{margin-top:.55rem;padding:.55rem .6rem;border-radius:var(--r);background:var(--bad-soft);font-size:.85rem}
 .confirm.chg{background:var(--warn-soft)}
-.daypick{display:flex;gap:.25rem;flex-wrap:wrap}
+.daypick{display:flex;gap:.25rem;flex-wrap:wrap;margin-bottom:.45rem}
 .daypick button{height:2rem;min-width:2.6rem;border-radius:var(--r);border:1px solid var(--rule-strong);background:var(--surface);cursor:pointer;font-size:.82rem}
 .daypick button.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .kbd{font-size:.75rem;color:var(--ink-3);padding:.4rem 1rem 1rem;margin-top:auto}

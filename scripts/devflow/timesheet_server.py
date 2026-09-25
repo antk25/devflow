@@ -15,6 +15,7 @@ SKILL_DIR = Path(__file__).resolve().parents[2] / 'skills'
 INDEX = SKILL_DIR / 'timesheet' / 'index.html'
 TOKENS = SKILL_DIR / 'page' / 'references' / 'tokens.css'
 STATIC = {'/app.mjs': INDEX.parent / 'app.mjs', '/vendor/preact-htm.mjs': INDEX.parent / 'vendor' / 'preact-htm.mjs'}
+MANUAL_FIELDS = ('sheet', 'day', 'key', 'seconds', 'comment')
 MIRROR_FLAGS = ('no-mirror', 'ambiguous-mirror', 'create-mirror', 'mirror-unavailable')
 ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual|plan|apply|sent)(?:/(\d+))?)?$', re.I)
 KEY = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
@@ -67,7 +68,22 @@ class App:
             sheets[name] = data
         return {'week': week, 'start': start, 'end': end, 'current': ts.current_week(),
                 'sheets': sheets, 'draft': draft, 'manual': ts.load_manual(week, self.state),
-                'hints': ts.comment_hints(self.state)}
+                'hints': ts.comment_hints(self.state), 'pending': self._pending(week, logs)}
+
+    def _pending(self, week: str, logs: dict) -> dict:
+        out = {name: {'count': 0, 'seconds': 0, 'skipped': 0} for name in self.rules.sheets}
+        try:
+            lines = ts.load_draft(week, self.state)
+        except FileNotFoundError:
+            return out
+        actions, skipped = ts.plan_apply(lines, ts.load_sent(self.state), logs)
+        for x in actions:
+            out[x.sheet]['count'] += 1
+            out[x.sheet]['seconds'] += x.seconds
+        for x, _ in skipped:
+            if 'empty-day' not in x.flags:
+                out[x.sheet]['skipped'] += 1
+        return out
 
     def recompute(self, week: str) -> dict:
         logs = self._worklogs(week, fresh=True)
@@ -139,17 +155,35 @@ class App:
         entry = self._entry(week, body)
         with self.lock:
             items = ts.load_manual(week, self.state)
-            items.append({k: entry[k] for k in ('sheet', 'day', 'key', 'seconds', 'comment')})
+            items.append({k: entry[k] for k in MANUAL_FIELDS})
             ts.save_manual(week, items, self.state)
             doc = self._read(week)
             if doc is not None:
-                doc['lines'] = [ln for ln in doc['lines'] if not (
-                    ln['sheet'] == entry['sheet'] and ln['day'] == entry['day'] and 'empty-day' in ln.get('flags', []))]
-                doc['lines'].append({**asdict(ts.DraftLine(entry['sheet'], date.fromisoformat(entry['day']),
-                                     entry['key'], entry['seconds'], entry['comment'], 'manual')), 'day': entry['day']})
-                doc['lines'].sort(key=lambda ln: (ln['day'], ln['sheet']))
+                self._put_manual_line(doc, entry, None)
                 self._write(week, doc)
         return self.week(week)
+
+    def edit_manual(self, week: str, i: int, body: dict) -> dict:
+        with self.lock:
+            items = ts.load_manual(week, self.state)
+            if not 0 <= i < len(items):
+                raise BadRequest(f'нет ручной записи #{i}')
+            old = items[i]
+            entry = self._entry(week, body, old)
+            items[i] = {k: entry[k] for k in MANUAL_FIELDS}
+            ts.save_manual(week, items, self.state)
+            doc = self._read(week)
+            if doc is not None:
+                self._put_manual_line(doc, entry, _manual_line(doc, old))
+                self._write(week, doc)
+        return self.week(week)
+
+    def _put_manual_line(self, doc: dict, entry: dict, j: int | None) -> None:
+        doc['lines'] = [ln for n, ln in enumerate(doc['lines']) if n != j and not (
+            ln['sheet'] == entry['sheet'] and ln['day'] == entry['day'] and 'empty-day' in ln.get('flags', []))]
+        doc['lines'].append({**asdict(ts.DraftLine(entry['sheet'], date.fromisoformat(entry['day']),
+                             entry['key'], entry['seconds'], entry['comment'], 'manual')), 'day': entry['day']})
+        doc['lines'].sort(key=lambda ln: (ln['day'], ln['sheet']))
 
     def remove_manual(self, week: str, i: int) -> dict:
         with self.lock:
@@ -160,9 +194,7 @@ class App:
             ts.save_manual(week, items, self.state)
             doc = self._read(week)
             if doc is not None:
-                j = next((j for j, ln in enumerate(doc['lines']) if ln.get('source') == 'manual' and not ln.get('sent_id')
-                          and (ln['sheet'], ln['day'], ln['key'], ln['seconds']) ==
-                          (m['sheet'], m['day'], m['key'], m['seconds'])), None)
+                j = _manual_line(doc, m)
                 if j is not None:
                     doc['lines'].pop(j)
                     self._write(week, doc)
@@ -246,6 +278,12 @@ class App:
         return html.encode()
 
 
+def _manual_line(doc: dict, m: dict) -> int | None:
+    return next((j for j, ln in enumerate(doc['lines']) if ln.get('source') == 'manual' and not ln.get('sent_id')
+                 and (ln['sheet'], ln['day'], ln['key'], ln['seconds']) ==
+                 (m['sheet'], m['day'], m['key'], m['seconds'])), None)
+
+
 def merge_edits(lines: list, old: dict | None) -> list:
     if not old:
         return lines
@@ -296,6 +334,7 @@ def make_handler(app: App):
                 ('PUT', 'draft', True): lambda w: app.edit_line(w, int(idx), self._body()),
                 ('DELETE', 'draft', True): lambda w: app.edit_line(w, int(idx), None),
                 ('POST', 'manual', False): lambda w: app.add_manual(w, self._body()),
+                ('PUT', 'manual', True): lambda w: app.edit_manual(w, int(idx), self._body()),
                 ('DELETE', 'manual', True): lambda w: app.remove_manual(w, int(idx)),
                 ('GET', 'plan', False): lambda w: app.plan(w),
                 ('POST', 'apply', False): lambda w: app.apply(w, self._body()),
