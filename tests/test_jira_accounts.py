@@ -31,6 +31,7 @@ def env(tmp_path):
         "#!/usr/bin/env bash\n"
         f'{{ printf "ARGV:%s\\n" "$@"; printf "STDIN:"; cat; }} >> "{log}"\n'
         'code="${FAKE_CODE:-200}"\n'
+        'case "$*" in *"${FAKE_FAIL_HOST:-@none@}"*) code=401;; esac\n'
         'for a in "$@"; do case "$a" in *http_code*) printf \'{"displayName":"Tester","key":"X-1"}\\n%s\' "$code"; exit 0;; esac; done\n'
         'printf \'{"key":"X-1"}\'\n'
     )
@@ -184,3 +185,26 @@ def test_create_resolves_project(env, tmp_path):
     assert dry.returncode == 0, dry.stderr
     assert "аккаунт productsearch" in dry.stderr and "DRY RUN" in dry.stderr
     assert TOKEN_B not in dry.stdout + dry.stderr
+
+
+def test_digest_no_access_per_account(env):
+    result = env.run(INTEGRATIONS / "jira-digest.sh", "--peek", extra_env={"FAKE_FAIL_HOST": "r.example"})
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    resolventa = out.split("═══ resolventa ═══")[1].split("═══")[0]
+    assert "нет доступа (HTTP 401)" in resolventa
+    assert "═══ productsearch ═══" in out.split("═══ resolventa ═══")[1]
+    assert "ARGV:https://p.example/rest/api/3/search/jql" in _argv(env)
+    assert TOKEN_A not in out + result.stderr and TOKEN_B not in out + result.stderr
+    assert not (env.cfg.parent / "jira-seen.json").exists()
+
+
+def test_third_account_in_digest_and_check(env):
+    env.cfg.write_text(ACCOUNTS.replace('"resolventa productsearch"', '"resolventa productsearch extra"')
+                       + "JIRA_EXTRA_BASE_URL=https://x.example\nJIRA_EXTRA_EMAIL=c@example.com\n"
+                         "JIRA_EXTRA_API_TOKEN=tok-c\nJIRA_EXTRA_PROJECTS=EX\n")
+    digest = env.run(INTEGRATIONS / "jira-digest.sh", "--peek")
+    assert digest.returncode == 0, digest.stderr
+    assert "═══ extra ═══" in digest.stdout
+    check = env.run(LIB, "check")
+    assert "https://x.example" in check.stdout
