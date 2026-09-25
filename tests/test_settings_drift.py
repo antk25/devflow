@@ -14,6 +14,7 @@ def test_missing_actual_reports_everything(tmp_path):
         'SessionStart ' + wanted['hooks']['SessionStart'][0]['hooks'][0]['command'],
     ]
     assert drift['allow'] == wanted['permissions']['allow']
+    assert drift['ask'] == wanted['permissions']['ask']
     assert drift['deny'] == wanted['permissions']['deny']
     assert drift['extra_deny'] == []
 
@@ -28,7 +29,7 @@ def test_empty_file_reports_everything(tmp_path):
 def test_copy_of_example_has_no_drift(tmp_path):
     actual = tmp_path / 'settings.json'
     shutil.copy(EXAMPLE, actual)
-    assert settings_drift(actual, EXAMPLE) == {'hooks': [], 'allow': [], 'deny': [], 'extra_deny': []}
+    assert settings_drift(actual, EXAMPLE) == {'hooks': [], 'allow': [], 'ask': [], 'deny': [], 'extra_deny': []}
 
 
 def test_hook_matched_by_script_name_with_real_root(tmp_path):
@@ -89,3 +90,12 @@ def test_working_guard_reports_nothing(tmp_path):
     actual = _with_guard(tmp_path, f'{ROOT}/scripts/devflow-cli.sh guard')
     assert settings_drift(actual, EXAMPLE)['hooks'] == []
     assert guard_probe(actual) == []
+
+
+def test_missing_worklog_ask_reported(tmp_path):
+    actual = tmp_path / 'settings.json'
+    data = json.loads(EXAMPLE.read_text())
+    rule = 'Bash(bash ~/.config/devflow/integrations/jira-worklog.sh * --yes*)'
+    data['permissions']['ask'].remove(rule)
+    actual.write_text(json.dumps(data))
+    assert settings_drift(actual, EXAMPLE)['ask'] == [rule]

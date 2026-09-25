@@ -42,7 +42,8 @@
       "Bash(lcurl:*)"
     ],
     "ask": [
-      "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)"
+      "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)",
+      "Bash(bash ~/.config/devflow/integrations/jira-worklog.sh * --yes*)"
     ],
     "deny": [
       "Bash(gh api:*)",
