@@ -190,7 +190,10 @@ def fetch_sheet(sheet: Sheet, start: date, end: date, call=jira) -> list:
         while True:
             query = f'startedAfter={_epoch_ms(lo)}&startedBefore={_epoch_ms(hi + timedelta(days=1))}&startAt={at}&maxResults=1000'
             page = call('jira-raw.sh', f'{key}/worklog', '.', query)[0]
-            logs = page.get('worklogs', [])
+            logs = page.get('worklogs') if isinstance(page, dict) else None
+            if not isinstance(logs, list):
+                why = '; '.join(page.get('errorMessages') or []) if isinstance(page, dict) else ''
+                raise JiraError(f'{key}/worklog: в ответе нет worklogs' + (f' ({why})' if why else ''))
             for w in logs:
                 day = msk_day(w['started'])
                 author = (w.get('author') or {}).get('accountId', '')
@@ -347,13 +350,20 @@ def round_quarters(parts: dict, total: int) -> dict:
 
 
 def _manual_lines(manual: list, sheet: str, day: date, logged: list) -> list:
+    mine = [m for m in manual if m['sheet'] == sheet and date.fromisoformat(str(m['day'])) == day]
+    claimed = {m.get('sent_id') for m in mine} & {w.id for w in logged if w.id}
+    free = [w for w in logged if w.id not in claimed]
     lines = []
-    for m in manual:
-        if m['sheet'] != sheet or date.fromisoformat(str(m['day'])) != day:
-            continue
-        sent = next((w for w in logged if w.key == m['key'] and w.seconds == int(m['seconds'])), None)
+    for m in mine:
+        sent_id = m['sent_id'] if m.get('sent_id') in claimed else ''
+        if not sent_id:
+            sig = (m['key'], int(m['seconds']), (m.get('comment') or '').strip())
+            w = next((w for w in free if (w.key, w.seconds, w.comment.strip()) == sig), None)
+            if w:
+                free.remove(w)
+                sent_id = w.id
         lines.append(DraftLine(sheet, day, m['key'], int(m['seconds']), m.get('comment', ''), 'manual',
-                               sent_id=sent.id if sent else ''))
+                               sent_id=sent_id))
     return lines
 
 
@@ -631,12 +641,16 @@ def _sig(sheet, key, day, seconds, comment) -> tuple:
 def plan_apply(lines: list, sent: list, live: dict, sheets=None) -> tuple:
     """(действия, пропуски с причиной); совпадение с журналом или живым ворклогом съедается один раз."""
     pool = defaultdict(int)
+    journaled = set()
     for r in sent:
         pool[_sig(r['sheet'], r['key'], r['day'], r['seconds'], r.get('comment', ''))] += 1
+        if r.get('worklog_id'):
+            journaled.add((r['sheet'], r['key'].upper(), r['worklog_id']))
     for sheet, logs in live.items():
         if isinstance(logs, list):
             for w in logs:
-                pool[_sig(sheet, w.key, w.day, w.seconds, w.comment)] += 1
+                if (sheet, w.key.upper(), w.id) not in journaled:
+                    pool[_sig(sheet, w.key, w.day, w.seconds, w.comment)] += 1
     actions, skipped = [], []
     for line in lines:
         if sheets and line.sheet not in sheets:
@@ -687,6 +701,27 @@ def apply(actions: list, yes: bool, week: str, state: Path = STATE_DIR, run=subp
     return results
 
 
+def mark_sent(week: str, results: list, state: Path = STATE_DIR) -> None:
+    """Ставит sent_id строке черновика и ручной записи: после правки ворклога в Jira их подпись уже не совпадёт."""
+    done = [(line, wid) for line, wid, err in results if wid and not err]
+    if not done:
+        return
+    path = state / f'draft-{week}.json'
+    doc = json.loads(path.read_text()) if path.exists() else {'lines': []}
+    manual = load_manual(week, state)
+    for line, wid in done:
+        sig = _sig(line.sheet, line.key, line.day, line.seconds, line.comment)
+        for rows in (doc['lines'], manual if line.source == 'manual' else []):
+            hit = next((r for r in rows if not r.get('sent_id') and r.get('key')
+                        and _sig(r['sheet'], r['key'], r['day'], r['seconds'], r.get('comment', '')) == sig), None)
+            if hit:
+                hit['sent_id'] = wid
+    if path.exists():
+        path.write_text(json.dumps(doc, ensure_ascii=False, indent=1))
+    if any(m.get('sent_id') for m in manual):
+        save_manual(week, manual, state)
+
+
 def _q(seconds: int) -> str:
     return f'{seconds / 3600:5.2f}'.replace('.', ',')
 
@@ -726,8 +761,10 @@ def run_apply(rules: Rules, week: str, sheets, yes: bool) -> int:
         return 2
     actions, skipped = plan_apply(lines, load_sent(), fetch_worklogs(rules, week), sheets)
     print(render_apply(actions, skipped, week, yes))
+    results = apply(actions, yes, week)
+    mark_sent(week, results)
     failed = 0
-    for line, wid, err in apply(actions, yes, week):
+    for line, wid, err in results:
         failed += bool(err)
         print(f'  {line.sheet} {line.day} {line.key}: ' + (f'ОШИБКА {err}' if err else f'записан, worklog {wid}'))
     return 1 if failed else 0

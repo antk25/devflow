@@ -61,9 +61,10 @@ function shift(w, n) {
 }
 
 async function api(path, method = 'GET', body) {
+  const write = method !== 'GET';
   const r = await fetch(`/api/week/${path}`, {
-    method, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    method, headers: write ? { 'Content-Type': 'application/json' } : undefined,
+    body: write ? JSON.stringify(body ?? {}) : undefined,
   });
   let j = {};
   try { j = await r.json(); } catch { /* пустое тело */ }
@@ -111,8 +112,12 @@ function buildSheet(data, name) {
       seconds: l.seconds, comment: l.comment, flags: l.flags, edited: l.edited, mirror: l.mirror_of,
     });
   });
+  const taken = new Set();
   for (const m of manual) {
-    if (used.has(m.mi) || s.worklogs.some(w => w.key === m.key && w.day === m.day && w.seconds === m.seconds)) continue;
+    if (used.has(m.mi)) continue;
+    const w = s.worklogs.find(w => !taken.has(w) && ((m.sent_id && w.id === m.sent_id) || (w.key === m.key
+      && w.day === m.day && w.seconds === m.seconds && (w.comment || '').trim() === (m.comment || '').trim())));
+    if (w) { taken.add(w); continue; }
     put(row(m.key), { kind: 'manual', i: null, mi: m.mi, sheet: name, day: m.day, key: m.key, seconds: m.seconds,
       comment: m.comment, flags: [] });
   }
@@ -642,9 +647,9 @@ function App() {
       else toast('Ручная запись добавлена');
       return j;
     },
-    editSent: (e, body) => mutate(`sent/${e.id}`, 'PUT', { key: e.key, confirm: true, ...body }, 'Ворклог изменён в Jira'),
+    editSent: (e, body) => mutate(`sent/${e.id}`, 'PUT', { sheet: e.sheet, key: e.key, confirm: true, ...body }, 'Ворклог изменён в Jira'),
     follow: key => setSel(s => s && { ...s, rowId: key }),
-    deleteSent: e => mutate(`sent/${e.id}`, 'DELETE', { key: e.key, confirm: true }, 'Ворклог удалён из Jira'),
+    deleteSent: e => mutate(`sent/${e.id}`, 'DELETE', { sheet: e.sheet, key: e.key, confirm: true }, 'Ворклог удалён из Jira'),
   };
 
   const open = (sheet, rowId, day) => {

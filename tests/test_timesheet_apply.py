@@ -2,7 +2,8 @@ import json
 import subprocess
 from datetime import date
 
-from devflow.timesheet import DraftLine, Unavailable, Worklog, apply, load_sent, plan_apply
+from devflow.timesheet import (DraftLine, Unavailable, Worklog, apply, load_draft, load_manual, load_sent, mark_sent,
+                               plan_apply, save_draft, save_manual)
 
 MON, TUE = date(2026, 9, 21), date(2026, 9, 22)
 WEEK = '2026-W39'
@@ -85,3 +86,25 @@ def test_failed_call_not_journaled(tmp_path):
     res = apply(actions, True, WEEK, tmp_path, run)
     assert res[0][2] == 'bad'
     assert load_sent(tmp_path) == []
+
+
+def test_journal_and_live_copy_of_one_worklog_consume_one_line():
+    line = DraftLine('client', MON, 'SE-1', 3600, 'x')
+    sent = [{'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-1', 'seconds': 3600, 'comment': 'x', 'worklog_id': '42'}]
+    live = {'client': [Worklog('client', 'SE-1', MON, 3600, 'x', '42')]}
+    actions, _ = plan_apply([line, DraftLine('client', MON, 'SE-1', 3600, 'x')], sent, live)
+    assert len(actions) == 1
+
+
+def test_sent_line_is_not_offered_again_after_its_worklog_was_edited(tmp_path):
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-1', 3600, 'x', 'manual')], tmp_path)
+    save_manual(WEEK, [{'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-1', 'seconds': 3600, 'comment': 'x'}],
+                tmp_path)
+    lines = load_draft(WEEK, tmp_path)
+    actions, _ = plan_apply(lines, [], {'client': []})
+    mark_sent(WEEK, apply(actions, True, WEEK, tmp_path, FakeRun()), tmp_path)
+    assert [x.sent_id for x in load_draft(WEEK, tmp_path)] == ['101']
+    assert load_manual(WEEK, tmp_path)[0]['sent_id'] == '101'
+    sent = [{**load_sent(tmp_path)[0], 'seconds': 1800}]
+    live = {'client': [Worklog('client', 'SE-1', MON, 1800, 'x', '101')]}
+    assert plan_apply(load_draft(WEEK, tmp_path), sent, live)[0] == []

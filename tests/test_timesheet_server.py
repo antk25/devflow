@@ -41,10 +41,11 @@ def served(tmp_path):
     server.server_close()
 
 
-def call(server, path, method='GET', body=None):
+def call(server, path, method='GET', body=None, headers=None):
     url = f'http://127.0.0.1:{server.server_address[1]}{path}'
     data = json.dumps(body).encode() if body is not None else None
-    with urllib.request.urlopen(urllib.request.Request(url, data, method=method)) as r:
+    req = urllib.request.Request(url, data, {'Content-Type': 'application/json', **(headers or {})}, method=method)
+    with urllib.request.urlopen(req) as r:
         return json.loads(r.read())
 
 
@@ -217,9 +218,9 @@ def writable(tmp_path):
     server.server_close()
 
 
-def status(server, path, method, body=None):
+def status(server, path, method, body=None, headers=None):
     try:
-        call(server, path, method, body)
+        call(server, path, method, body, headers)
     except urllib.error.HTTPError as e:
         return e.code
     return 200
@@ -294,3 +295,59 @@ def test_week_returns_comment_hints(served):
     server, _, state = served
     remember_comments({'client': [Worklog('client', 'SE-188', MON, 900, 'Meeting', '1')]}, state)
     assert call(server, f'/api/week/{WEEK}')['hints']['SE-188'] == ['Meeting']
+
+
+def test_apply_marks_draft_line_sent_so_edited_worklog_is_not_resent(writable):
+    server, jira, state = writable
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']})
+    doc = json.loads((state / f'draft-{WEEK}.json').read_text())
+    assert [ln['sent_id'] for ln in doc['lines'] if ln['key'] == 'SE-2'] == ['101']
+    call(server, f'/api/week/{WEEK}/sent/101', 'PUT', {'key': 'SE-2', 'seconds': 3600, 'confirm': True})
+    assert call(server, f'/api/week/{WEEK}/plan')['sheets']['client']['actions'] == []
+    assert call(server, f'/api/week/{WEEK}')['pending']['client']['count'] == 0
+    call(server, f'/api/week/{WEEK}/sent/101', 'DELETE', {'sheet': 'client', 'key': 'SE-2', 'confirm': True})
+    assert [a['key'] for a in call(server, f'/api/week/{WEEK}/plan')['sheets']['client']['actions']] == ['SE-2']
+
+
+def test_sent_change_touches_only_journal_entry_of_that_issue(writable):
+    server, jira, state = writable
+    rows = [{'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-2', 'seconds': 7200, 'comment': '', 'worklog_id': '101'},
+            {'sheet': 'employer', 'day': MON.isoformat(), 'key': 'CAP-1', 'seconds': 900, 'comment': '', 'worklog_id': '101'}]
+    (state / 'sent.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+    call(server, f'/api/week/{WEEK}/sent/101', 'PUT', {'sheet': 'client', 'key': 'SE-2', 'seconds': 5400, 'confirm': True})
+    assert [(r['key'], r['seconds']) for r in map(json.loads, (state / 'sent.jsonl').read_text().splitlines())] == \
+        [('SE-2', 5400), ('CAP-1', 900)]
+    call(server, f'/api/week/{WEEK}/sent/101', 'DELETE', {'key': 'SE-2', 'confirm': True})
+    assert [json.loads(r)['key'] for r in (state / 'sent.jsonl').read_text().splitlines()] == ['CAP-1']
+
+
+def test_foreign_host_or_origin_is_refused_without_side_effects(writable):
+    server, jira, state = writable
+    port = server.server_address[1]
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    draft = (state / f'draft-{WEEK}.json').read_text()
+    rebind = {'Host': f'rebind.example:{port}'}
+    manual = {'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-5', 'seconds': 900}
+    for h in (rebind, {'Origin': 'http://rebind.example'}, {'Origin': f'http://127.0.0.1:{port + 1}'}):
+        assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']}, h) == 403
+        assert status(server, f'/api/week/{WEEK}/sent/7', 'DELETE', {'key': 'SE-2', 'confirm': True}, h) == 403
+        assert status(server, f'/api/week/{WEEK}/manual', 'POST', manual, h) == 403
+        assert status(server, f'/api/week/{WEEK}/plan', 'GET', None, h) == 403
+    assert status(server, f'/api/week/{WEEK}', 'GET', None, rebind) == 403
+    assert status(server, '/', 'GET', None, rebind) == 403
+    assert jira.calls == [] and not (state / 'sent.jsonl').exists()
+    assert (state / f'draft-{WEEK}.json').read_text() == draft and not (state / f'manual-{WEEK}.json').exists()
+
+
+def test_write_needs_json_content_type_and_own_origin_passes(writable):
+    server, jira, state = writable
+    port = server.server_address[1]
+    plain = {'Content-Type': 'text/plain'}
+    manual = {'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-5', 'seconds': 900}
+    assert status(server, f'/api/week/{WEEK}/manual', 'POST', manual, plain) == 415
+    assert status(server, f'/api/week/{WEEK}/recompute', 'POST', None, plain) == 415
+    assert not (state / f'manual-{WEEK}.json').exists()
+    own = {'Host': f'localhost:{port}', 'Origin': f'http://localhost:{port}'}
+    plan = call(server, f'/api/week/{WEEK}/plan', headers=own)
+    assert call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']}, own)['results'][0]['worklog_id'] == '101'

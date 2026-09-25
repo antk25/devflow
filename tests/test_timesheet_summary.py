@@ -39,3 +39,14 @@ def test_failed_account_is_unavailable_other_sheet_counted():
     s = summary(RULES, logs, WEEK)
     assert s['employer'] == {'unavailable': '401 Unauthorized'}
     assert s['client']['total'] == 3600 and s['client']['days'][MON] == 3600
+
+
+def test_worklog_error_body_makes_sheet_unavailable_not_empty():
+    def call(script, *args):
+        if script == 'jira-jql.sh':
+            return [{'key': 'SE-1'}]
+        return [{'errorMessages': ['Issue does not exist or you do not have permission to see it.']}]
+
+    logs = fetch_worklogs(RULES, WEEK, call)
+    assert isinstance(logs['client'], Unavailable)
+    assert 'permission' in logs['client'].reason

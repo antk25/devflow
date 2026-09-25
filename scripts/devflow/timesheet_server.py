@@ -226,6 +226,8 @@ class App:
             if not body.get('hash') or body['hash'] != plan['hash']:
                 raise Conflict('план изменился с момента показа — ничего не отправлено, проверьте заново')
             results = ts.apply(actions, True, week, self.state, self.run)
+            with self.lock:
+                ts.mark_sent(week, results, self.state)
             self._worklogs(week, fresh=True)
         return {**self.week(week), 'results': [
             {'sheet': x.sheet, 'day': x.day.isoformat(), 'key': x.key, 'worklog_id': wid, 'error': err}
@@ -238,6 +240,9 @@ class App:
         key = str(body.get('key', '')).strip().upper()
         if not KEY.match(key):
             raise BadRequest(f'плохой ключ задачи {key!r}')
+        sheet = body.get('sheet')
+        if sheet is not None and sheet not in self.rules.sheets:
+            raise BadRequest(f'нет табеля {sheet!r}')
         delete = body.get('delete') is True
         args = ['delete' if delete else 'update', key, str(wid)]
         if not delete:
@@ -250,21 +255,40 @@ class App:
                 args += ['--comment', str(body['comment'])]
             if len(args) == 3:
                 raise BadRequest('нечего менять: нужны seconds или comment')
+
+        def mine(field):
+            return lambda r: r.get(field) == str(wid) and r.get('key', '').upper() == key and sheet in (None, r.get('sheet'))
+
         with self.write_lock:
             proc = self.run([str(ts.INTEGRATIONS / 'jira-worklog.sh'), *args, '--yes'], capture_output=True, text=True)
             if proc.returncode != 0:
                 raise BadRequest((proc.stderr.strip().splitlines() or [f'код {proc.returncode}'])[-1])
-            self._sync_sent(str(wid), None if delete else body)
+            self._sync_sent(mine('worklog_id'), None if delete else body)
+            if delete:
+                self._unmark(week, mine('sent_id'))
             self._worklogs(week, fresh=True)
         return self.week(week)
 
-    def _sync_sent(self, wid: str, change: dict | None) -> None:
+    def _unmark(self, week: str, mine) -> None:
+        with self.lock:
+            doc = self._read(week)
+            if doc is not None:
+                for ln in doc['lines']:
+                    if mine(ln):
+                        ln['sent_id'] = ''
+                self._write(week, doc)
+            items = ts.load_manual(week, self.state)
+            if any(mine(m) for m in items):
+                ts.save_manual(week, [{k: v for k, v in m.items() if not (k == 'sent_id' and mine(m))} for m in items],
+                               self.state)
+
+    def _sync_sent(self, mine, change: dict | None) -> None:
         path = self.state / 'sent.jsonl'
         if not path.exists():
             return
         out = []
         for r in ts.load_sent(self.state):
-            if r.get('worklog_id') == wid:
+            if mine(r):
                 if change is None:
                     continue
                 r = {**r, **{k: change[k] for k in ('seconds', 'comment') if k in change}}
@@ -323,7 +347,23 @@ def make_handler(app: App):
                 raise BadRequest('тело запроса — не объект')
             return body
 
+        def _refused(self, write: bool) -> bool:
+            port = self.server.server_address[1]
+            hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
+            origin = self.headers.get('Origin')
+            if (self.headers.get('Host') or '').lower() not in hosts:
+                self._json(403, {'error': 'чужой Host: сервер отвечает только на 127.0.0.1 и localhost'})
+            elif origin is not None and origin.lower() not in {f'http://{h}' for h in hosts}:
+                self._json(403, {'error': f'чужой Origin {origin}'})
+            elif write and self.headers.get_content_type() != 'application/json':
+                self._json(415, {'error': 'нужен Content-Type: application/json'})
+            else:
+                return False
+            return True
+
         def _route(self, method: str):
+            if method != 'GET' and self._refused(True):
+                return
             m = ROUTE.match(self.path.split('?')[0])
             if m is None:
                 return self._json(404, {'error': 'нет такого адреса'})
@@ -354,6 +394,8 @@ def make_handler(app: App):
                 self._json(500, {'error': str(e)})
 
         def do_GET(self):
+            if self._refused(False):
+                return
             path = self.path.split('?')[0]
             if path in ('/', '/index.html'):
                 return self._send(200, app.index(), 'text/html; charset=utf-8')

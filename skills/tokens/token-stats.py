@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-from devflow.transcripts import (LEDGER, PROJECTS_ROOT, assign_tasks, load_ledger,  # noqa: E402
+from devflow.transcripts import (LEDGER, NO_TASK, PROJECTS_ROOT, assign_tasks, load_ledger,  # noqa: E402
                                  parse_ts, project_of, user_text)
 
 # $ за 1M токенов, прайс-лист Anthropic. cache write ×1.25 (5m) / ×2.0 (1h), cache read ×0.1.

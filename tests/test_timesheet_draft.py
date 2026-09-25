@@ -119,3 +119,20 @@ def test_employer_full_day_untouched_logged_subtracted_and_no_mirror():
     assert emp(lines, TUE) == {'GS-11': 6 * 3600}
     wed = [x for x in lines if x.day == WED]
     assert [(x.key, x.mirror_of, x.seconds, x.flags) for x in wed] == [('', 'SE-7', 8 * 3600, ['no-mirror', 'create-mirror'])]
+
+
+def test_manual_entry_matches_worklog_by_comment_and_consumes_it_once():
+    manual = [{'sheet': 'client', 'day': '2026-09-23', 'key': 'SE-1', 'seconds': 3600, 'comment': c} for c in 'ab']
+    foreign = {'client': FULL['client'] + [Worklog('client', 'SE-1', WED, 3600, 'old', '42')]}
+    assert [x.sent_id for x in draft_client(RULES, foreign, {}, manual, WEEK) if x.source == 'manual'] == ['', '']
+    twice = [manual[0], dict(manual[0])]
+    own = {'client': FULL['client'] + [Worklog('client', 'SE-1', WED, 3600, 'a', '42')]}
+    assert [x.sent_id for x in draft_client(RULES, own, {}, twice, WEEK) if x.source == 'manual'] == ['42', '']
+
+
+def test_manual_entry_marked_sent_follows_its_worklog_by_id():
+    manual = [{'sheet': 'client', 'day': '2026-09-23', 'key': 'SE-1', 'seconds': 3600, 'comment': 'a', 'sent_id': '42'}]
+    edited = {'client': FULL['client'] + [Worklog('client', 'SE-1', WED, 1800, 'a', '42')]}
+    assert [x.sent_id for x in draft_client(RULES, edited, {}, manual, WEEK) if x.source == 'manual'] == ['42']
+    gone = {'client': FULL['client']}
+    assert [x.sent_id for x in draft_client(RULES, gone, {}, manual, WEEK) if x.source == 'manual'] == ['']
