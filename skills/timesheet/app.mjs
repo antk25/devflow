@@ -167,7 +167,7 @@ function Cell({ sheet, row, day, r, c, selected, onOpen }) {
   if (c?.logged) parts.push(`в Jira ${hu(c.logged)}`);
   if (c?.pending) parts.push(`к записи ${hu(c.pending)}`);
   const comments = c ? [...c.jira, ...c.draft, ...c.manual].map(e => e.comment).filter(Boolean) : [];
-  const label = `${row.key || 'без задачи'}, ${longDay(day)}: ${parts.join(', ') || 'пусто, добавить запись'}`;
+  const label = `${row.key || (row.mirror ? `зеркала для ${row.mirror} нет` : 'без задачи')}, ${longDay(day)}: ${parts.join(', ') || 'пусто, добавить запись'}`;
   return html`<button class=${cls.join(' ')} data-r=${r} data-c=${day} data-sheet=${sheet} aria-label=${label}
       title=${[...new Set(comments)].join(' · ') || undefined} onClick=${() => onOpen(row.id, day)}>
     ${c?.logged ? html`<span class="lg">${h(c.logged)}</span>` : ''}
@@ -221,7 +221,7 @@ function SheetPanel({ m, sel, today, dim, pend, canSend, onOpen, onAdd, onSend }
           ${m.rows.map((row, r) => html`<tr key=${row.id}>
             <td class="kc">
               <div class="kline">
-                <span class=${`key mono${row.key ? '' : ' none'}`}>${row.key || 'без задачи'}</span>
+                <span class=${`key mono${row.key ? '' : ' none'}`}>${row.key || (row.mirror ? 'зеркала нет' : 'без задачи')}</span>
                 ${row.mirror ? html`<span class="mirror" title=${`зеркало ${row.mirror}`}>← ${row.mirror}</span>` : ''}
               </div>
               ${row.flags.size ? html`<div class="tags">${[...row.flags].map(f => html`<${Flag} f=${f} mirror=${row.mirror} />`)}</div>` : ''}
@@ -534,7 +534,7 @@ function PlanDialog({ data, initial, onClose, onApplied, toast }) {
   };
   const why = s => s.split(', ').map(f => FLAGS[f]?.[0] || f).join(', ');
   const row = (a, extra, cls) => html`<tr class=${cls}><td class="d">${shortDay(a.day)}</td>
-    <td class="k">${a.key || 'без задачи'}${a.mirror_of ? html` <span class="muted">← ${a.mirror_of}</span>` : ''}</td>
+    <td class="k">${a.key || (a.mirror_of ? 'зеркала нет' : 'без задачи')}${a.mirror_of ? html` <span class="muted">← ${a.mirror_of}</span>` : ''}</td>
     <td class="n">${h(a.seconds)}</td><td>${extra}</td></tr>`;
   const bad = results ? results.filter(x => x.error) : [];
   const what = whole ? `Вся неделя ${Number(week.split('-W')[1])}` : keys.length ? selWords(keys) : 'Ничего не выбрано';

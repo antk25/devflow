@@ -228,6 +228,8 @@ def test_create_resolves_project(env, tmp_path):
     assert dry.returncode == 0, dry.stderr
     assert "аккаунт productsearch" in dry.stderr and "DRY RUN" in dry.stderr
     assert TOKEN_B not in dry.stdout + dry.stderr
+    assigned = env.run(INTEGRATIONS / "jira-create.sh", "-P", "SE", "-s", "t", "-d", desc, "-a", "acc-1")
+    assert '"accountId": "acc-1"' in assigned.stdout
 
 
 def test_digest_no_access_per_account(env):
