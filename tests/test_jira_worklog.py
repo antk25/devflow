@@ -117,3 +117,19 @@ def test_bad_args(run, args):
     r = run(*args)
     assert r.returncode == 2
     assert r.calls == []
+
+
+def test_create_assignee_me_resolved_via_myself(tmp_path):
+    (tmp_path / "curl").write_text('#!/usr/bin/env bash\ncat > /dev/null\necho "$*" >> "$FAKE_LOG"\necho \'{"accountId":"me-1"}\'\n')
+    (tmp_path / "curl").chmod(0o755)
+    (tmp_path / "config.env").write_text(ACCOUNTS)
+    (tmp_path / "d.txt").write_text("x")
+    create = SCRIPT.parent / "jira-create.sh"
+    r = subprocess.run(["bash", str(create), "-P", "GS", "-s", "SE-1 t", "-d", str(tmp_path / "d.txt"), "-a", "me"],
+                       env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                            "DEVFLOW_JIRA_CONFIG": str(tmp_path / "config.env"), "FAKE_LOG": str(tmp_path / "curl.log")},
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["fields"]["assignee"] == {"accountId": "me-1"}
+    [call] = (tmp_path / "curl.log").read_text().splitlines()
+    assert "https://r.example/rest/api/2/myself" in call

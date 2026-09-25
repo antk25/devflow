@@ -1,8 +1,10 @@
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -429,6 +431,47 @@ def fetch_candidates(rules: Rules, sheet: str, prefixes: set, call=jira) -> dict
     return out
 
 
+def account_base_url(account: str) -> str:
+    proc = subprocess.run(['bash', '-c', f'source "{INTEGRATIONS}/jira-accounts.sh"; jira_accounts_load; '
+                           f'jira_account_field "$1" BASE_URL', '_', account], capture_output=True, text=True)
+    return proc.stdout.strip()
+
+
+def ensure_mirror(rules: Rules, src: str, yes: bool, sheet: str = 'employer', client: str = 'client',
+                  call=jira, run=subprocess.run, base_url=account_base_url) -> tuple:
+    """(ключ зеркала, created, текст для печати); JiraError — если найти или создать нельзя."""
+    src = src.upper()
+    rule = _mirror_rule(rules, sheet, src)
+    if rule is None:
+        raise JiraError(f'для {src} нет правила зеркал в табеле {sheet}')
+    found, flag = find_mirror(src, rule, fetch_candidates(rules, sheet, {rule.mirror_prefix.upper()}, call)
+                              .get(rule.jira_project))
+    if found:
+        return found, False, f'{src} → {found} (зеркало уже есть)'
+    if flag != 'no-mirror':
+        raise JiraError(f'{src}: {flag}')
+    account = rules.sheets[client].account
+    issues = call('jira-jql.sh', '--account', account, f'key = {src}', 'summary', '1')
+    if not issues:
+        raise JiraError(f'{src} не найдена в {account}')
+    title = f'{src} {(issues[0].get("fields") or {}).get("summary", "").strip()}'.strip()
+    with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
+        f.write(f'Зеркало задачи заказчика [{src}|{base_url(account)}/browse/{src}].\n')
+    try:
+        args = [str(INTEGRATIONS / 'jira-create.sh'), '-P', rule.jira_project, '-s', title, '-d', f.name, '-a', 'me']
+        proc = run(args + (['--yes'] if yes else []), capture_output=True, text=True)
+    finally:
+        os.unlink(f.name)
+    if proc.returncode != 0:
+        raise JiraError((proc.stderr.strip().splitlines() or [f'jira-create.sh: код {proc.returncode}'])[-1])
+    if not yes:
+        return '', False, f'{src}: зеркала нет, будет создано (добавить --yes):\n{proc.stdout.strip()}'
+    key = proc.stdout.split()[0] if proc.stdout.split() else ''
+    if not key:
+        raise JiraError('jira-create.sh не вернул ключ')
+    return key, True, f'{src} → {key} (создано)'
+
+
 def _nearest_quarter(sec: int) -> int:
     return round(sec / QUARTER) * QUARTER
 
@@ -824,6 +867,10 @@ def main(argv=None) -> int:
     rm.add_argument('index', type=int)
     ls = msub.add_parser('list')
     ls.add_argument('--week', default=None)
+    mir = sub.add_parser('mirror')
+    mir.add_argument('key')
+    mir.add_argument('--rules', type=Path, default=RULES_PATH)
+    mir.add_argument('--yes', action='store_true')
     srv = sub.add_parser('serve')
     srv.add_argument('--port', type=int, default=8765)
     srv.add_argument('--rules', type=Path, default=RULES_PATH)
@@ -859,6 +906,13 @@ def main(argv=None) -> int:
         return 2
     if '-W' not in week.upper():
         week = current_week(week_range(week)[0])
+    if args.cmd == 'mirror':
+        try:
+            print(ensure_mirror(rules, args.key, args.yes)[2])
+        except JiraError as e:
+            print(f'timesheet: {e}', file=sys.stderr)
+            return 1
+        return 0
     if args.cmd == 'serve':
         return run_serve(rules, args.port)
     if args.cmd == 'apply':

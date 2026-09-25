@@ -34,6 +34,9 @@ Run `bash ~/.config/devflow/integrations/jira-digest.sh`. Show its output unchan
 first. On errors stop; never fall back to MCP. Let the user select a key. `df route <key>` resolves
 existing slugs; if ambiguous, ask for one of the listed slugs. For a new task agree a full slug
 `<key-lowercase>-<short-summary>` and keep it stable across phases.
+If the key is `SE-*`, run `~/.claude/skills/timesheet/timesheet mirror <KEY> --yes` once: it finds
+or creates the employer's GS mirror (internal task, invisible to the client). An error there is
+shown and does not block the task.
 
 ## Step 2: Route using the shared CLI
 Run `df route <slug>`. Never derive completion or approval from file existence yourself.
