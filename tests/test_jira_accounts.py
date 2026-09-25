@@ -138,3 +138,49 @@ def test_check_401(env):
     assert result.returncode == 1
     assert "нет доступа (HTTP 401)" in result.stdout
     assert TOKEN_A not in result.stdout + result.stderr
+
+
+def _argv(env):
+    return [line for line in env.log.read_text().splitlines() if line.startswith("ARGV:")]
+
+
+@pytest.mark.parametrize("args,base", [
+    (["--account", "productsearch", "project = SE"], "https://p.example"),
+    (["project = DF"], "https://r.example"),
+])
+def test_jql_account_flag(env, args, base):
+    result = env.run(INTEGRATIONS / "jira-jql.sh", *args)
+    assert result.returncode == 0, result.stderr
+    assert f"ARGV:{base}/rest/api/3/search/jql" in _argv(env)
+    assert TOKEN_A not in result.stdout + result.stderr and TOKEN_B not in result.stdout + result.stderr
+
+
+def test_search_account_flag(env):
+    result = env.run(INTEGRATIONS / "jira-search.sh", "--account", "productsearch", "project = SE")
+    assert result.returncode == 0, result.stderr
+    assert "ARGV:https://p.example/rest/api/3/search/jql" in _argv(env)
+
+
+def test_comment_resolves_by_key(env):
+    result = env.run(INTEGRATIONS / "jira-comment.sh", "SE-9", "42")
+    assert result.returncode == 0, result.stderr
+    assert "ARGV:https://p.example/rest/api/3/issue/SE-9/comment/42?expand=renderedBody" in _argv(env)
+
+
+def test_attachment_by_key(env, tmp_path):
+    result = env.run(INTEGRATIONS / "jira-attachment.sh", "--account", "SE-1", "77",
+                     extra_env={"JIRA_ATTACH_DIR": str(tmp_path / "att")})
+    assert result.returncode == 0, result.stderr
+    assert "ARGV:https://p.example/rest/api/3/attachment/content/77" in _argv(env)
+
+
+def test_create_resolves_project(env, tmp_path):
+    result = env.run(INTEGRATIONS / "jira-create.sh", "-P", "COM", "--types")
+    assert "аккаунт resolventa" in result.stderr
+    assert "ARGV:https://r.example/rest/api/2/issue/createmeta/COM/issuetypes" in _argv(env)
+    desc = tmp_path / "d.txt"
+    desc.write_text("x")
+    dry = env.run(INTEGRATIONS / "jira-create.sh", "-P", "SE", "-s", "t", "-d", desc)
+    assert dry.returncode == 0, dry.stderr
+    assert "аккаунт productsearch" in dry.stderr and "DRY RUN" in dry.stderr
+    assert TOKEN_B not in dry.stdout + dry.stderr
