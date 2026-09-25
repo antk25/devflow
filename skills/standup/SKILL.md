@@ -40,6 +40,8 @@ say so.
 ## Step 3: Pick a task
 Ask which task to work on — a Jira key from the digest (e.g. `DEV-541` / `SE-2044`), or any key the
 user names directly (works even when nothing is new).
+If the picked key is `SE-*`, run `~/.claude/skills/timesheet/timesheet mirror <KEY> --yes`: it finds
+or creates the GS mirror for the employer's timesheet. Show its line; an error does not block routing.
 
 ## Step 4: Route with the shared CLI
 Run `~/.claude/skills/devflow/devflow route <key-or-slug>` in the current project.

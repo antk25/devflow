@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
+DEVFLOW_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
+PYTHON="$DEVFLOW_DIR/.venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON=python3
+PYTHONPATH="$DEVFLOW_DIR/scripts" exec "$PYTHON" -m devflow.timesheet "$@"

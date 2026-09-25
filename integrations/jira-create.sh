@@ -5,7 +5,7 @@
 # Описание — файл в wiki-разметке Jira (API v2 принимает её строкой, ADF не нужен).
 # Использование:
 #   jira-create.sh -P <PROJECT> --types                 # доступные типы задач проекта
-#   jira-create.sh -P <PROJECT> -s "<summary>" -d <desc-file> [-t Task] [-p <PARENT-KEY>] [-l label]... [--yes]
+#   jira-create.sh -P <PROJECT> -s "<summary>" -d <desc-file> [-t Task] [-p <PARENT-KEY>] [-l label]... [-a me|<accountId>] [--yes]
 set -euo pipefail
 
 PROJECT=""
@@ -14,6 +14,7 @@ SUMMARY=""
 DESC_FILE=""
 PARENT=""
 LABELS=()
+ASSIGNEE=""
 APPLY=0
 TYPES=0
 
@@ -25,6 +26,7 @@ while [ $# -gt 0 ]; do
     -t) TYPE="$2"; shift 2 ;;
     -p) PARENT="$2"; shift 2 ;;
     -l) LABELS+=("$2"); shift 2 ;;
+    -a) ASSIGNEE="$2"; shift 2 ;;
     --yes) APPLY=1; shift ;;
     --types) TYPES=1; shift ;;
     *) echo "jira-create: неизвестный аргумент '$1'" >&2; exit 2 ;;
@@ -51,14 +53,20 @@ if [ -n "$PARENT" ] && ! [[ "$PARENT" =~ ^$PROJECT-[0-9]+$ ]]; then
   echo "jira-create: родитель должен быть $PROJECT-<n>" >&2; exit 2
 fi
 
+if [ "$ASSIGNEE" = me ]; then
+  ASSIGNEE=$(jira_curl "$ACCOUNT" /rest/api/2/myself -S | jq -r '.accountId // empty')
+  [ -n "$ASSIGNEE" ] || { echo "jira-create: не удалось узнать свой accountId в $ACCOUNT" >&2; exit 1; }
+fi
+
 labels_json=$(printf '%s\n' "${LABELS[@]+"${LABELS[@]}"}" | jq -R . | jq -sc 'map(select(. != ""))')
 
 payload=$(jq -n \
   --arg project "$PROJECT" --arg type "$TYPE" --arg summary "$SUMMARY" \
-  --rawfile description "$DESC_FILE" --arg parent "$PARENT" --argjson labels "$labels_json" \
+  --rawfile description "$DESC_FILE" --arg parent "$PARENT" --argjson labels "$labels_json" --arg assignee "$ASSIGNEE" \
   '{fields: ({project: {key: $project}, issuetype: {name: $type}, summary: $summary, description: $description}
     + (if $parent != "" then {parent: {key: $parent}} else {} end)
-    + (if ($labels | length) > 0 then {labels: $labels} else {} end))}')
+    + (if ($labels | length) > 0 then {labels: $labels} else {} end)
+    + (if $assignee != "" then {assignee: {accountId: $assignee}} else {} end))}')
 
 if [ "$APPLY" != 1 ]; then
   echo "DRY RUN — ничего не отправлено. Для создания добавить --yes." >&2

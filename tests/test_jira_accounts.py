@@ -33,6 +33,8 @@ def env(tmp_path):
         'code="${FAKE_CODE:-200}"\n'
         'case "$*" in *"${FAKE_FAIL_HOST:-@none@}"*) code=401;; esac\n'
         'for a in "$@"; do case "$a" in *http_code*) printf \'{"displayName":"Tester","key":"X-1"}\\n%s\' "$code"; exit 0;; esac; done\n'
+        '[ -n "${FAKE_BODY+x}" ] && { printf "%s" "$FAKE_BODY"; exit 0; }\n'
+        'case "$*" in *search/jql*) printf \'{"issues":[{"key":"X-1"}],"isLast":true}\'; exit 0;; esac\n'
         'printf \'{"key":"X-1"}\'\n'
     )
     curl.chmod(0o755)
@@ -183,6 +185,20 @@ def test_jql_account_flag(env, args, base):
     assert TOKEN_A not in result.stdout + result.stderr and TOKEN_B not in result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("body", ["", '{"errors":{"jql":"bad"}}', '{"message":"Unauthorized"}'])
+def test_jql_error_body_is_failure_not_empty_result(env, body):
+    result = env.run(INTEGRATIONS / "jira-jql.sh", "--account", "productsearch", "project = SE",
+                     extra_env={"FAKE_BODY": body})
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+def test_jql_prints_issues(env):
+    result = env.run(INTEGRATIONS / "jira-jql.sh", "project = SE")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == '{"key":"X-1"}\n'
+
+
 def test_search_account_flag(env):
     result = env.run(INTEGRATIONS / "jira-search.sh", "--account", "productsearch", "project = SE")
     assert result.returncode == 0, result.stderr
@@ -212,6 +228,8 @@ def test_create_resolves_project(env, tmp_path):
     assert dry.returncode == 0, dry.stderr
     assert "аккаунт productsearch" in dry.stderr and "DRY RUN" in dry.stderr
     assert TOKEN_B not in dry.stdout + dry.stderr
+    assigned = env.run(INTEGRATIONS / "jira-create.sh", "-P", "SE", "-s", "t", "-d", desc, "-a", "acc-1")
+    assert '"accountId": "acc-1"' in assigned.stdout
 
 
 def test_digest_no_access_per_account(env):

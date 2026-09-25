@@ -1,0 +1,804 @@
+import { html, render, useState, useEffect, useRef, useMemo } from './vendor/preact-htm.mjs';
+
+const WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const WD_LONG = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'];
+const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const SHEETS = { client: ['Клиент', 'var(--s1)'], employer: ['Работодатель', 'var(--s2)'] };
+const MIRROR_FLAGS = ['no-mirror', 'ambiguous-mirror', 'create-mirror', 'mirror-unavailable'];
+const SKIP = ['no-mirror', 'ambiguous-mirror', 'overflow', 'mirror-unavailable', 'create-mirror', 'empty-day'];
+const KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
+const FLAGS = {
+  'no-mirror': ['нет зеркала', m => `Для ${m || 'задачи клиента'} не нашлась задача-зеркало. В Jira строка не уйдёт, пока не вписан ключ.`],
+  'create-mirror': ['заведите зеркало', m => `Зеркала для ${m || 'задачи клиента'} нет. Заведите задачу у работодателя и впишите её ключ в строку.`],
+  'ambiguous-mirror': ['зеркал несколько', m => `Для ${m || 'задачи клиента'} нашлось несколько задач-зеркал. Впишите нужный ключ вручную.`],
+  'mirror-unavailable': ['зеркала не проверены', () => 'Jira работодателя не ответила, зеркала не искались. Пересчитайте позже.'],
+  'overflow': ['сверх нормы', () => 'Предложено больше нормы дня. В Jira строка не уйдёт, пока не поправлены часы.'],
+  'empty-day': ['нет активности', () => 'Будний день без ворклогов и без активности в транскриптах. Добавьте запись вручную.'],
+};
+
+const pad = n => String(n).padStart(2, '0');
+const toDate = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+const isoOf = t => `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+const wdi = iso => (toDate(iso).getDay() + 6) % 7;
+const dayNum = iso => toDate(iso).getDate();
+const shortDay = iso => `${WD[wdi(iso)]} ${pad(dayNum(iso))}.${pad(toDate(iso).getMonth() + 1)}`;
+const longDay = iso => `${WD_LONG[wdi(iso)]}, ${dayNum(iso)} ${MONTHS[toDate(iso).getMonth()]}`;
+const HOURS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const store = {
+  get: (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* хранилище недоступно — настройка живёт до перезагрузки */ } },
+};
+let unit = store.get('timesheet-unit', 'hm');
+const h = sec => {
+  if (unit === 'dec') return String(Math.round(sec / 36) / 100).replace('.', ',');
+  const m = Math.round(sec / 60);
+  return `${Math.floor(m / 60)}:${pad(m % 60)}`;
+};
+const hu = sec => (unit === 'dec' ? `${h(sec)} ч` : h(sec));
+const pickLabel = sec => {
+  const m = Math.round(sec / 60), a = Math.floor(m / 60), b = m % 60;
+  return a && b ? `${a}\u00a0ч ${b}\u00a0м` : a ? `${a}\u00a0ч` : `${b}\u00a0м`;
+};
+const plural = (n, [one, few, many]) => {
+  const a = n % 10, b = n % 100;
+  return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
+};
+
+function weekLabel(start, end) {
+  const a = toDate(start), b = toDate(end);
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`
+    : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+}
+
+function shift(w, n) {
+  const [y, k] = w.split('-W').map(Number);
+  const monday = y => { const j4 = new Date(Date.UTC(y, 0, 4)); return j4.getTime() - ((j4.getUTCDay() + 6) % 7) * 864e5; };
+  const mon = monday(y) + ((k - 1 + n) * 7) * 864e5;
+  const y2 = new Date(mon + 3 * 864e5).getUTCFullYear();
+  return `${y2}-W${pad(1 + Math.round((mon - monday(y2)) / (7 * 864e5)))}`;
+}
+
+async function api(path, method = 'GET', body) {
+  const write = method !== 'GET';
+  const r = await fetch(`/api/week/${path}`, {
+    method, headers: write ? { 'Content-Type': 'application/json' } : undefined,
+    body: write ? JSON.stringify(body ?? {}) : undefined,
+  });
+  let j = {};
+  try { j = await r.json(); } catch { /* пустое тело */ }
+  if (!r.ok) throw Object.assign(new Error(j.error || `сервер ответил ${r.status}`), { status: r.status });
+  return j;
+}
+
+function hintsFor(hints, key) {
+  const k = (key || '').trim().toUpperCase();
+  if (!k) return [];
+  return [...new Set([...(hints[k] || []), ...(hints[k.split('-')[0]] || [])])].slice(0, 8);
+}
+
+function buildSheet(data, name) {
+  const s = data.sheets[name];
+  if (s.unavailable) return { name, s };
+  const days = s.days.map(d => d.day);
+  const rows = new Map();
+  const row = (key, mirror) => {
+    const id = key || `?${mirror || ''}`;
+    if (!rows.has(id)) rows.set(id, { id, key, mirror: '', flags: new Set(), cells: {}, logged: 0, pending: 0 });
+    const r = rows.get(id);
+    if (mirror && !r.mirror) r.mirror = mirror;
+    return r;
+  };
+  const put = (r, e) => {
+    const c = r.cells[e.day] ??= { jira: [], draft: [], manual: [], logged: 0, pending: 0, flags: new Set() };
+    c[e.kind].push(e);
+    if (e.kind === 'jira') { c.logged += e.seconds; r.logged += e.seconds; return; }
+    c.pending += e.seconds; r.pending += e.seconds;
+    for (const f of e.flags) { c.flags.add(f); r.flags.add(f); }
+  };
+  for (const w of s.worklogs) put(row(w.key), { kind: 'jira', ...w, flags: [] });
+  const manual = (data.manual || []).map((m, mi) => ({ ...m, mi })).filter(m => m.sheet === name);
+  const used = new Set(), empty = new Set();
+  (data.draft?.lines || []).forEach((l, i) => {
+    if (l.sheet !== name) return;
+    if (l.flags.includes('empty-day')) { empty.add(l.day); return; }
+    const m = l.source === 'manual'
+      ? manual.find(m => !used.has(m.mi) && m.day === l.day && m.key === l.key && m.seconds === l.seconds) : null;
+    if (m) used.add(m.mi);
+    if (l.sent_id) return;
+    put(row(l.key, l.mirror_of), {
+      kind: l.source === 'manual' ? 'manual' : 'draft', i, mi: m ? m.mi : null, sheet: name, day: l.day, key: l.key,
+      seconds: l.seconds, comment: l.comment, flags: l.flags, edited: l.edited, mirror: l.mirror_of,
+    });
+  });
+  const taken = new Set();
+  for (const m of manual) {
+    if (used.has(m.mi)) continue;
+    const w = s.worklogs.find(w => !taken.has(w) && ((m.sent_id && w.id === m.sent_id) || (w.key === m.key
+      && w.day === m.day && w.seconds === m.seconds && (w.comment || '').trim() === (m.comment || '').trim())));
+    if (w) { taken.add(w); continue; }
+    put(row(m.key), { kind: 'manual', i: null, mi: m.mi, sheet: name, day: m.day, key: m.key, seconds: m.seconds,
+      comment: m.comment, flags: [] });
+  }
+  const order = r => { const [p, n] = r.key.split('-'); return [r.key ? 0 : 1, p, +n || 0]; };
+  const list = [...rows.values()].sort((a, b) => {
+    const [xa, pa, na] = order(a), [xb, pb, nb] = order(b);
+    return xa - xb || pa.localeCompare(pb) || na - nb || a.id.localeCompare(b.id);
+  });
+  const totals = Object.fromEntries(days.map(d => [d, { logged: 0, pending: 0 }]));
+  for (const r of list) for (const [d, c] of Object.entries(r.cells)) {
+    if (!totals[d]) continue;
+    totals[d].logged += c.logged; totals[d].pending += c.pending;
+  }
+  const logged = list.reduce((a, r) => a + r.logged, 0), pending = list.reduce((a, r) => a + r.pending, 0);
+  return { name, s, days, rows: list, totals, empty, logged, pending };
+}
+
+function dayState(total, norm, weekend) {
+  if (weekend) return total ? 'we' : 'none';
+  return total < norm ? 'under' : total > norm ? 'over' : 'ok';
+}
+
+function Bar({ logged, pending, norm }) {
+  const scale = Math.max(norm, logged + pending) || 1;
+  const over = Math.max(0, logged + pending - norm);
+  const pct = v => `${(v / scale) * 100}%`;
+  return html`<div class="bar" aria-hidden="true">
+    <i class="l" style=${{ width: pct(Math.min(logged, norm)) }}></i>
+    <i class="p" style=${{ width: pct(Math.max(0, Math.min(pending, norm - logged))) }}></i>
+    <i class="o" style=${{ width: pct(over) }}></i>
+  </div>`;
+}
+
+function Flag({ f, mirror }) {
+  const [label, tip] = FLAGS[f] || [f, () => f];
+  return html`<span class="tag warn" title=${tip(mirror)}>${label}</span>`;
+}
+
+function Cell({ sheet, row, day, r, c, selected, onOpen }) {
+  const cls = ['c'];
+  if (c?.logged) cls.push('log');
+  if (c?.draft.length) cls.push('dr');
+  if (c?.manual.length) cls.push('mn');
+  if (c?.flags.size) cls.push('fl');
+  if (selected) cls.push('sel');
+  const parts = [];
+  if (c?.logged) parts.push(`в Jira ${hu(c.logged)}`);
+  if (c?.pending) parts.push(`к записи ${hu(c.pending)}`);
+  const comments = c ? [...c.jira, ...c.draft, ...c.manual].map(e => e.comment).filter(Boolean) : [];
+  const label = `${row.key || (row.mirror ? `зеркала для ${row.mirror} нет` : 'без задачи')}, ${longDay(day)}: ${parts.join(', ') || 'пусто, добавить запись'}`;
+  return html`<button class=${cls.join(' ')} data-r=${r} data-c=${day} data-sheet=${sheet} aria-label=${label}
+      title=${[...new Set(comments)].join(' · ') || undefined} onClick=${() => onOpen(row.id, day)}>
+    ${c?.logged ? html`<span class="lg">${h(c.logged)}</span>` : ''}
+    ${c?.pending ? html`<span class="pd">${c.logged ? '+' : ''}${h(c.pending)}</span>` : ''}
+    ${!c?.logged && !c?.pending ? html`<span class="plus">+</span>` : ''}
+  </button>`;
+}
+
+function arrowNav(e) {
+  const d = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
+  const t = e.target.closest('button.c');
+  if (!d || !t) return;
+  const table = t.closest('table');
+  const cols = [...table.querySelectorAll('thead th[data-day]')].map(th => th.dataset.day);
+  const r = +t.dataset.r + d[0], c = cols[cols.indexOf(t.dataset.c) + d[1]];
+  const next = c && table.querySelector(`button.c[data-r="${r}"][data-c="${c}"]`);
+  if (next) { e.preventDefault(); next.focus(); }
+}
+
+function SheetPanel({ m, sel, today, dim, pend, canSend, onOpen, onAdd, onSend }) {
+  const [title, color] = SHEETS[m.name] || [m.name, 'var(--ink-3)'];
+  const head = html`<h2><span class="dot" style=${{ background: color }}></span>${title}
+    ${m.s.account ? html`<span class="acc">${m.s.account}</span>` : ''}</h2>`;
+  if (m.s.unavailable) {
+    return html`<section class="sheet"><div class="sh">${head}</div>
+      <div style="padding:1rem"><div class="note warn" style="margin:0"><p><b>Нет доступа к Jira.</b> ${m.s.unavailable}</p></div></div></section>`;
+  }
+  const { norm_day: norm, norm_week: normWeek } = m.s;
+  const total = m.logged + m.pending, weekState = dayState(total, normWeek, false);
+  const isSel = (row, day) => sel && sel.sheet === m.name && sel.rowId === row && sel.day === day;
+  return html`<section class=${`sheet${dim ? ' dim' : ''}`} aria-label=${title}>
+    <div class="sh">
+      ${head}
+      <div class="meter">
+        <div class="v num"><b>${h(total)}</b> <span class="muted">из ${hu(normWeek)}</span></div>
+        <${Bar} logged=${m.logged} pending=${m.pending} norm=${normWeek} />
+        <div class="sub">в Jira ${h(m.logged)} · к записи ${h(m.pending)}</div>
+      </div>
+    </div>
+    <div class="tw">
+      <table class="grid" onKeyDown=${arrowNav}>
+        <colgroup><col class="k" />${m.days.map((d, i) => html`<col class=${i >= 5 ? 'we' : ''} />`)}<col class="t" /></colgroup>
+        <thead><tr>
+          <th class="kh" scope="col">Задача</th>
+          ${m.days.map((d, i) => html`<th scope="col" data-day=${d} class=${[i >= 5 ? 'we' : '', d === today ? 'today' : ''].join(' ')}
+              title=${i >= 5 ? 'Выходной: активность переносится на понедельник' : undefined}>
+            ${WD[i]}<b>${dayNum(d)}</b></th>`)}
+          <th scope="col">Итого</th>
+        </tr></thead>
+        <tbody>
+          ${m.rows.map((row, r) => html`<tr key=${row.id}>
+            <td class="kc">
+              <div class="kline">
+                <span class=${`key mono${row.key ? '' : ' none'}`}>${row.key || (row.mirror ? 'зеркала нет' : 'без задачи')}</span>
+                ${row.mirror ? html`<span class="mirror" title=${`зеркало ${row.mirror}`}>← ${row.mirror}</span>` : ''}
+              </div>
+              ${row.flags.size ? html`<div class="tags">${[...row.flags].map(f => html`<${Flag} f=${f} mirror=${row.mirror} />`)}</div>` : ''}
+            </td>
+            ${m.days.map((d, i) => html`<td class=${i >= 5 ? 'we' : ''}>
+              <${Cell} sheet=${m.name} row=${row} day=${d} r=${r} c=${row.cells[d]} selected=${isSel(row.id, d)} onOpen=${(id, day) => onOpen(m.name, id, day)} />
+            </td>`)}
+            <td class="rt">${h(row.logged + row.pending)}</td>
+          </tr>`)}
+          ${!m.rows.length ? html`<tr><td colspan="9" class="muted" style="padding:1rem">
+            За эту неделю ни ворклогов, ни черновика. Нажмите «Пересчитать» или добавьте запись.</td></tr>` : ''}
+        </tbody>
+        <tfoot><tr>
+          <td class="kc">За день<span class="muted">норма ${hu(norm)}</span></td>
+          ${m.days.map((d, i) => {
+            const t = m.totals[d], sum = t.logged + t.pending, st = dayState(sum, norm, i >= 5);
+            const past = d <= today, p = pend?.[d];
+            const note = m.empty.has(d) ? 'нет активности'
+              : st === 'under' && past ? `не хватает ${h(norm - sum)}` : st === 'over' ? `лишние ${h(sum - norm)}` : '';
+            return html`<td class=${`ft ${st === 'under' && !past ? 'none' : st}${i >= 5 ? ' we' : ''}`}
+                title=${m.empty.has(d) ? FLAGS['empty-day'][1]() : `в Jira ${hu(t.logged)}, к записи ${hu(t.pending)}`}>
+              <div class="v">${sum || i < 5 ? html`<b>${h(sum)}</b>` : html`<span>—</span>`}${i < 5 ? html`<span>/${h(norm)}</span>` : ''}</div>
+              ${i < 5 || sum ? html`<${Bar} logged=${t.logged} pending=${t.pending} norm=${i < 5 ? norm : sum} />` : ''}
+              <span class="st">${note || ' '}</span>
+              ${p ? html`<button type="button" class="send" onClick=${() => onSend(m.name, d)} disabled=${!canSend}
+                title=${`Записать в Jira только ${longDay(d)}: ${p.count} ${plural(p.count, ['запись', 'записи', 'записей'])}, ${hu(p.seconds)}`}>↑ в Jira</button>` : ''}
+            </td>`;
+          })}
+          <td class=${`ft ${weekState}`}><div class="v"><b>${h(total)}</b></div><span class="st">из ${h(normWeek)}</span></td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <div class="sheet-foot"><button class="btn ghost sm" onClick=${() => onAdd(m.name)}>+ Строка</button></div>
+  </section>`;
+}
+
+function Discrepancies({ items }) {
+  if (!items?.length) return '';
+  const line = x => x.kind === 'missing'
+    ? html`<li title=${x.pair ? `пара ${x.pair} есть, но в этой неделе на неё не списано` : 'пары в другом табеле не нашлось'}>
+        <b class="mono">${x.key}</b> ${hu(x.seconds)} — нет в ${x.sheet}${x.pair ? ` (пара ${x.pair})` : ' (пары нет)'}</li>`
+    : x.kind === 'unresolved'
+    ? html`<li title="пару в другом табеле не определить — сверьте вручную">
+        <b class="mono">${x.key}</b> ${hu(x.seconds)} — не удалось сопоставить${x.pair ? ` (пара ${x.pair})` : ''}: ${x.why}</li>`
+    : html`<li title="green в employer должен равняться green в client минус CAP и COM за тот же день">
+        ${shortDay(x.day)}: green в employer ${hu(x.employer)} ≠ client ${hu(x.client)} − прочее ${hu(x.other)}, разница ${x.diff < 0 ? '−' : '+'}${hu(Math.abs(x.diff))}</li>`;
+  return html`<div class="note warn"><p><b>Расхождения между табелями.</b></p>
+    <ul style="margin:0;padding-left:1.2rem;flex-basis:100%">${items.map(line)}</ul></div>`;
+}
+
+function Skeleton() {
+  return [0, 1].map(k => html`<section class="sheet" key=${k} aria-hidden="true">
+    <div class="sh"><div class="sk" style="width:9rem;height:1.3rem"></div><div class="sk" style="width:16rem;height:1.3rem;margin-left:auto"></div></div>
+    ${[0, 1, 2, 3, 4, 5].map(i => html`<div class="sk-row" key=${i}>${Array.from({ length: 9 }, (_, j) => html`<div class="sk" key=${j}></div>`)}</div>`)}
+  </section>`);
+}
+
+function CommentField({ value, onInput, hints, disabled }) {
+  const id = useMemo(() => `h${Math.random().toString(36).slice(2)}`, []);
+  return html`<div class="full">
+    <label class="f">Комментарий
+      <input class="in" name="comment" list=${id} value=${value} disabled=${disabled} placeholder="например, Meeting" onInput=${e => onInput(e.target.value)} />
+    </label>
+    <datalist id=${id}>${hints.map(c => html`<option value=${c} />`)}</datalist>
+    ${hints.length ? html`<div class="chips" aria-label="Частые комментарии">
+      ${hints.slice(0, 5).map(c => html`<button type="button" class=${`chip${c === value ? ' on' : ''}`} disabled=${disabled}
+        onClick=${() => onInput(c === value ? '' : c)}>${c}</button>`)}</div>` : ''}
+  </div>`;
+}
+
+function TimePicker({ value, onChange, rest, norm, disabled }) {
+  const hh = Math.floor(value / 3600), mm = Math.round((value % 3600) / 60);
+  const set = (a, b) => onChange(a * 3600 + b * 60);
+  const btn = (label, on, fn, title) => html`<button type="button" class=${on ? 'on' : ''} aria-pressed=${on}
+    disabled=${disabled} title=${title} onClick=${fn}>${label}</button>`;
+  const fill = rest > 0 && Math.round(rest / 300) * 300 !== value ? Math.round(rest / 300) * 300 : 0;
+  return html`<div class="tp">
+    <div class="tp-head">
+      <output class=${`tp-val${value ? '' : ' none'}`}>${value ? pickLabel(value) : 'выберите время'}</output>
+      ${fill ? html`<button type="button" class="chip" disabled=${disabled} onClick=${() => onChange(fill)}
+        title=${`Добрать день до нормы: ${pickLabel(fill)}`}>до ${Math.round(norm / 3600)} ч</button>` : ''}
+    </div>
+    <div class="tp-row" role="group" aria-label="Часы">
+      <span class="tp-l">ч</span>${HOURS.map(x => btn(x, x === hh, () => set(x, mm), `${x} ч`))}</div>
+    <div class="tp-row m" role="group" aria-label="Минуты">
+      <span class="tp-l">м</span>${MINUTES.map(x => btn(pad(x), x === mm, () => set(hh, x), `${x} мин`))}</div>
+  </div>`;
+}
+
+function useSynced(prop) {
+  const [v, setV] = useState(prop);
+  const last = useRef(prop);
+  useEffect(() => { if (last.current !== prop) { last.current = prop; setV(prop); } }, [prop]);
+  return [v, setV];
+}
+
+function PendingCard({ e, hints, locked, act, rest, norm }) {
+  const [key, setKey] = useSynced(e.key);
+  const [sec, setSec] = useSynced(e.seconds);
+  const [comment, setComment] = useSynced(e.comment || '');
+  const [err, setErr] = useState('');
+  const k = key.trim().toUpperCase();
+  const changed = k !== e.key || sec !== e.seconds || comment !== (e.comment || '');
+  const mirrorFix = e.flags.some(f => MIRROR_FLAGS.includes(f)), overFix = e.flags.includes('overflow');
+  const dirty = changed || mirrorFix || overFix;
+  const save = async () => {
+    if (!KEY_RE.test(k)) return setErr('Укажите ключ задачи, например GS-1258');
+    if (!sec) return setErr('Выберите время');
+    setErr('');
+    const body = {};
+    if (k !== e.key || mirrorFix) body.key = k;
+    if (sec !== e.seconds || overFix) body.seconds = sec;
+    if (comment !== (e.comment || '')) body.comment = comment;
+    const ok = e.kind === 'manual' && e.mi !== null ? await act.editManual(e.mi, body) : await act.editDraft(e.i, body);
+    if (ok && k !== e.key) act.follow(k);
+  };
+  const del = () => (e.kind === 'manual' && e.mi !== null ? act.deleteManual(e.mi) : act.deleteDraft(e.i));
+  const onKey = ev => { if (ev.key === 'Enter' && ev.target.tagName === 'INPUT') { ev.preventDefault(); if (dirty) save(); } };
+  return html`<div class=${`card ${e.kind === 'manual' ? 'mn' : 'dr'}`} onKeyDown=${onKey}>
+    <div class="tags">
+      ${e.kind === 'manual' ? html`<span class="tag mn" title="Добавлена вами; при пересчёте день раскладывается вокруг неё">ручная</span>`
+        : html`<span class="tag dr" title="Предложено по активности в транскриптах">черновик</span>`}
+      ${e.edited ? html`<span class="tag" title="Поправлена вами; пересчёт её не перезапишет">поправлена</span>` : ''}
+      ${e.flags.map(f => html`<${Flag} f=${f} mirror=${e.mirror} />`)}
+    </div>
+    ${e.flags.filter(f => FLAGS[f]).map(f => html`<p class="flag-why">${FLAGS[f][1](e.mirror)}</p>`)}
+    <label class="f">Задача<input name="key" class=${`in k${k ? '' : ' err'}`} value=${key} placeholder="GS-…" disabled=${locked}
+      onInput=${ev => setKey(ev.target.value)} /></label>
+    <${TimePicker} value=${sec} onChange=${setSec} rest=${rest + e.seconds} norm=${norm} disabled=${locked} />
+    <${CommentField} value=${comment} onInput=${setComment} hints=${hintsFor(hints, k)} disabled=${locked} />
+    ${err ? html`<div class="ferr">${err}</div>` : ''}
+    <div class="row-btns">
+      <button class="btn primary sm" disabled=${locked || !dirty} onClick=${save}
+        title=${!changed && dirty ? 'Принять строку как есть: метка снимется, строка уйдёт в Jira' : undefined}>
+        ${!changed && dirty ? 'Подтвердить' : 'Сохранить'}</button>
+      <span class="sp"></span>
+      <button class="btn ghost sm danger" disabled=${locked} onClick=${del}
+        title=${e.kind === 'manual' ? 'Удалить ручную запись' : 'Убрать из черновика; пересчёт её не вернёт'}>Удалить</button>
+    </div>
+  </div>`;
+}
+
+function JiraCard({ e, hints, locked, act, rest, norm }) {
+  const [sec, setSec] = useSynced(e.seconds);
+  const [comment, setComment] = useSynced(e.comment || '');
+  const [ask, setAsk] = useState(null);
+  const dirty = sec !== e.seconds || comment !== (e.comment || '');
+  const editable = !!e.id && !locked;
+  const body = () => ({ ...(sec !== e.seconds ? { seconds: sec } : {}), ...(comment !== (e.comment || '') ? { comment } : {}) });
+  const onKey = ev => {
+    if (ev.key === 'Escape' && ask) { ev.stopPropagation(); setAsk(null); }
+    if (ev.key === 'Enter' && ev.target.tagName === 'INPUT') { ev.preventDefault(); if (dirty && sec) setAsk('save'); }
+  };
+  const run = async fn => { const ok = await fn(); if (ok) setAsk(null); };
+  const changes = [sec !== e.seconds ? `время ${pickLabel(e.seconds)} → ${pickLabel(sec)}` : '',
+    comment !== (e.comment || '') ? `комментарий «${comment || 'пусто'}»` : ''].filter(Boolean).join(', ');
+  return html`<div class="card log" onKeyDown=${onKey}>
+    <div class="tags"><span class="tag ok">в Jira</span>${e.id ? html`<span class="tag mono" title="Номер ворклога">#${e.id}</span>` : ''}</div>
+    <${TimePicker} value=${sec} onChange=${v => { setSec(v); setAsk(null); }} rest=${rest + e.seconds} norm=${norm} disabled=${!editable} />
+    <${CommentField} value=${comment} onInput=${v => { setComment(v); setAsk(null); }} hints=${hintsFor(hints, e.key)} disabled=${!editable} />
+    ${ask === 'save' ? html`<div class="confirm chg" role="alert">
+        Изменить ворклог в Jira: ${changes}? Правка уходит в Jira сразу.
+        <div class="row-btns"><button class="btn primary sm" onClick=${() => run(() => act.editSent(e, body()))}>Изменить в Jira</button>
+        <button class="btn sm" onClick=${() => setAsk(null)}>Отмена</button></div></div>`
+      : ask === 'delete' ? html`<div class="confirm" role="alert">
+        Удалить из Jira ворклог ${e.key} на ${pickLabel(e.seconds)}? Вернуть его можно только новой записью.
+        <div class="row-btns"><button class="btn danger solid sm" onClick=${() => run(() => act.deleteSent(e))}>Удалить из Jira</button>
+        <button class="btn sm" onClick=${() => setAsk(null)}>Отмена</button></div></div>`
+      : e.id ? html`<div class="row-btns">
+        <button class="btn sm" disabled=${!editable || !dirty || !sec} onClick=${() => setAsk('save')}>Изменить в Jira…</button>
+        <span class="sp"></span>
+        <button class="btn ghost sm danger" disabled=${!editable} onClick=${() => setAsk('delete')}>Удалить из Jira…</button></div>`
+      : html`<div class="hint muted" style="margin-top:.4rem">Номера ворклога нет — править можно только в Jira.</div>`}
+  </div>`;
+}
+
+function AddForm({ sheet, day, days, initialKey, keys, hints, locked, act, restOf, norm }) {
+  const [key, setKey] = useState(initialKey || '');
+  const [d, setD] = useState(day);
+  const [sec, setSec] = useState(0);
+  const [comment, setComment] = useState('');
+  const [err, setErr] = useState('');
+  const listId = useMemo(() => `k${Math.random().toString(36).slice(2)}`, []);
+  const k = key.trim().toUpperCase();
+  const submit = async ev => {
+    ev.preventDefault();
+    if (!KEY_RE.test(k)) return setErr('Укажите ключ задачи, например SE-188');
+    if (!d) return setErr('Выберите день');
+    if (!sec) return setErr('Выберите время');
+    setErr('');
+    if (await act.addManual({ sheet, day: d, key: k, seconds: sec, comment })) { setSec(0); setComment(''); }
+  };
+  return html`<form class="card mn" onSubmit=${submit}>
+    ${days ? html`<div class="f">День</div>
+      <div class="daypick">${days.map((x, i) => html`<button type="button" class=${x === d ? 'on' : ''} aria-pressed=${x === d}
+        onClick=${() => setD(x)}>${WD[i]} ${dayNum(x)}</button>`)}</div>` : ''}
+    <label class="f">Задача<input name="key" class="in k" value=${key} placeholder="SE-188" list=${keys ? listId : undefined}
+      autocomplete="off" disabled=${locked} onInput=${e => setKey(e.target.value)} /></label>
+    ${keys ? html`<datalist id=${listId}>${keys.map(x => html`<option value=${x} />`)}</datalist>` : ''}
+    <${TimePicker} value=${sec} onChange=${setSec} rest=${restOf(d)} norm=${norm} disabled=${locked} />
+    <${CommentField} value=${comment} onInput=${setComment} hints=${hintsFor(hints, k)} disabled=${locked} />
+    ${err ? html`<div class="ferr">${err}</div>` : ''}
+    <div class="row-btns"><button class="btn primary sm" type="submit" disabled=${locked}>Добавить</button></div>
+  </form>`;
+}
+
+function knownKeys(m, hints) {
+  const own = m.rows.map(r => r.key).filter(Boolean);
+  const prefixes = new Set(own.map(k => k.split('-')[0]));
+  const extra = Object.keys(hints).filter(k => KEY_RE.test(k) && (!prefixes.size || prefixes.has(k.split('-')[0])));
+  return [...new Set([...own, ...extra])].sort();
+}
+
+function Drawer({ sel, model, hints, locked, act, onClose }) {
+  const m = model[sel.sheet];
+  const row = sel.rowId ? m.rows.find(r => r.id === sel.rowId) : null;
+  const cell = row && sel.day ? row.cells[sel.day] : null;
+  const key = row?.key ?? (sel.rowId && !sel.rowId.startsWith('?') ? sel.rowId : '');
+  const pending = cell ? [...cell.manual, ...cell.draft] : [];
+  const title = SHEETS[sel.sheet]?.[0] || sel.sheet;
+  const norm = m.s.norm_day;
+  const restOf = d => { const t = m.totals[d]; return t ? norm - t.logged - t.pending : 0; };
+  const rest = restOf(sel.day);
+  const ek = e => (e.kind === 'jira' ? `j${e.id}` : e.mi !== null && e.mi !== undefined ? `m${e.mi}` : `d${e.i}`);
+  const ref = useRef();
+  useEffect(() => {
+    (sel.adding ? ref.current.querySelector('input.k') : ref.current)?.focus();
+  }, [sel.sheet, sel.rowId, sel.day, sel.adding]);
+  return html`<aside class="drawer" ref=${ref} tabindex="-1" aria-label="Записи ячейки"
+      onKeyDown=${ev => { if (ev.key === 'Escape') { ev.stopPropagation(); onClose(); } }}>
+    <div class="dh">
+      <div class="t">
+        <div class="t1">${sel.adding ? 'Новая строка' : html`<span class="mono">${key || 'без задачи'}</span>
+          ${row?.mirror ? html`<span class="mirror">← ${row.mirror}</span>` : ''}`}</div>
+        <div class="t2">${title}${sel.day && !sel.adding ? ` · ${longDay(sel.day)}` : ''}</div>
+      </div>
+      <button class="btn ghost icon" onClick=${onClose} aria-label="Закрыть" title="Закрыть (Esc)">×</button>
+    </div>
+    ${cell ? html`<div class="dsum">
+      <span>Всего <b>${h(cell.logged + cell.pending)}</b></span>
+      <span>в Jira <b>${h(cell.logged)}</b></span>
+      <span>к записи <b>${h(cell.pending)}</b></span></div>` : ''}
+    ${cell?.jira.length ? html`<div class="dsec"><h3>Уже в Jira</h3>
+      <p class="hint">Правка и удаление уходят в Jira сразу, после подтверждения.</p>
+      ${cell.jira.map(e => html`<${JiraCard} key=${ek(e)} e=${e} hints=${hints} locked=${locked} act=${act} rest=${rest} norm=${norm} />`)}</div>` : ''}
+    ${pending.length ? html`<div class="dsec"><h3>К записи</h3>
+      ${pending.map(e => html`<${PendingCard} key=${ek(e)} e=${e} hints=${hints} locked=${locked} act=${act} rest=${rest} norm=${norm} />`)}</div>` : ''}
+    <div class="dsec"><h3>${sel.adding ? 'Ручная запись' : 'Добавить ручную запись'}</h3>
+      <p class="hint">Встречи, созвоны — то, чего нет в транскриптах. Ручная запись главнее черновика: при пересчёте остаток дня раскладывается вокруг неё.</p>
+      <${AddForm} key=${`${sel.sheet}-${sel.rowId}-${sel.day}-${sel.adding}`} sheet=${sel.sheet} day=${sel.day}
+        days=${sel.adding ? m.days : null} initialKey=${key} keys=${sel.adding ? knownKeys(m, hints) : null}
+        hints=${hints} locked=${locked} act=${act} restOf=${restOf} norm=${norm} />
+    </div>
+    <div class="kbd"><kbd>Enter</kbd> в комментарии — сохранить · <kbd>Esc</kbd> — закрыть</div>
+  </aside>`;
+}
+
+function selWords(keys) {
+  const by = {};
+  for (const k of keys) { const [sh, d] = k.split(':'); (by[sh] ??= []).push(d); }
+  return Object.entries(by).map(([sh, ds]) => `${SHEETS[sh]?.[0] || sh} · ${ds.length === 1 ? longDay(ds[0])
+    : ds.sort().map(d => `${WD[wdi(d)].toLowerCase()} ${dayNum(d)}`).join(', ')}`).join('; ');
+}
+
+function PickMatrix({ days, pend, picked, disabled, onToggle, onAll }) {
+  const names = Object.keys(pend).filter(n => Object.keys(pend[n].days || {}).length);
+  return html`<div class="pick">
+    <div class="pick-h"><span>Что записать</span>
+      <button type="button" class="btn ghost sm" onClick=${onAll} disabled=${disabled}>Отметить всё</button></div>
+    <div class="pick-w"><table>
+      <thead><tr><th></th>${days.map(d => html`<th scope="col">${WD[wdi(d)]}<b>${dayNum(d)}</b></th>`)}</tr></thead>
+      <tbody>${names.map(n => html`<tr><th scope="row">${SHEETS[n]?.[0] || n}</th>
+        ${days.map(d => {
+          const k = `${n}:${d}`, p = pend[n].days[d];
+          return html`<td>${p ? html`<label class=${picked.has(k) ? 'on' : ''}
+              title=${`${p.count} ${plural(p.count, ['запись', 'записи', 'записей'])}, ${hu(p.seconds)}`}>
+            <input type="checkbox" name=${k} checked=${picked.has(k)} disabled=${disabled} onChange=${() => onToggle(k)} />
+            ${h(p.seconds)}</label>` : html`<span class="muted">·</span>`}</td>`;
+        })}</tr>`)}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function PlanDialog({ data, initial, onClose, onApplied, toast }) {
+  const ref = useRef(), seq = useRef(0);
+  const week = data.week;
+  const [pend] = useState(() => data.pending || {});
+  const [avail] = useState(() => Object.entries(pend).flatMap(([n, p]) => Object.keys(p.days || {}).map(d => `${n}:${d}`)));
+  const [picked, setPicked] = useState(() => new Set(initial || avail));
+  const [plan, setPlan] = useState(null);
+  const [phase, setPhase] = useState('loading');
+  const [err, setErr] = useState('');
+  const [results, setResults] = useState(null);
+  const keys = [...picked].sort();
+  const whole = !initial && avail.every(k => picked.has(k));
+  const query = whole ? '' : keys.map(k => `pick=${encodeURIComponent(k)}`).join('&');
+  const load = async () => {
+    const n = ++seq.current;
+    setErr('');
+    if (!whole && !keys.length) { setPlan(null); setPhase('empty'); return; }
+    setPhase('loading');
+    try {
+      const p = await api(`${week}/plan${query ? `?${query}` : ''}`);
+      if (n === seq.current) { setPlan(p); setPhase('ready'); }
+    } catch (e) {
+      if (n === seq.current) { setErr(e.message); setPhase('error'); }
+    }
+  };
+  useEffect(() => { ref.current.showModal(); }, []);
+  useEffect(() => { if (phase !== 'done') load(); }, [query, whole]);
+  const toggle = k => setPicked(p => { const x = new Set(p); x.has(k) ? x.delete(k) : x.add(k); return x; });
+  const sheets = plan && phase !== 'empty' ? Object.entries(plan.sheets) : [];
+  const count = sheets.reduce((a, [, s]) => a + s.actions.length, 0);
+  const total = sheets.reduce((a, [, s]) => a + s.total, 0);
+  const send = async () => {
+    setPhase('sending');
+    try {
+      const j = await api(`${week}/apply`, 'POST', whole ? { hash: plan.hash } : { hash: plan.hash, pick: keys });
+      onApplied(j); setResults(j.results); setPhase('done');
+    } catch (e) {
+      if (e.status === 409) { toast(e.message, 'warn'); return load(); }
+      setErr(e.message); setPhase('ready');
+    }
+  };
+  const why = s => s.split(', ').map(f => FLAGS[f]?.[0] || f).join(', ');
+  const row = (a, extra, cls) => html`<tr class=${cls}><td class="d">${shortDay(a.day)}</td>
+    <td class="k">${a.key || (a.mirror_of ? 'зеркала нет' : 'без задачи')}${a.mirror_of ? html` <span class="muted">← ${a.mirror_of}</span>` : ''}</td>
+    <td class="n">${h(a.seconds)}</td><td>${extra}</td></tr>`;
+  const bad = results ? results.filter(x => x.error) : [];
+  const what = whole ? `Вся неделя ${Number(week.split('-W')[1])}` : keys.length ? selWords(keys) : 'Ничего не выбрано';
+  const tally = phase === 'ready' ? ` — ${count} ${plural(count, ['запись', 'записи', 'записей'])}, ${hu(total)}` : '';
+  const days = Object.values(data.sheets).find(x => x.days)?.days.map(d => d.day) || [];
+  return html`<dialog class="plan" ref=${ref} onCancel=${e => { e.preventDefault(); if (phase !== 'sending') onClose(); }}
+      aria-labelledby="plan-title">
+    <div class="pl">
+      <div class="pl-h"><h2 id="plan-title">${what}${tally}</h2><div class="muted">Запись в Jira · ${week}</div></div>
+      <div class="pl-b">
+        ${phase === 'done' ? html`
+          <div class=${`note ${bad.length ? 'bad' : ''}`}><p>Записано ${results.length - bad.length} из ${results.length}.
+            ${bad.length ? ` Ошибок: ${bad.length} — строки остались в черновике.` : ''}</p></div>
+          ${bad.map(x => html`<div class="note bad"><p>${shortDay(x.day)} ${x.key}: ${x.error}</p></div>`)}`
+        : html`
+          <div class="note warn"><p><b>Сервер пишет в Jira напрямую, без подтверждения Claude.</b>${' '}
+            Это окно — единственная проверка: сверьте список построчно.</p></div>
+          ${avail.length > 1 ? html`<${PickMatrix} days=${days} pend=${pend} picked=${picked} disabled=${phase === 'sending'}
+            onToggle=${toggle} onAll=${() => setPicked(new Set(avail))} />` : ''}
+          ${phase === 'loading' ? html`<p class="muted">Сверяю черновик с Jira…</p>` : ''}
+          ${phase === 'empty' ? html`<p class="muted">Отметьте хотя бы один день.</p>` : ''}
+          ${err ? html`<div class="note bad"><p>${err}</p></div>` : ''}
+          ${plan && phase !== 'loading' && phase !== 'empty' ? (sheets.length ? sheets.map(([name, s]) => html`
+            <h3><span class="dot" style=${{ background: SHEETS[name]?.[1] || 'var(--ink-3)' }}></span>${SHEETS[name]?.[0] || name}
+              <span class="muted">${s.actions.length} ${plural(s.actions.length, ['запись', 'записи', 'записей'])}, ${hu(s.total)}</span></h3>
+            <table class="lst"><tbody>
+              ${s.actions.map(a => row(a, a.comment))}
+              ${s.skipped.map(a => row(a, html`<span class="tag warn">не записывается: ${why(a.why)}</span>`, 'skip'))}
+            </tbody></table>`) : html`<p class="muted">Записывать нечего: всё выбранное уже в Jira.</p>`) : ''}`}
+      </div>
+      <div class="pl-f">
+        ${phase === 'done' ? html`<button class="btn primary" onClick=${onClose}>Готово</button>` : html`
+          <span class="sp">${phase === 'ready' && count ? `Итого ${count} ${plural(count, ['ворклог', 'ворклога', 'ворклогов'])}, ${hu(total)}` : ''}</span>
+          <button class="btn" onClick=${onClose} disabled=${phase === 'sending'}>Отмена</button>
+          <button class="btn primary" onClick=${send} disabled=${phase !== 'ready' || !count}>
+            ${phase === 'sending' ? html`<span class="spin"></span> Записываю…` : `Записать в Jira${phase === 'ready' && count ? ` — ${count}` : ''}`}</button>`}
+      </div>
+    </div>
+  </dialog>`;
+}
+
+function Seg({ label, value, options, onChange }) {
+  return html`<div class="seg" role="group" aria-label=${label}>
+    ${options.map(([v, text, title]) => html`<button type="button" class=${v === value ? 'on' : ''} aria-pressed=${v === value}
+      title=${title} onClick=${() => onChange(v)}>${text}</button>`)}
+  </div>`;
+}
+
+function Toasts({ items, onClose }) {
+  return html`<div class="toasts" role="status" aria-live="polite">
+    ${items.map(t => html`<div class=${`toast ${t.kind}`} key=${t.id}><span>${t.text}</span>
+      <button onClick=${() => onClose(t.id)} aria-label="Скрыть">×</button></div>`)}
+  </div>`;
+}
+
+function App() {
+  const [week, setWeek] = useState(location.hash.slice(1) || document.body.dataset.week);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [started, setStarted] = useState(null);
+  const [saving, setSaving] = useState(0);
+  const [, tick] = useState(0);
+  const [sel, setSel] = useState(null);
+  const [planOpen, setPlanOpen] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const [theme, setTheme] = useState(store.get('timesheet-theme', 'system'));
+  const [units, setUnits] = useState(unit);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'system') { delete root.dataset.theme; root.style.colorScheme = ''; }
+    else { root.dataset.theme = theme; root.style.colorScheme = theme; }
+    store.set('timesheet-theme', theme);
+  }, [theme]);
+  const pickUnits = v => { unit = v; store.set('timesheet-unit', v); setUnits(v); };
+  const req = useRef(0), lastCell = useRef(null), weekRef = useRef(week);
+  weekRef.current = week;
+
+  const toast = (text, kind = 'info') => {
+    const id = Math.random();
+    setToasts(t => [...t.slice(-3), { id, text, kind }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), kind === 'error' ? 9000 : 4000);
+  };
+
+  const load = async w => {
+    const n = ++req.current;
+    setLoading(true);
+    try {
+      const j = await api(w);
+      if (n !== req.current) return;
+      setData(j); setWeek(j.week);
+      if (location.hash.slice(1) !== j.week) history.replaceState(null, '', `#${j.week}`);
+    } catch (e) {
+      if (n === req.current) toast(`Не удалось открыть неделю: ${e.message}`, 'error');
+    } finally {
+      if (n === req.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(week); }, []);
+  useEffect(() => {
+    const on = () => { const w = location.hash.slice(1); if (w && w !== week) go(w); };
+    addEventListener('hashchange', on);
+    return () => removeEventListener('hashchange', on);
+  });
+  useEffect(() => {
+    if (!started) return;
+    const t = setInterval(() => tick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [started]);
+  useEffect(() => {
+    const on = e => { if (e.key === 'Escape' && sel && !planOpen) close(); };
+    addEventListener('keydown', on);
+    return () => removeEventListener('keydown', on);
+  });
+
+  const go = w => { setSel(null); setPlanOpen(null); setWeek(w); history.replaceState(null, '', `#${w}`); load(w); };
+
+  const recompute = async () => {
+    setStarted(Date.now());
+    try {
+      const j = await api(`${week}/recompute`, 'POST');
+      if (j.week === weekRef.current) setData(j);
+      toast('Черновик пересчитан');
+    } catch (e) {
+      toast(`Пересчёт не удался: ${e.message}`, 'error');
+    } finally {
+      setStarted(null);
+    }
+  };
+
+  const mutate = async (path, method, body, ok) => {
+    setSaving(n => n + 1);
+    try {
+      const j = await api(`${week}/${path}`, method, body);
+      if (j.week === weekRef.current) setData(j);
+      if (ok) toast(ok);
+      return j;
+    } catch (e) {
+      toast(e.message, 'error');
+      return null;
+    } finally {
+      setSaving(n => n - 1);
+    }
+  };
+
+  const model = useMemo(() => data ? Object.fromEntries(Object.keys(data.sheets).map(n => [n, buildSheet(data, n)])) : {}, [data]);
+  const pp = Object.values(data?.pending || {}).reduce((a, x) => ({ count: a.count + x.count,
+    seconds: a.seconds + x.seconds, skipped: a.skipped + x.skipped }), { count: 0, seconds: 0, skipped: 0 });
+
+  const act = {
+    editDraft: (i, body) => mutate(`draft/${i}`, 'PUT', body, 'Строка сохранена'),
+    deleteDraft: i => mutate(`draft/${i}`, 'DELETE', undefined, 'Строка убрана из черновика; пересчёт её не вернёт'),
+    deleteManual: mi => mutate(`manual/${mi}`, 'DELETE', undefined, 'Ручная запись удалена'),
+    editManual: (mi, body) => mutate(`manual/${mi}`, 'PUT', body, 'Ручная запись сохранена'),
+    addManual: async body => {
+      const j = await mutate('manual', 'POST', body);
+      if (!j) return null;
+      const m = buildSheet(j, body.sheet), t = m.totals?.[body.day], norm = j.sheets[body.sheet].norm_day;
+      if (t && t.logged + t.pending > norm && j.draft)
+        toast(`Запись добавлена. День теперь ${hu(t.logged + t.pending)} из ${hu(norm)} — «Пересчитать» ужмёт черновик вокруг неё.`, 'warn');
+      else toast('Ручная запись добавлена');
+      return j;
+    },
+    editSent: (e, body) => mutate(`sent/${e.id}`, 'PUT', { sheet: e.sheet, key: e.key, confirm: true, ...body }, 'Ворклог изменён в Jira'),
+    follow: key => setSel(s => s && { ...s, rowId: key }),
+    deleteSent: e => mutate(`sent/${e.id}`, 'DELETE', { sheet: e.sheet, key: e.key, confirm: true }, 'Ворклог удалён из Jira'),
+  };
+
+  const open = (sheet, rowId, day) => {
+    lastCell.current = document.activeElement;
+    setSel(s => s && s.sheet === sheet && s.rowId === rowId && s.day === day && !s.adding ? null : { sheet, rowId, day });
+  };
+  const add = sheet => {
+    lastCell.current = document.activeElement;
+    const m = model[sheet];
+    const day = m.days.find(d => d <= today && m.totals[d].logged + m.totals[d].pending < m.s.norm_day && wdi(d) < 5) || m.days[0];
+    setSel({ sheet, rowId: null, day, adding: true });
+  };
+  const close = () => {
+    setSel(null);
+    const el = lastCell.current;
+    if (el && document.contains(el)) el.focus();
+  };
+
+  const today = isoOf(new Date());
+  const busy = !!started || saving > 0;
+  const current = data && data.week === data.current;
+  const elapsed = started ? Math.floor((Date.now() - started) / 1000) : 0;
+  const stamp = data?.draft?.generated
+    ? `Черновик от ${data.draft.generated.slice(8, 10)}.${data.draft.generated.slice(5, 7)}, ${data.draft.generated.slice(11, 16)}`
+    : data ? 'Черновика нет' : '';
+  const names = data ? Object.keys(data.sheets) : [];
+
+  return html`
+    <div class="top">
+      <div class="top-in">
+        <span class="brand">Табель</span>
+        <div class="wk">
+          <button class="btn icon" onClick=${() => go(shift(week, -1))} disabled=${!!started} aria-label="Предыдущая неделя" title="Предыдущая неделя">‹</button>
+          <div class="wk-label"><b>Неделя ${Number(week.split('-W')[1])}</b>
+            <span>${data && data.week === week ? weekLabel(data.start, data.end) : ' '}</span></div>
+          <button class="btn icon" onClick=${() => go(shift(week, 1))} disabled=${!!started} aria-label="Следующая неделя" title="Следующая неделя">›</button>
+          <button class="btn sm ghost" onClick=${() => go(data.current)} disabled=${!data || current || !!started}
+            style=${{ visibility: data && !current ? 'visible' : 'hidden' }}>К текущей</button>
+        </div>
+        <span class="grow"></span>
+        <span class="stamp">${stamp}</span>
+        <div class="prefs">
+          <${Seg} label="Формат часов" value=${units} onChange=${pickUnits}
+            options=${[['hm', '1:30', 'Часы и минуты'], ['dec', '1,5', 'Десятичные часы']]} />
+          <${Seg} label="Тема" value=${theme} onChange=${setTheme}
+            options=${[['light', '☀', 'Светлая тема'], ['dark', '☾', 'Тёмная тема'], ['system', 'Авто', 'Как в системе']]} />
+        </div>
+        <div class="actions">
+          <button class="btn" onClick=${recompute} disabled=${!data || busy || loading}
+            title="Заново собрать черновик из Jira и транскриптов; поправленные вами строки сохранятся">
+            ${started ? html`<span class="spin"></span> Пересчитываю… ${elapsed} с` : '↻ Пересчитать'}</button>
+          <button class="btn primary" onClick=${() => setPlanOpen({ initial: null })} disabled=${!data || busy || loading || !pp.count}
+            title=${pp.skipped ? `Ещё ${pp.skipped} ${plural(pp.skipped, ['строка', 'строки', 'строк'])} не будут записаны — см. метки` : undefined}>
+            ${pp.count ? html`<span class="wide">Записать в Jira —</span><span class="narrow">В Jira:</span>
+              ${pp.count} ${plural(pp.count, ['запись', 'записи', 'записей'])}, ${hu(pp.seconds)}` : 'Записывать нечего'}</button>
+        </div>
+      </div>
+      <div class=${`progress${started || (loading && data) ? ' on' : ''}`}></div>
+    </div>
+    <div class=${`shell${sel && data ? ' open' : ''}`}>
+      <main class="main">
+        <div class="legend" aria-label="Обозначения">
+          <span><i class="sw log"></i>уже в Jira</span>
+          <span><i class="sw dr"></i>черновик, ещё не в Jira</span>
+          <span><i class="sw mn"></i>ручная запись</span>
+          <span><i class="sw fl"></i>требует внимания</span>
+        </div>
+        ${data && !loading && !data.draft ? html`<div class="note"><p><b>Черновика на эту неделю нет.</b>${' '}
+          «Пересчитать» соберёт его из Jira и транскриптов — это до минуты.</p>
+          <button class="btn" onClick=${recompute} disabled=${busy}>↻ Пересчитать</button></div>` : ''}
+        ${data && !loading && pp.skipped ? html`<div class="note warn"><p>
+          ${pp.skipped} ${plural(pp.skipped, ['строка', 'строки', 'строк'])} черновика не ${pp.skipped === 1 ? 'уйдёт' : 'уйдут'} в Jira — ${pp.skipped === 1 ? 'на ней метка' : 'на них метки'} вроде «нет зеркала». Откройте ячейку с жёлтой точкой: впишите ключ, поправьте часы или подтвердите строку как есть.</p></div>` : ''}
+        ${data && !loading ? html`<${Discrepancies} items=${data.discrepancies} />` : ''}
+        ${!data || (loading && data.week !== week) ? html`<${Skeleton} />`
+          : names.map(n => html`<${SheetPanel} key=${n} m=${model[n]} sel=${sel} today=${today} dim=${!!started}
+              pend=${data.pending?.[n]?.days} canSend=${!busy && !loading} onOpen=${open} onAdd=${add}
+              onSend=${(sh, d) => setPlanOpen({ initial: [`${sh}:${d}`] })} />`)}
+      </main>
+      ${sel && data && model[sel.sheet] && !model[sel.sheet].s.unavailable ? html`<${Drawer} sel=${sel} model=${model}
+        hints=${data.hints || {}} locked=${!!started} act=${act} onClose=${close} />` : ''}
+    </div>
+    ${planOpen && data ? html`<${PlanDialog} data=${data} initial=${planOpen.initial} onClose=${() => setPlanOpen(null)} toast=${toast}
+      onApplied=${j => { setData(j); toast('Запись в Jira завершена'); }} />` : ''}
+    <${Toasts} items=${toasts} onClose=${id => setToasts(t => t.filter(x => x.id !== id))} />`;
+}
+
+render(html`<${App} />`, document.getElementById('app'));

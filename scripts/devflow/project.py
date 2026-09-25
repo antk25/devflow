@@ -48,9 +48,10 @@ def settings_drift(actual, example):
     hooks = [f'{e} {c}' for e, c in sorted(_hook_commands(wanted))
              if not any(e == he and Path(c).name in h for he, h in have_commands)]
     allow = [p for p in _permissions(wanted, 'allow') if p not in _permissions(have, 'allow')]
+    ask = [p for p in _permissions(wanted, 'ask') if p not in _permissions(have, 'ask')]
     deny = [p for p in _permissions(wanted, 'deny') if p not in _permissions(have, 'deny')]
     extra_deny = [p for p in _permissions(have, 'deny') if p in STALE_DENY]
-    return {'hooks': hooks, 'allow': allow, 'deny': deny, 'extra_deny': extra_deny}
+    return {'hooks': hooks, 'allow': allow, 'ask': ask, 'deny': deny, 'extra_deny': extra_deny}
 
 
 def _meta(text, source):
