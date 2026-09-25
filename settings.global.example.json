@@ -41,6 +41,9 @@
       "Bash(git push:*)",
       "Bash(lcurl:*)"
     ],
+    "ask": [
+      "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)"
+    ],
     "deny": [
       "Bash(gh api:*)",
       "Bash(gh pr merge:*)",

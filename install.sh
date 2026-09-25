@@ -5,7 +5,8 @@ export PYTHONDONTWRITEBYTECODE=1
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
-SKILLS=(note project devflow standup tokens page review jira xreview)
+INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
+SKILLS=(note project devflow standup tokens page review jira jira-create xreview)
 [ ! -d "$DEVFLOW_DIR/skills/autoresearch" ] || SKILLS+=(autoresearch)
 AGENTS=(research plan implement review-standards review-conformance crossreview)
 RETIRED_SKILLS=(research plan implement quick)
@@ -31,6 +32,10 @@ sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
 destinations+=("$BIN_DIR/devflow")
 sources+=("$DEVFLOW_DIR/bin/lcurl")
 destinations+=("$BIN_DIR/lcurl")
+for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
+    sources+=("$src")
+    destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")
+done
 
 issues=0
 for i in "${!sources[@]}"; do
@@ -100,7 +105,7 @@ if [ "$mode" = install ]; then
         "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
     fi
     "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
-    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$BIN_DIR"
+    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$BIN_DIR" "$INTEGRATIONS_DIR"
     for i in "${!sources[@]}"; do
         src="${sources[$i]}" dst="${destinations[$i]}"
         if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
