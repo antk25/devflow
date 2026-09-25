@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import threading
+from collections import Counter
 from dataclasses import asdict
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -93,6 +94,7 @@ class App:
         lines = self.compute(self.rules, logs, week)
         with self.lock:
             old = self._read(week)
+            lines = sync_manual(lines, ts.load_manual(week, self.state))
             ts.save_draft(week, merge_edits(lines, old), self.state)
             if old and old.get('removed'):
                 self._write(week, {**self._read(week), 'removed': old['removed']})
@@ -344,6 +346,24 @@ def _manual_line(doc: dict, m: dict) -> int | None:
     return next((j for j, ln in enumerate(doc['lines']) if ln.get('source') == 'manual' and not ln.get('sent_id')
                  and (ln['sheet'], ln['day'], ln['key'], ln['seconds']) ==
                  (m['sheet'], m['day'], m['key'], m['seconds'])), None)
+
+
+def sync_manual(lines: list, manual: list) -> list:
+    # ручную запись могли добавить или удалить, пока пересчёт шёл без блокировки
+    sig = lambda sheet, day, key, sec, comment: (sheet, str(day), key, int(sec), (comment or '').strip())
+    want = Counter(sig(m['sheet'], m['day'], m['key'], m['seconds'], m.get('comment')) for m in manual)
+    out = []
+    for ln in lines:
+        if ln.source == 'manual':
+            s = sig(ln.sheet, ln.day, ln.key, ln.seconds, ln.comment)
+            if want[s]:
+                want[s] -= 1
+            elif not ln.sent_id:
+                continue
+        out.append(ln)
+    for (sheet, day, key, sec, comment), n in want.items():
+        out += [ts.DraftLine(sheet, date.fromisoformat(day), key, sec, comment, 'manual') for _ in range(n)]
+    return out
 
 
 def merge_edits(lines: list, old: dict | None) -> list:

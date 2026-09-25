@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from devflow.timesheet import (DraftLine, ProjectRule, Rules, Sheet, Worklog, comment_hints, remember_comments,
-                               save_draft)
+                               save_draft, save_manual)
 from devflow.timesheet_server import App, make_server
 
 WEEK = '2026-W38'
@@ -181,6 +181,26 @@ def test_recompute_keeps_edited_line_and_drops_removed(served):
         lines = {ln['key']: ln for ln in data['draft']['lines']}
         assert set(lines) == {'SE-2', 'SE-4'}
         assert lines['SE-2']['seconds'] == 5400 and lines['SE-2']['edited']
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_manual_entry_added_during_recompute_stays_in_draft(served):
+    server, calls, state = served
+    gone = {'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-188', 'seconds': 900, 'comment': 'Meeting'}
+    added = {**gone, 'seconds': 2100}
+    save_manual(WEEK, [gone], state)
+
+    def compute_fn(rules, logs, week):
+        save_manual(WEEK, [added], state)
+        return [DraftLine('client', MON, 'SE-2', 1800), DraftLine('client', MON, 'SE-188', 900, 'Meeting', 'manual')]
+    calls.compute_fn = compute_fn
+    server = restart(server, calls, state)
+    try:
+        lines = call(server, f'/api/week/{WEEK}/recompute', 'POST')['draft']['lines']
+        assert [(ln['key'], ln['seconds'], ln['source']) for ln in lines] == [('SE-2', 1800, 'activity'),
+                                                                              ('SE-188', 2100, 'manual')]
     finally:
         server.shutdown()
         server.server_close()
