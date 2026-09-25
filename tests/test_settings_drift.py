@@ -99,3 +99,12 @@ def test_missing_worklog_ask_reported(tmp_path):
     data['permissions']['ask'].remove(rule)
     actual.write_text(json.dumps(data))
     assert settings_drift(actual, EXAMPLE)['ask'] == [rule]
+
+
+def test_missing_timesheet_apply_ask_reported(tmp_path):
+    actual = tmp_path / 'settings.json'
+    data = json.loads(EXAMPLE.read_text())
+    rule = 'Bash(~/.claude/skills/timesheet/timesheet apply * --yes*)'
+    data['permissions']['ask'].remove(rule)
+    actual.write_text(json.dumps(data))
+    assert settings_drift(actual, EXAMPLE)['ask'] == [rule]

@@ -586,9 +586,131 @@ def render_draft(lines: list, week: str) -> str:
     return '\n'.join(out)
 
 
+SKIP_FLAGS = ('no-mirror', 'ambiguous-mirror', 'overflow', 'mirror-unavailable', 'create-mirror', 'empty-day')
+
+
+def load_draft(week: str, state: Path = STATE_DIR) -> list:
+    path = state / f'draft-{week}.json'
+    if not path.exists():
+        raise FileNotFoundError(f'нет черновика {path}; сначала timesheet draft --week {week}')
+    rows = json.loads(path.read_text())['lines']
+    return [DraftLine(**{**r, 'day': date.fromisoformat(r['day'])}) for r in rows]
+
+
+def load_sent(state: Path = STATE_DIR) -> list:
+    path = state / 'sent.jsonl'
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _sig(sheet, key, day, seconds, comment) -> tuple:
+    return sheet, key.upper(), str(day), int(seconds), (comment or '').strip()
+
+
+def plan_apply(lines: list, sent: list, live: dict, sheets=None) -> tuple:
+    """(действия, пропуски с причиной); совпадение с журналом или живым ворклогом съедается один раз."""
+    pool = defaultdict(int)
+    for r in sent:
+        pool[_sig(r['sheet'], r['key'], r['day'], r['seconds'], r.get('comment', ''))] += 1
+    for sheet, logs in live.items():
+        if isinstance(logs, list):
+            for w in logs:
+                pool[_sig(sheet, w.key, w.day, w.seconds, w.comment)] += 1
+    actions, skipped = [], []
+    for line in lines:
+        if sheets and line.sheet not in sheets:
+            continue
+        if isinstance(live.get(line.sheet), Unavailable):
+            skipped.append((line, f'табель недоступен: {live[line.sheet].reason}'))
+            continue
+        bad = [f for f in line.flags if f in SKIP_FLAGS]
+        if bad or not line.key or line.seconds <= 0:
+            skipped.append((line, ', '.join(bad) or 'нет задачи'))
+            continue
+        if line.sent_id:
+            continue
+        sig = _sig(line.sheet, line.key, line.day, line.seconds, line.comment)
+        if pool[sig] > 0:
+            pool[sig] -= 1
+            continue
+        actions.append(line)
+    return actions, skipped
+
+
+def _worklog_args(line: DraftLine) -> list:
+    args = ['add', line.key, '--day', line.day.isoformat(), '--seconds', str(line.seconds)]
+    return args + (['--comment', line.comment] if line.comment else [])
+
+
+def apply(actions: list, yes: bool, week: str, state: Path = STATE_DIR, run=subprocess.run) -> list:
+    """Без yes ничего не вызывает; с yes пишет по одному ворклогу и сразу дописывает журнал."""
+    if not yes:
+        return []
+    script = INTEGRATIONS / 'jira-worklog.sh'
+    results = []
+    for line in actions:
+        proc = run([str(script), *_worklog_args(line), '--yes'], capture_output=True, text=True)
+        if proc.returncode != 0:
+            results.append((line, '', (proc.stderr.strip().splitlines() or [f'код {proc.returncode}'])[-1]))
+            continue
+        try:
+            wid = str(json.loads(proc.stdout.strip() or '{}').get('id', ''))
+        except json.JSONDecodeError:
+            wid = ''
+        state.mkdir(parents=True, exist_ok=True)
+        with (state / 'sent.jsonl').open('a') as f:
+            f.write(json.dumps({'week': week, 'sheet': line.sheet, 'day': line.day.isoformat(), 'key': line.key,
+                                'seconds': line.seconds, 'comment': line.comment, 'worklog_id': wid,
+                                'at': datetime.now(MSK).isoformat(timespec='seconds')}, ensure_ascii=False) + '\n')
+        results.append((line, wid, ''))
+    return results
+
+
+def _q(seconds: int) -> str:
+    return f'{seconds / 3600:5.2f}'.replace('.', ',')
+
+
+def render_apply(actions: list, skipped: list, week: str, yes: bool) -> str:
+    out = [f'Запись {week}' + ('' if yes else ' — DRY RUN, ничего не отправлено; для записи добавить --yes')]
+    for sheet in sorted({x.sheet for x in actions} | {x.sheet for x, _ in skipped}):
+        mine = [x for x in actions if x.sheet == sheet]
+        out.append(f'\n{sheet}: к записи {len(mine)}, всего {hours(sum(x.seconds for x in mine))} ч')
+        for x in mine:
+            out.append(f'  {WEEKDAYS[x.day.weekday()]} {x.day:%d.%m}  {x.key:<10} {_q(x.seconds)}'
+                       + (f'  {x.comment}' if x.comment else ''))
+        for x, why in skipped:
+            if x.sheet == sheet:
+                src = f' ← {x.mirror_of}' if x.mirror_of else ''
+                out.append(f'  пропуск {WEEKDAYS[x.day.weekday()]} {x.day:%d.%m}  {x.key or "?":<10} '
+                           f'{_q(x.seconds)}{src}  [{why}]')
+    if not actions and not skipped:
+        out.append('  записывать нечего')
+    return '\n'.join(out)
+
+
 def _load(args):
     week = args.week or current_week()
     return week, load_rules(args.rules, accounts_available())
+
+
+def run_apply(rules: Rules, week: str, sheets, yes: bool) -> int:
+    unknown = [s for s in sheets or [] if s not in rules.sheets]
+    if unknown:
+        print(f'timesheet: неизвестный табель {", ".join(unknown)}, есть: {", ".join(rules.sheets)}', file=sys.stderr)
+        return 2
+    try:
+        lines = load_draft(week)
+    except FileNotFoundError as e:
+        print(f'timesheet: {e}', file=sys.stderr)
+        return 2
+    actions, skipped = plan_apply(lines, load_sent(), fetch_worklogs(rules, week), sheets)
+    print(render_apply(actions, skipped, week, yes))
+    failed = 0
+    for line, wid, err in apply(actions, yes, week):
+        failed += bool(err)
+        print(f'  {line.sheet} {line.day} {line.key}: ' + (f'ОШИБКА {err}' if err else f'записан, worklog {wid}'))
+    return 1 if failed else 0
 
 
 def main(argv=None) -> int:
@@ -598,6 +720,11 @@ def main(argv=None) -> int:
         p = sub.add_parser(name)
         p.add_argument('--week', default=None)
         p.add_argument('--rules', type=Path, default=RULES_PATH)
+    ap_apply = sub.add_parser('apply')
+    ap_apply.add_argument('--week', default=None)
+    ap_apply.add_argument('--rules', type=Path, default=RULES_PATH)
+    ap_apply.add_argument('--sheet', action='append', default=None)
+    ap_apply.add_argument('--yes', action='store_true')
     m = sub.add_parser('manual')
     msub = m.add_subparsers(dest='action', required=True)
     add = msub.add_parser('add')
@@ -643,6 +770,8 @@ def main(argv=None) -> int:
         return 2
     if '-W' not in week.upper():
         week = current_week(week_range(week)[0])
+    if args.cmd == 'apply':
+        return run_apply(rules, week, args.sheet, args.yes)
     worklogs = fetch_worklogs(rules, week)
     if args.cmd == 'summary':
         print(render(summary(rules, worklogs, week), week))
