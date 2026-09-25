@@ -276,7 +276,9 @@ def make_handler(app: App):
 
         def _route(self, method: str):
             m = ROUTE.match(self.path.split('?')[0])
-            action, idx = (m.group(2) or '').lower(), m.group(3) if m else None
+            if m is None:
+                return self._json(404, {'error': 'нет такого адреса'})
+            action, idx = (m.group(2) or '').lower(), m.group(3)
             handlers = {
                 ('GET', '', False): lambda w: app.week(w),
                 ('POST', 'recompute', False): lambda w: app.recompute(w),
@@ -289,7 +291,7 @@ def make_handler(app: App):
                 ('PUT', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': False}),
                 ('DELETE', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': True}),
             }
-            fn = handlers.get((method, action, idx is not None)) if m else None
+            fn = handlers.get((method, action, idx is not None))
             if fn is None:
                 return self._json(404, {'error': 'нет такого адреса'})
             try:

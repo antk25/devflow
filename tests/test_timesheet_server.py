@@ -82,6 +82,12 @@ def test_recompute_calls_draft_once_and_rewrites_file(served):
     assert json.loads((state / f'draft-{WEEK}.json').read_text())['lines'][0]['key'] == 'SE-2'
 
 
+def test_unknown_path_is_404_not_crash(served):
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(served[0], '/favicon.ico')
+    assert e.value.code == 404
+
+
 def test_index_inlines_design_tokens(served):
     url = f'http://127.0.0.1:{served[0].server_address[1]}/'
     html = urllib.request.urlopen(url).read().decode()
