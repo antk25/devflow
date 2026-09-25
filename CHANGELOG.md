@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — создание задач в Jira и Jira-скрипты в репозитории
+- **`integrations/jira-*.sh`** — скрипты Jira теперь в репозитории; `install.sh` ставит на них ссылки в `~/.config/devflow/integrations/` (`config.env`, `tracker`, `jira-seen.json` остаются там).
+- **`integrations/jira-create.sh` + скилл `/jira-create`** — создание задачи (`-P <KEY>` обязателен, описание в wiki-разметке, API v2). Без `--yes` — dry run; `--yes` стоит под ask-правилом в `settings.global.example.json`. Ключ проекта, язык и эпики скилл берёт из раздела `## Jira` в `AGENTS.md` проекта.
+
 ### Changed — модель фаз наследуется от сессии
 - Агенты `research`, `plan`, `implement`, `crossreview` и оба ревью-агента: `model: inherit` + `effort: low`; скиллы `/devflow`, `/standup`, `/review` модель не пинят. `launch.py` берёт модель из `DEVFLOW_MODEL` (по умолчанию `claude-fable-5-1`). Кончились лимиты на Fable — `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` или `/model opus` в сессии; автоматического переключения Claude Code не даёт (`--fallback-model` — только `-p` и только при перегрузке API).
 
