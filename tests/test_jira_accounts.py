@@ -103,6 +103,33 @@ def test_legacy_pairs_synthesized(env):
                                      "https://p.example"]
 
 
+def test_key_conflict_ignores_case(env):
+    env.cfg.write_text(ACCOUNTS.replace('PROJECTS="DF OPS"', 'PROJECTS="DF OPS se"'))
+    result = env("true")
+    assert result.returncode == 2
+    assert "ключ SE у аккаунтов resolventa и productsearch" in result.stderr
+
+
+def test_single_account_is_default(env):
+    env.cfg.write_text(
+        f"JIRA_PS_BASE_URL=https://p.example\nJIRA_PS_EMAIL=b@example.com\nJIRA_PS_API_TOKEN={TOKEN_B}\n"
+    )
+    result = env("jira_account_resolve DF-1")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "productsearch"
+
+
+def test_incomplete_legacy_pair_skipped(env):
+    env.cfg.write_text(
+        "JIRA_BASE_URL=https://r.example\nJIRA_EMAIL=\nJIRA_API_TOKEN=\n"
+        f"JIRA_PS_BASE_URL=https://p.example\nJIRA_PS_EMAIL=b@example.com\nJIRA_PS_API_TOKEN={TOKEN_B}\n"
+    )
+    result = env("jira_accounts_list")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["productsearch"]
+    assert "JIRA_BASE_URL задан" in result.stderr
+
+
 def test_field_refuses_token(env):
     result = env("jira_account_field resolventa API_TOKEN")
     assert result.returncode == 2

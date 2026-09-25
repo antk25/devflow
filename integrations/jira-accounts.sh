@@ -22,23 +22,24 @@ jira_accounts_load() {
     _JIRA_DEFAULT="${JIRA_DEFAULT_ACCOUNT:-}"
   else
     _JIRA_ACCOUNTS=()
-    if [ -n "${JIRA_BASE_URL:-}" ]; then
+    if _jira_legacy_pair JIRA; then
       JIRA_RESOLVENTA_BASE_URL="$JIRA_BASE_URL"
-      JIRA_RESOLVENTA_EMAIL="${JIRA_EMAIL:-}"
-      JIRA_RESOLVENTA_API_TOKEN="${JIRA_API_TOKEN:-}"
+      JIRA_RESOLVENTA_EMAIL="$JIRA_EMAIL"
+      JIRA_RESOLVENTA_API_TOKEN="$JIRA_API_TOKEN"
       JIRA_RESOLVENTA_PROJECTS=""
       _JIRA_ACCOUNTS+=(resolventa)
       _JIRA_DEFAULT=resolventa
     fi
-    if [ -n "${JIRA_PS_BASE_URL:-}" ]; then
+    if _jira_legacy_pair JIRA_PS; then
       JIRA_PRODUCTSEARCH_BASE_URL="$JIRA_PS_BASE_URL"
-      JIRA_PRODUCTSEARCH_EMAIL="${JIRA_PS_EMAIL:-}"
-      JIRA_PRODUCTSEARCH_API_TOKEN="${JIRA_PS_API_TOKEN:-}"
+      JIRA_PRODUCTSEARCH_EMAIL="$JIRA_PS_EMAIL"
+      JIRA_PRODUCTSEARCH_API_TOKEN="$JIRA_PS_API_TOKEN"
       JIRA_PRODUCTSEARCH_PROJECTS="SE"
       _JIRA_ACCOUNTS+=(productsearch)
     fi
   fi
   [ "${#_JIRA_ACCOUNTS[@]}" -gt 0 ] || _jira_die "в $cfg нет ни одного аккаунта Jira"
+  [ -n "$_JIRA_DEFAULT" ] || [ "${#_JIRA_ACCOUNTS[@]}" -ne 1 ] || _JIRA_DEFAULT="${_JIRA_ACCOUNTS[0]}"
 
   local name field key owner
   declare -A owners=()
@@ -48,6 +49,7 @@ jira_accounts_load() {
       [ -n "$(_jira_var "$name" "$field")" ] || _jira_die "аккаунт $name: нет поля JIRA_${name^^}_$field"
     done
     for key in $(_jira_var "$name" PROJECTS); do
+      key="${key^^}"
       owner="${owners[$key]:-}"
       [ -z "$owner" ] || _jira_die "ключ $key у аккаунтов $owner и $name"
       owners[$key]="$name"
@@ -56,6 +58,14 @@ jira_accounts_load() {
   if [ -n "$_JIRA_DEFAULT" ] && ! _jira_known "$_JIRA_DEFAULT"; then
     _jira_die "JIRA_DEFAULT_ACCOUNT=$_JIRA_DEFAULT нет среди аккаунтов: ${_JIRA_ACCOUNTS[*]}"
   fi
+}
+
+_jira_legacy_pair() {
+  local base="${1}_BASE_URL" email="${1}_EMAIL" token="${1}_API_TOKEN"
+  [ -n "${!base:-}" ] || return 1
+  [ -n "${!email:-}" ] && [ -n "${!token:-}" ] && return 0
+  echo "jira-accounts: warn: $base задан, но ${1}_EMAIL или ${1}_API_TOKEN пусты — пара пропущена" >&2
+  return 1
 }
 
 _jira_known() {
