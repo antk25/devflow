@@ -142,7 +142,8 @@ def test_week_counts_what_apply_would_send_per_sheet(served):
                       DraftLine('client', date(2026, 9, 15), '', 0, flags=['empty-day'])], state)
     (state / 'sent.jsonl').write_text(json.dumps({'sheet': 'client', 'key': 'SE-4', 'day': MON.isoformat(),
                                                   'seconds': 600, 'comment': ''}) + '\n')
-    assert call(server, f'/api/week/{WEEK}')['pending'] == {'client': {'count': 1, 'seconds': 1800, 'skipped': 1}}
+    assert call(server, f'/api/week/{WEEK}')['pending'] == {'client': {
+        'count': 1, 'seconds': 1800, 'skipped': 1, 'days': {MON.isoformat(): {'count': 1, 'seconds': 1800}}}}
 
 
 def test_line_edit_and_manual_entry_survive_restart(served):
@@ -351,3 +352,37 @@ def test_write_needs_json_content_type_and_own_origin_passes(writable):
     own = {'Host': f'localhost:{port}', 'Origin': f'http://localhost:{port}'}
     plan = call(server, f'/api/week/{WEEK}/plan', headers=own)
     assert call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']}, own)['results'][0]['worklog_id'] == '101'
+
+
+def test_plan_for_selected_days_holds_only_them_and_its_hash_sends_nothing_else(writable):
+    server, jira, state = writable
+    tue = '2026-09-15'
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-2', 7200, 'код'), DraftLine('client', MON, 'SE-3', 900, flags=['no-mirror']),
+                      DraftLine('client', date(2026, 9, 15), 'SE-5', 1800)], state)
+    full = call(server, f'/api/week/{WEEK}/plan')
+    assert 'selection' not in full and [a['key'] for a in full['sheets']['client']['actions']] == ['SE-2', 'SE-5']
+    plan = call(server, f'/api/week/{WEEK}/plan?sheet=client&day={tue}')
+    assert plan['selection'] == [['client', tue]]
+    assert plan['sheets']['client']['actions'] == [
+        {'day': tue, 'key': 'SE-5', 'seconds': 1800, 'comment': '', 'mirror_of': ''}]
+    assert plan['sheets']['client']['skipped'] == [] and plan['hash'] != full['hash']
+    for body in ({}, {'days': [MON.isoformat()]}, {'days': [MON.isoformat(), tue]}):
+        assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash'], **body}) == 409
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': full['hash'], 'days': [tue]}) == 409
+    assert jira.calls == []
+    data = call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash'], 'pick': [f'client:{tue}']})
+    assert [r['key'] for r in data['results']] == ['SE-5'] and [c[1] for c in jira.calls] == ['SE-5']
+
+
+@pytest.mark.parametrize('query', ['sheet=nope', 'day=2026-09-21', 'day=junk', 'pick=client', 'pick=nope:2026-09-14'])
+def test_plan_with_bad_selection_is_rejected(writable, query):
+    server, jira, _ = writable
+    assert status(server, f'/api/week/{WEEK}/plan?{query}', 'GET') == 400
+
+
+@pytest.mark.parametrize('body', [{'sheets': ['nope']}, {'days': ['2026-09-21']}, {'days': '2026-09-14'}])
+def test_apply_with_bad_selection_is_rejected_before_jira(writable, body):
+    server, jira, state = writable
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash'], **body}) == 400
+    assert jira.calls == [] and not (state / 'sent.jsonl').exists()

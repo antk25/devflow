@@ -21,20 +21,23 @@ CLI: `~/.claude/skills/timesheet/timesheet` (ставится `install.sh`). П�
 сетка по задачам на каждый табель: уже в Jira, черновик, ручные записи, итоги дня против нормы.
 Клик по ячейке открывает её записи для правки; пересчёт только кнопкой. Запись в Jira, правка
 и удаление ворклогов идут со страницы напрямую — только после подтверждения в самой странице.
+Записать можно и часть недели: «↑ в Jira» под итогом дня или отметки табель × день в окне записи.
 
 1. **Сводка.** `timesheet summary --week W39` — списано/норма по дням в обоих табелях.
 2. **Черновик.** `timesheet draft --week W39` — показать пользователю вывод целиком.
 3. **Правки словами.** Пользователь говорит, что поменять: ручные строки —
    `timesheet manual add --sheet client --day 2026-09-22 --key SE-12 --hours 2 [--comment …]`,
    `timesheet manual list|rm`; затем снова `draft`. Черновик руками не править.
-4. **Dry run.** `timesheet apply --week W39 [--sheet client]` — список того, что уйдёт в каждый
+4. **Dry run.** `timesheet apply --week W39 [--sheet client] [--day вт]` — список того, что уйдёт в каждый
    табель, и пропуски с причиной. Строки с `no-mirror`, `ambiguous-mirror`, `mirror-unavailable`,
    `overflow`, `create-mirror` не пишутся — их закрывают ручной строкой или зеркалом.
-   `--sheet client` закрывает client, пока зеркал employer ещё нет.
+   `--sheet client` закрывает client, пока зеркал employer ещё нет. `--day` (повторяемый; дата
+   `2026-09-22` или день недели `пн`…`вс`) оставляет в плане только эти дни — вместе с `--sheet`
+   это «вторник в табель employer»: `--sheet employer --day вт`.
 5. **Запись — только после явного «да»** на этот список. Согласие на прошлую неделю или другой
    табель не переносится.
    ```bash
-   ~/.claude/skills/timesheet/timesheet apply --week W39 [--sheet client] --yes
+   ~/.claude/skills/timesheet/timesheet apply --week W39 [--sheet client] [--day вт] --yes
    ```
    Запуск с `--yes` стоит под ask-правилом (`settings.global.example.json`). Повторный `apply`
    ничего не дублирует: сверяет журнал `sent.jsonl` и живые ворклоги (задача+день+секунды+комментарий).

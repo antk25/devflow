@@ -4,9 +4,10 @@ import re
 import subprocess
 import threading
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from devflow import timesheet as ts
 
@@ -71,15 +72,17 @@ class App:
                 'hints': ts.comment_hints(self.state), 'pending': self._pending(week, logs)}
 
     def _pending(self, week: str, logs: dict) -> dict:
-        out = {name: {'count': 0, 'seconds': 0, 'skipped': 0} for name in self.rules.sheets}
+        out = {name: {'count': 0, 'seconds': 0, 'skipped': 0, 'days': {}} for name in self.rules.sheets}
         try:
             lines = ts.load_draft(week, self.state)
         except FileNotFoundError:
             return out
         actions, skipped = ts.plan_apply(lines, ts.load_sent(self.state), logs)
         for x in actions:
-            out[x.sheet]['count'] += 1
-            out[x.sheet]['seconds'] += x.seconds
+            day = out[x.sheet]['days'].setdefault(x.day.isoformat(), {'count': 0, 'seconds': 0})
+            for d in (out[x.sheet], day):
+                d['count'] += 1
+                d['seconds'] += x.seconds
         for x, _ in skipped:
             if 'empty-day' not in x.flags:
                 out[x.sheet]['skipped'] += 1
@@ -200,12 +203,43 @@ class App:
                     self._write(week, doc)
         return self.week(week)
 
-    def _plan(self, week: str) -> tuple:
+    def selection(self, week: str, sheets=None, days=None, pick=None) -> list | None:
+        """Пары [табель, день]: sheets × days плюс явные pick «табель:день»; None — вся неделя."""
+        start, end = ts.week_range(week)
+
+        def day(v):
+            try:
+                d = date.fromisoformat(str(v))
+            except ValueError:
+                raise BadRequest(f'плохая дата {v!r}')
+            if not start <= d <= end:
+                raise BadRequest(f'{d} вне недели {week}')
+            return d.isoformat()
+
+        def sheet(v):
+            if v not in self.rules.sheets:
+                raise BadRequest(f'нет табеля {v!r}')
+            return v
+
+        for v in (sheets, days, pick):
+            if v is not None and not isinstance(v, list):
+                raise BadRequest('sheets, days и pick — списки')
+        pairs = set()
+        if sheets or days:
+            all_days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+            pairs = {(sheet(s), day(d)) for s in sheets or self.rules.sheets for d in days or all_days}
+        for p in pick or []:
+            s, _, d = str(p).partition(':')
+            pairs.add((sheet(s), day(d)))
+        return sorted([s, d] for s, d in pairs) if pairs else None
+
+    def _plan(self, week: str, sel: list | None = None) -> tuple:
         try:
             lines = ts.load_draft(week, self.state)
         except FileNotFoundError:
             raise BadRequest('черновика нет — сначала «пересчитать»')
-        actions, skipped = ts.plan_apply(lines, ts.load_sent(self.state), self._worklogs(week, fresh=True))
+        pick = None if sel is None else {(s, date.fromisoformat(d)) for s, d in sel}
+        actions, skipped = ts.plan_apply(lines, ts.load_sent(self.state), self._worklogs(week, fresh=True), pick=pick)
         row = lambda x: {'day': x.day.isoformat(), 'key': x.key, 'seconds': x.seconds, 'comment': x.comment,
                          'mirror_of': x.mirror_of}
         sheets = {}
@@ -214,15 +248,19 @@ class App:
             sheets[name] = {'actions': mine, 'total': sum(x['seconds'] for x in mine),
                             'skipped': [{**row(x), 'why': why} for x, why in skipped if x.sheet == name]}
         body = {'week': week, 'sheets': sheets}
+        if sel is not None:
+            body['selection'] = sel
         body['hash'] = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return body, actions
 
-    def plan(self, week: str) -> dict:
-        return self._plan(week)[0]
+    def plan(self, week: str, query: dict | None = None) -> dict:
+        q = query or {}
+        return self._plan(week, self.selection(week, q.get('sheet'), q.get('day'), q.get('pick')))[0]
 
     def apply(self, week: str, body: dict) -> dict:
+        sel = self.selection(week, body.get('sheets'), body.get('days'), body.get('pick'))
         with self.write_lock:
-            plan, actions = self._plan(week)
+            plan, actions = self._plan(week, sel)
             if not body.get('hash') or body['hash'] != plan['hash']:
                 raise Conflict('план изменился с момента показа — ничего не отправлено, проверьте заново')
             results = ts.apply(actions, True, week, self.state, self.run)
@@ -376,7 +414,7 @@ def make_handler(app: App):
                 ('POST', 'manual', False): lambda w: app.add_manual(w, self._body()),
                 ('PUT', 'manual', True): lambda w: app.edit_manual(w, int(idx), self._body()),
                 ('DELETE', 'manual', True): lambda w: app.remove_manual(w, int(idx)),
-                ('GET', 'plan', False): lambda w: app.plan(w),
+                ('GET', 'plan', False): lambda w: app.plan(w, parse_qs(self.path.partition('?')[2])),
                 ('POST', 'apply', False): lambda w: app.apply(w, self._body()),
                 ('PUT', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': False}),
                 ('DELETE', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': True}),

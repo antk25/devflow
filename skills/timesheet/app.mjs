@@ -187,7 +187,7 @@ function arrowNav(e) {
   if (next) { e.preventDefault(); next.focus(); }
 }
 
-function SheetPanel({ m, sel, today, dim, onOpen, onAdd }) {
+function SheetPanel({ m, sel, today, dim, pend, canSend, onOpen, onAdd, onSend }) {
   const [title, color] = SHEETS[m.name] || [m.name, 'var(--ink-3)'];
   const head = html`<h2><span class="dot" style=${{ background: color }}></span>${title}
     ${m.s.account ? html`<span class="acc">${m.s.account}</span>` : ''}</h2>`;
@@ -238,7 +238,7 @@ function SheetPanel({ m, sel, today, dim, onOpen, onAdd }) {
           <td class="kc">За день<span class="muted">норма ${hu(norm)}</span></td>
           ${m.days.map((d, i) => {
             const t = m.totals[d], sum = t.logged + t.pending, st = dayState(sum, norm, i >= 5);
-            const past = d <= today;
+            const past = d <= today, p = pend?.[d];
             const note = m.empty.has(d) ? 'нет активности'
               : st === 'under' && past ? `не хватает ${h(norm - sum)}` : st === 'over' ? `лишние ${h(sum - norm)}` : '';
             return html`<td class=${`ft ${st === 'under' && !past ? 'none' : st}${i >= 5 ? ' we' : ''}`}
@@ -246,6 +246,8 @@ function SheetPanel({ m, sel, today, dim, onOpen, onAdd }) {
               <div class="v">${sum || i < 5 ? html`<b>${h(sum)}</b>` : html`<span>—</span>`}${i < 5 ? html`<span>/${h(norm)}</span>` : ''}</div>
               ${i < 5 || sum ? html`<${Bar} logged=${t.logged} pending=${t.pending} norm=${i < 5 ? norm : sum} />` : ''}
               <span class="st">${note || ' '}</span>
+              ${p ? html`<button type="button" class="send" onClick=${() => onSend(m.name, d)} disabled=${!canSend}
+                title=${`Записать в Jira только ${longDay(d)}: ${p.count} ${plural(p.count, ['запись', 'записи', 'записей'])}, ${hu(p.seconds)}`}>↑ в Jira</button>` : ''}
             </td>`;
           })}
           <td class=${`ft ${weekState}`}><div class="v"><b>${h(total)}</b></div><span class="st">из ${h(normWeek)}</span></td>
@@ -463,24 +465,67 @@ function Drawer({ sel, model, hints, locked, act, onClose }) {
   </aside>`;
 }
 
-function PlanDialog({ week, onClose, onApplied, toast }) {
-  const ref = useRef();
+function selWords(keys) {
+  const by = {};
+  for (const k of keys) { const [sh, d] = k.split(':'); (by[sh] ??= []).push(d); }
+  return Object.entries(by).map(([sh, ds]) => `${SHEETS[sh]?.[0] || sh} · ${ds.length === 1 ? longDay(ds[0])
+    : ds.sort().map(d => `${WD[wdi(d)].toLowerCase()} ${dayNum(d)}`).join(', ')}`).join('; ');
+}
+
+function PickMatrix({ days, pend, picked, disabled, onToggle, onAll }) {
+  const names = Object.keys(pend).filter(n => Object.keys(pend[n].days || {}).length);
+  return html`<div class="pick">
+    <div class="pick-h"><span>Что записать</span>
+      <button type="button" class="btn ghost sm" onClick=${onAll} disabled=${disabled}>Отметить всё</button></div>
+    <div class="pick-w"><table>
+      <thead><tr><th></th>${days.map(d => html`<th scope="col">${WD[wdi(d)]}<b>${dayNum(d)}</b></th>`)}</tr></thead>
+      <tbody>${names.map(n => html`<tr><th scope="row">${SHEETS[n]?.[0] || n}</th>
+        ${days.map(d => {
+          const k = `${n}:${d}`, p = pend[n].days[d];
+          return html`<td>${p ? html`<label class=${picked.has(k) ? 'on' : ''}
+              title=${`${p.count} ${plural(p.count, ['запись', 'записи', 'записей'])}, ${hu(p.seconds)}`}>
+            <input type="checkbox" name=${k} checked=${picked.has(k)} disabled=${disabled} onChange=${() => onToggle(k)} />
+            ${h(p.seconds)}</label>` : html`<span class="muted">·</span>`}</td>`;
+        })}</tr>`)}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function PlanDialog({ data, initial, onClose, onApplied, toast }) {
+  const ref = useRef(), seq = useRef(0);
+  const week = data.week;
+  const [pend] = useState(() => data.pending || {});
+  const [avail] = useState(() => Object.entries(pend).flatMap(([n, p]) => Object.keys(p.days || {}).map(d => `${n}:${d}`)));
+  const [picked, setPicked] = useState(() => new Set(initial || avail));
   const [plan, setPlan] = useState(null);
   const [phase, setPhase] = useState('loading');
   const [err, setErr] = useState('');
   const [results, setResults] = useState(null);
+  const keys = [...picked].sort();
+  const whole = !initial && avail.every(k => picked.has(k));
+  const query = whole ? '' : keys.map(k => `pick=${encodeURIComponent(k)}`).join('&');
   const load = async () => {
-    setPhase('loading'); setErr('');
-    try { setPlan(await api(`${week}/plan`)); setPhase('ready'); } catch (e) { setErr(e.message); setPhase('error'); }
+    const n = ++seq.current;
+    setErr('');
+    if (!whole && !keys.length) { setPlan(null); setPhase('empty'); return; }
+    setPhase('loading');
+    try {
+      const p = await api(`${week}/plan${query ? `?${query}` : ''}`);
+      if (n === seq.current) { setPlan(p); setPhase('ready'); }
+    } catch (e) {
+      if (n === seq.current) { setErr(e.message); setPhase('error'); }
+    }
   };
-  useEffect(() => { ref.current.showModal(); load(); }, []);
-  const sheets = plan ? Object.entries(plan.sheets) : [];
+  useEffect(() => { ref.current.showModal(); }, []);
+  useEffect(() => { if (phase !== 'done') load(); }, [query, whole]);
+  const toggle = k => setPicked(p => { const x = new Set(p); x.has(k) ? x.delete(k) : x.add(k); return x; });
+  const sheets = plan && phase !== 'empty' ? Object.entries(plan.sheets) : [];
   const count = sheets.reduce((a, [, s]) => a + s.actions.length, 0);
   const total = sheets.reduce((a, [, s]) => a + s.total, 0);
   const send = async () => {
     setPhase('sending');
     try {
-      const j = await api(`${week}/apply`, 'POST', { hash: plan.hash });
+      const j = await api(`${week}/apply`, 'POST', whole ? { hash: plan.hash } : { hash: plan.hash, pick: keys });
       onApplied(j); setResults(j.results); setPhase('done');
     } catch (e) {
       if (e.status === 409) { toast(e.message, 'warn'); return load(); }
@@ -492,10 +537,13 @@ function PlanDialog({ week, onClose, onApplied, toast }) {
     <td class="k">${a.key || 'без задачи'}${a.mirror_of ? html` <span class="muted">← ${a.mirror_of}</span>` : ''}</td>
     <td class="n">${h(a.seconds)}</td><td>${extra}</td></tr>`;
   const bad = results ? results.filter(x => x.error) : [];
+  const what = whole ? `Вся неделя ${Number(week.split('-W')[1])}` : keys.length ? selWords(keys) : 'Ничего не выбрано';
+  const tally = phase === 'ready' ? ` — ${count} ${plural(count, ['запись', 'записи', 'записей'])}, ${hu(total)}` : '';
+  const days = Object.values(data.sheets).find(x => x.days)?.days.map(d => d.day) || [];
   return html`<dialog class="plan" ref=${ref} onCancel=${e => { e.preventDefault(); if (phase !== 'sending') onClose(); }}
       aria-labelledby="plan-title">
     <div class="pl">
-      <div class="pl-h"><h2 id="plan-title">Запись в Jira · ${week}</h2></div>
+      <div class="pl-h"><h2 id="plan-title">${what}${tally}</h2><div class="muted">Запись в Jira · ${week}</div></div>
       <div class="pl-b">
         ${phase === 'done' ? html`
           <div class=${`note ${bad.length ? 'bad' : ''}`}><p>Записано ${results.length - bad.length} из ${results.length}.
@@ -504,22 +552,25 @@ function PlanDialog({ week, onClose, onApplied, toast }) {
         : html`
           <div class="note warn"><p><b>Сервер пишет в Jira напрямую, без подтверждения Claude.</b>${' '}
             Это окно — единственная проверка: сверьте список построчно.</p></div>
+          ${avail.length > 1 ? html`<${PickMatrix} days=${days} pend=${pend} picked=${picked} disabled=${phase === 'sending'}
+            onToggle=${toggle} onAll=${() => setPicked(new Set(avail))} />` : ''}
           ${phase === 'loading' ? html`<p class="muted">Сверяю черновик с Jira…</p>` : ''}
+          ${phase === 'empty' ? html`<p class="muted">Отметьте хотя бы один день.</p>` : ''}
           ${err ? html`<div class="note bad"><p>${err}</p></div>` : ''}
-          ${plan && phase !== 'loading' ? (sheets.length ? sheets.map(([name, s]) => html`
+          ${plan && phase !== 'loading' && phase !== 'empty' ? (sheets.length ? sheets.map(([name, s]) => html`
             <h3><span class="dot" style=${{ background: SHEETS[name]?.[1] || 'var(--ink-3)' }}></span>${SHEETS[name]?.[0] || name}
               <span class="muted">${s.actions.length} ${plural(s.actions.length, ['запись', 'записи', 'записей'])}, ${hu(s.total)}</span></h3>
             <table class="lst"><tbody>
               ${s.actions.map(a => row(a, a.comment))}
               ${s.skipped.map(a => row(a, html`<span class="tag warn">не записывается: ${why(a.why)}</span>`, 'skip'))}
-            </tbody></table>`) : html`<p class="muted">Записывать нечего: всё из черновика уже в Jira.</p>`) : ''}`}
+            </tbody></table>`) : html`<p class="muted">Записывать нечего: всё выбранное уже в Jira.</p>`) : ''}`}
       </div>
       <div class="pl-f">
         ${phase === 'done' ? html`<button class="btn primary" onClick=${onClose}>Готово</button>` : html`
-          <span class="sp">${plan && count ? `Итого ${count} ${plural(count, ['ворклог', 'ворклога', 'ворклогов'])}, ${hu(total)}` : ''}</span>
+          <span class="sp">${phase === 'ready' && count ? `Итого ${count} ${plural(count, ['ворклог', 'ворклога', 'ворклогов'])}, ${hu(total)}` : ''}</span>
           <button class="btn" onClick=${onClose} disabled=${phase === 'sending'}>Отмена</button>
           <button class="btn primary" onClick=${send} disabled=${phase !== 'ready' || !count}>
-            ${phase === 'sending' ? html`<span class="spin"></span> Записываю…` : `Записать в Jira${count ? ` — ${count}` : ''}`}</button>`}
+            ${phase === 'sending' ? html`<span class="spin"></span> Записываю…` : `Записать в Jira${phase === 'ready' && count ? ` — ${count}` : ''}`}</button>`}
       </div>
     </div>
   </dialog>`;
@@ -547,7 +598,7 @@ function App() {
   const [saving, setSaving] = useState(0);
   const [, tick] = useState(0);
   const [sel, setSel] = useState(null);
-  const [planOpen, setPlanOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [theme, setTheme] = useState(store.get('timesheet-theme', 'system'));
   const [units, setUnits] = useState(unit);
@@ -599,7 +650,7 @@ function App() {
     return () => removeEventListener('keydown', on);
   });
 
-  const go = w => { setSel(null); setPlanOpen(false); setWeek(w); history.replaceState(null, '', `#${w}`); load(w); };
+  const go = w => { setSel(null); setPlanOpen(null); setWeek(w); history.replaceState(null, '', `#${w}`); load(w); };
 
   const recompute = async () => {
     setStarted(Date.now());
@@ -701,7 +752,7 @@ function App() {
           <button class="btn" onClick=${recompute} disabled=${!data || busy || loading}
             title="Заново собрать черновик из Jira и транскриптов; поправленные вами строки сохранятся">
             ${started ? html`<span class="spin"></span> Пересчитываю… ${elapsed} с` : '↻ Пересчитать'}</button>
-          <button class="btn primary" onClick=${() => setPlanOpen(true)} disabled=${!data || busy || loading || !pp.count}
+          <button class="btn primary" onClick=${() => setPlanOpen({ initial: null })} disabled=${!data || busy || loading || !pp.count}
             title=${pp.skipped ? `Ещё ${pp.skipped} ${plural(pp.skipped, ['строка', 'строки', 'строк'])} не будут записаны — см. метки` : undefined}>
             ${pp.count ? html`<span class="wide">Записать в Jira —</span><span class="narrow">В Jira:</span>
               ${pp.count} ${plural(pp.count, ['запись', 'записи', 'записей'])}, ${hu(pp.seconds)}` : 'Записывать нечего'}</button>
@@ -724,12 +775,13 @@ function App() {
           ${pp.skipped} ${plural(pp.skipped, ['строка', 'строки', 'строк'])} черновика не ${pp.skipped === 1 ? 'уйдёт' : 'уйдут'} в Jira — ${pp.skipped === 1 ? 'на ней метка' : 'на них метки'} вроде «нет зеркала». Откройте ячейку с жёлтой точкой: впишите ключ, поправьте часы или подтвердите строку как есть.</p></div>` : ''}
         ${!data || (loading && data.week !== week) ? html`<${Skeleton} />`
           : names.map(n => html`<${SheetPanel} key=${n} m=${model[n]} sel=${sel} today=${today} dim=${!!started}
-              onOpen=${open} onAdd=${add} />`)}
+              pend=${data.pending?.[n]?.days} canSend=${!busy && !loading} onOpen=${open} onAdd=${add}
+              onSend=${(sh, d) => setPlanOpen({ initial: [`${sh}:${d}`] })} />`)}
       </main>
       ${sel && data && model[sel.sheet] && !model[sel.sheet].s.unavailable ? html`<${Drawer} sel=${sel} model=${model}
         hints=${data.hints || {}} locked=${!!started} act=${act} onClose=${close} />` : ''}
     </div>
-    ${planOpen ? html`<${PlanDialog} week=${week} onClose=${() => setPlanOpen(false)} toast=${toast}
+    ${planOpen && data ? html`<${PlanDialog} data=${data} initial=${planOpen.initial} onClose=${() => setPlanOpen(null)} toast=${toast}
       onApplied=${j => { setData(j); toast('Запись в Jira завершена'); }} />` : ''}
     <${Toasts} items=${toasts} onClose=${id => setToasts(t => t.filter(x => x.id !== id))} />`;
 }

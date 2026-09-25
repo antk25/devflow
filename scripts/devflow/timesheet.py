@@ -638,8 +638,9 @@ def _sig(sheet, key, day, seconds, comment) -> tuple:
     return sheet, key.upper(), str(day), int(seconds), (comment or '').strip()
 
 
-def plan_apply(lines: list, sent: list, live: dict, sheets=None) -> tuple:
-    """(действия, пропуски с причиной); совпадение с журналом или живым ворклогом съедается один раз."""
+def plan_apply(lines: list, sent: list, live: dict, sheets=None, pick=None) -> tuple:
+    """(действия, пропуски с причиной); совпадение с журналом или живым ворклогом съедается один раз.
+    pick — множество (табель, день): строки вне него в план не попадают вовсе."""
     pool = defaultdict(int)
     journaled = set()
     for r in sent:
@@ -653,7 +654,7 @@ def plan_apply(lines: list, sent: list, live: dict, sheets=None) -> tuple:
                     pool[_sig(sheet, w.key, w.day, w.seconds, w.comment)] += 1
     actions, skipped = [], []
     for line in lines:
-        if sheets and line.sheet not in sheets:
+        if sheets and line.sheet not in sheets or pick is not None and (line.sheet, line.day) not in pick:
             continue
         if isinstance(live.get(line.sheet), Unavailable):
             skipped.append((line, f'табель недоступен: {live[line.sheet].reason}'))
@@ -749,17 +750,33 @@ def _load(args):
     return week, load_rules(args.rules, accounts_available())
 
 
-def run_apply(rules: Rules, week: str, sheets, yes: bool) -> int:
+def parse_day(text: str, week: str) -> date:
+    """ISO-дата или день недели (пн…вс) внутри недели week."""
+    start, end = week_range(week)
+    t = text.strip().lower()
+    day = start + timedelta(days=WEEKDAYS.index(t)) if t in WEEKDAYS else date.fromisoformat(t)
+    if not start <= day <= end:
+        raise ValueError(f'{day} вне недели {week}')
+    return day
+
+
+def run_apply(rules: Rules, week: str, sheets, yes: bool, days=None) -> int:
     unknown = [s for s in sheets or [] if s not in rules.sheets]
     if unknown:
         print(f'timesheet: неизвестный табель {", ".join(unknown)}, есть: {", ".join(rules.sheets)}', file=sys.stderr)
         return 2
     try:
+        picked = [parse_day(d, week) for d in days or []]
+    except ValueError as e:
+        print(f'timesheet: плохой --day: {e}', file=sys.stderr)
+        return 2
+    pick = {(s, d) for s in sheets or rules.sheets for d in picked} if picked else None
+    try:
         lines = load_draft(week)
     except FileNotFoundError as e:
         print(f'timesheet: {e}', file=sys.stderr)
         return 2
-    actions, skipped = plan_apply(lines, load_sent(), fetch_worklogs(rules, week), sheets)
+    actions, skipped = plan_apply(lines, load_sent(), fetch_worklogs(rules, week), sheets, pick)
     print(render_apply(actions, skipped, week, yes))
     results = apply(actions, yes, week)
     mark_sent(week, results)
@@ -792,6 +809,7 @@ def main(argv=None) -> int:
     ap_apply.add_argument('--week', default=None)
     ap_apply.add_argument('--rules', type=Path, default=RULES_PATH)
     ap_apply.add_argument('--sheet', action='append', default=None)
+    ap_apply.add_argument('--day', action='append', default=None)
     ap_apply.add_argument('--yes', action='store_true')
     m = sub.add_parser('manual')
     msub = m.add_subparsers(dest='action', required=True)
@@ -844,7 +862,7 @@ def main(argv=None) -> int:
     if args.cmd == 'serve':
         return run_serve(rules, args.port)
     if args.cmd == 'apply':
-        return run_apply(rules, week, args.sheet, args.yes)
+        return run_apply(rules, week, args.sheet, args.yes, args.day)
     worklogs = fetch_worklogs(rules, week)
     if args.cmd == 'summary':
         print(render(summary(rules, worklogs, week), week))

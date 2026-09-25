@@ -4,6 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Табель</title>
+<link rel="icon" href="data:,">
 <style>
 /*TOKENS*/
 
@@ -171,6 +172,9 @@ button.c.sel{outline:2px solid var(--ink);outline-offset:1px}
 .ft .st{display:block;font-family:var(--sans);font-size:.7rem;color:var(--ink-3);margin-top:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ft.under .st{color:var(--warn)}
 .ft.over .st{color:var(--bad)}
+.ft .send{display:inline-block;margin-top:.2rem;padding:.05rem .45rem;border:1px solid var(--rule-strong);border-radius:999px;background:var(--surface);color:var(--draft);font-family:var(--sans);font-size:.7rem;cursor:pointer;white-space:nowrap}
+.ft .send:hover:not(:disabled){border-color:var(--draft);background:var(--draft-soft)}
+.ft .send:disabled{opacity:.45;cursor:default}
 .sheet-foot{display:flex;justify-content:flex-start;padding:.5rem .75rem;border-top:1px solid var(--rule)}
 
 /* заготовка на время загрузки */
@@ -236,12 +240,25 @@ dialog.plan::backdrop{background:rgb(10 14 13 / .45)}
 .pl{display:flex;flex-direction:column;max-height:calc(100vh - 3rem)}
 .pl-h{padding:1rem 1.25rem .75rem;border-bottom:1px solid var(--rule)}
 .pl-h h2{margin:0;font-size:1.15rem}
+.pl-h .muted{font-size:.8rem;margin-top:.15rem}
 .pl-b{padding:1rem 1.25rem;overflow:auto;flex:1}
 .pl-f{display:flex;gap:.5rem;justify-content:flex-end;align-items:center;padding:.8rem 1.25rem;border-top:1px solid var(--rule);flex-wrap:wrap}
 .pl-f .sp{flex:1;font-size:.85rem;color:var(--ink-2)}
 .pl h3{font-size:.95rem;margin:1rem 0 .4rem;display:flex;align-items:center;gap:.45rem}
 .pl h3:first-child{margin-top:0}
 .pl h3 .muted{font-weight:400;font-size:.85rem}
+.pick{margin:0 0 1rem}
+.pick-h{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-size:.8rem;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:.35rem}
+.pick-h .btn{text-transform:none;letter-spacing:0;font-weight:400}
+.pick-w{overflow-x:auto}
+.pick table{border-collapse:collapse;font-size:.8rem;min-width:100%}
+.pick th{font-weight:400;color:var(--ink-3);padding:.2rem .25rem;text-align:center;white-space:nowrap}
+.pick th b{display:block;color:var(--ink);font-weight:600}
+.pick tbody th{text-align:left;color:var(--ink-2);padding-right:.6rem}
+.pick td{padding:.15rem;text-align:center}
+.pick label{display:inline-flex;align-items:center;gap:.25rem;padding:.2rem .4rem;border:1px dashed var(--draft);border-radius:var(--r);font-family:var(--mono);font-variant-numeric:tabular-nums;cursor:pointer;color:var(--ink-3);white-space:nowrap}
+.pick label.on{background:var(--draft-soft);color:var(--ink);border-style:solid}
+.pick input{margin:0;accent-color:var(--draft)}
 table.lst{width:100%;border-collapse:collapse;font-size:.88rem}
 .lst td{padding:.3rem .5rem;border-bottom:1px solid var(--rule);vertical-align:top}
 .lst td.d{white-space:nowrap;color:var(--ink-2);width:5.5rem}
@@ -263,6 +280,7 @@ table.lst{width:100%;border-collapse:collapse;font-size:.88rem}
     border-radius:14px 14px 0 0;box-shadow:0 -12px 40px -12px rgba(0,0,0,.35)}
 }
 @media (max-width:720px){
+  .ft .v span{display:none}
   .top-in{padding:.5rem 1rem}
   .brand,.stamp{display:none}
   .wk{width:100%;justify-content:space-between}
