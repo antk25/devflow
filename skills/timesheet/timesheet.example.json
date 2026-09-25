@@ -1,0 +1,18 @@
+{
+  "sheets": {
+    "client": {"account": "productsearch", "author": "<accountId>", "day_hours": 8, "week_hours": 40},
+    "employer": {"account": "resolventa", "author": "<accountId>", "day_hours": 8, "week_hours": 40}
+  },
+  "projects": {
+    "green": {
+      "client": {"mode": "per-issue", "jira_project": "SE", "manual": ["SE-188"]},
+      "employer": {"mode": "per-issue", "jira_project": "GS", "mirror_prefix": "SE", "mirrors": {"SE-2045": "GS-1214"}}
+    },
+    "captivia": {
+      "employer": {"mode": "per-issue", "jira_project": "CAP", "mirror_prefix": "DEV", "manual": ["CAP-1"], "comment": "QA"}
+    },
+    "ai-pipeline": {
+      "employer": {"mode": "bucket", "issue": "COM-1"}
+    }
+  }
+}
