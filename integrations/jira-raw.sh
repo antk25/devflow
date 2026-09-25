@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# jira-raw.sh — read-only GET к одному ресурсу задачи productsearch Jira, сырой JSON.
+# jira-raw.sh — read-only GET к одному ресурсу задачи Jira (аккаунт — по ключу), сырой JSON.
 # Нужен там, где готовые скрипты отбрасывают поля: worklog, changelog (история
 # переходов статусов), remotelink (связи с PR), comment.
 # Путь жёстко ограничен видом issue/<KEY>[/<sub>], метод всегда GET — записать
@@ -19,12 +19,12 @@ if ! [[ "$TARGET" =~ ^[A-Za-z]+-[0-9]+(/(changelog|worklog|comment|remotelink|tr
   exit 2
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$HOME/.config/devflow/integrations/config.env"
-set +a
+# shellcheck source=jira-accounts.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/jira-accounts.sh"
+jira_accounts_load
+ACCOUNT="$(jira_account_resolve "${TARGET%%/*}")"
 
-url="$JIRA_PS_BASE_URL/rest/api/3/issue/$TARGET"
-[ -n "$QUERY" ] && url="$url?$QUERY"
+path="/rest/api/3/issue/$TARGET"
+[ -n "$QUERY" ] && path="$path?$QUERY"
 
-curl -sS -X GET -u "$JIRA_PS_EMAIL:$JIRA_PS_API_TOKEN" "$url" | jq -r "$FILTER"
+jira_curl "$ACCOUNT" "$path" -S -X GET | jq -r "$FILTER"
