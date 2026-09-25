@@ -1,17 +1,21 @@
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 RULES_PATH = Path.home() / '.config' / 'devflow' / 'timesheet.json'
+STATE_DIR = Path.home() / '.claude' / 'devflow' / 'timesheet'
 INTEGRATIONS = Path(__file__).resolve().parents[2] / 'integrations'
 MSK = timezone(timedelta(hours=3))
 MODES = ('per-issue', 'bucket')
 WEEKDAYS = ('пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс')
+QUARTER = 900
+BLOCK_GAP = timedelta(minutes=15)
 
 
 class RulesError(ValueError):
@@ -72,6 +76,18 @@ class Worklog:
 @dataclass
 class Unavailable:
     reason: str
+
+
+@dataclass
+class DraftLine:
+    sheet: str
+    day: date
+    key: str
+    seconds: int
+    comment: str = ''
+    source: str = 'activity'
+    flags: list = field(default_factory=list)
+    sent_id: str = ''
 
 
 def _positive(value, where: str) -> float:
@@ -266,20 +282,223 @@ def render(s: dict, week: str) -> str:
     return '\n'.join(lines)
 
 
+def key_pattern(rules: Rules) -> re.Pattern:
+    prefixes = sorted({p for r in rules.projects for p in (r.jira_project, r.mirror_prefix) if p})
+    return re.compile(rf"\b(?:{'|'.join(prefixes)})-\d{{1,5}}\b", re.I)
+
+
+def rule_project(rules: Rules, cwd: str) -> str | None:
+    from devflow.transcripts import project_of
+    names = {r.project for r in rules.projects}
+    return next((seg for seg in project_of(cwd).split('/') if seg in names), None)
+
+
+def tagged_messages(rules: Rules, msgs, ledger: dict, since: datetime) -> list:
+    """(ts, project, key) по сообщениям с ts >= since; более ранние дают только метки задач."""
+    from devflow.transcripts import NO_TASK, assign_tasks
+    key_re = key_pattern(rules)
+    by_session = defaultdict(list)
+    for m in msgs:
+        by_session[m.session].append(m)
+    out = []
+    for sid, items in by_session.items():
+        marks = list(ledger.get(sid, []))
+        marks += [(m.ts, k.group(0).upper()) for m in items for k in key_re.finditer(m.text[:8000])]
+        rows = [{'ts': m.ts, 'cwd': m.cwd} for m in items]
+        assign_tasks(rows, marks)
+        for r in rows:
+            project = rule_project(rules, r['cwd'])
+            if project and r['ts'] >= since:
+                out.append((r['ts'], project, '' if r['task'] == NO_TASK else r['task']))
+    return out
+
+
+def activity(rules: Rules, msgs: list, week: str) -> dict:
+    """msgs — (ts, project, key); сб и вс прошлой недели уходят в этот понедельник."""
+    start, end = week_range(week)
+    out = defaultdict(lambda: defaultdict(int))
+    ordered = sorted(msgs, key=lambda m: m[0])
+    for i, (ts, project, key) in enumerate(ordered):
+        gap = ordered[i + 1][0] - ts if i + 1 < len(ordered) else None
+        spent = gap if gap is not None and gap <= BLOCK_GAP else BLOCK_GAP / 2
+        day = ts.astimezone(MSK).date()
+        if day.weekday() >= 5:
+            day += timedelta(days=7 - day.weekday())
+        if start <= day <= end:
+            out[day][(project, key)] += int(spent.total_seconds())
+    return {d: dict(v) for d, v in out.items()}
+
+
+def round_quarters(parts: dict, total: int) -> dict:
+    weights = {k: v for k, v in parts.items() if v > 0}
+    if not weights or total <= 0:
+        return {}
+    whole = sum(weights.values())
+    units = total // QUARTER
+    raw = {k: units * v / whole for k, v in weights.items()}
+    got = {k: int(x) for k, x in raw.items()}
+    for k in sorted(raw, key=lambda k: (-(raw[k] - got[k]), -weights[k]))[:units - sum(got.values())]:
+        got[k] += 1
+    out = {k: n * QUARTER for k, n in got.items()}
+    out[max(weights, key=weights.get)] += total - units * QUARTER
+    return {k: v for k, v in out.items() if v > 0}
+
+
+def _manual_lines(manual: list, sheet: str, day: date, logged: list) -> list:
+    lines = []
+    for m in manual:
+        if m['sheet'] != sheet or date.fromisoformat(str(m['day'])) != day:
+            continue
+        sent = next((w for w in logged if w.key == m['key'] and w.seconds == int(m['seconds'])), None)
+        lines.append(DraftLine(sheet, day, m['key'], int(m['seconds']), m.get('comment', ''), 'manual',
+                               sent_id=sent.id if sent else ''))
+    return lines
+
+
+def draft_client(rules: Rules, worklogs: dict, act: dict, manual: list, week: str, sheet: str = 'client') -> list:
+    start, _ = week_range(week)
+    norm = int(rules.sheets[sheet].day_hours * 3600)
+    logs = worklogs.get(sheet)
+    if isinstance(logs, Unavailable) or logs is None:
+        return []
+    owned = [r for r in rules.projects if r.sheet == sheet and r.mode == 'per-issue']
+    out = []
+    for day in (start + timedelta(days=i) for i in range(5)):
+        logged = [w for w in logs if w.day == day and rules.project_of(sheet, w.key)]
+        manual_lines = _manual_lines(manual, sheet, day, logged)
+        out += manual_lines
+        manual_sec = sum(m.seconds for m in manual_lines if not m.sent_id)
+        remaining = norm - manual_sec - sum(w.seconds for w in logged)
+        if remaining <= 0:
+            continue
+        manual_keys = {k for r in owned for k in r.manual} | {m.key for m in manual_lines}
+        weights = defaultdict(int)
+        for (project, key), sec in act.get(day, {}).items():
+            if key and key not in manual_keys and any(r.project == project and r.owns(key) for r in owned):
+                weights[key] += sec
+        if not weights:
+            out.append(DraftLine(sheet, day, '', 0, flags=['empty-day']))
+            continue
+        per_key_logged = defaultdict(int)
+        for w in logged:
+            per_key_logged[w.key] += w.seconds
+        ideal = round_quarters(weights, norm - manual_sec - sum(v for k, v in per_key_logged.items() if k in manual_keys))
+        need = {k: max(0, v - per_key_logged[k]) for k, v in ideal.items()}
+        for key, sec in sorted(round_quarters(need if any(need.values()) else weights, remaining).items(),
+                               key=lambda kv: -kv[1]):
+            out.append(DraftLine(sheet, day, key, sec))
+    return out
+
+
+def load_manual(week: str, state: Path = STATE_DIR) -> list:
+    path = state / f'manual-{week}.json'
+    return json.loads(path.read_text()) if path.exists() else []
+
+
+def save_manual(week: str, items: list, state: Path = STATE_DIR) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    (state / f'manual-{week}.json').write_text(json.dumps(items, ensure_ascii=False, indent=1))
+
+
+def save_draft(week: str, lines: list, state: Path = STATE_DIR) -> Path:
+    state.mkdir(parents=True, exist_ok=True)
+    path = state / f'draft-{week}.json'
+    rows = [{**asdict(line), 'day': line.day.isoformat()} for line in lines]
+    path.write_text(json.dumps({'week': week, 'generated': datetime.now(MSK).isoformat(timespec='seconds'),
+                                'lines': rows}, ensure_ascii=False, indent=1))
+    return path
+
+
+def load_activity(rules: Rules, week: str) -> dict:
+    from devflow.transcripts import PROJECTS_ROOT, human_messages, load_ledger
+    start, end = week_range(week)
+    count_from = datetime(start.year, start.month, start.day, tzinfo=MSK) - timedelta(days=2)
+    until = datetime(end.year, end.month, end.day, tzinfo=MSK) - timedelta(days=1)
+    msgs = list(human_messages(PROJECTS_ROOT, count_from - timedelta(days=7), until))
+    return activity(rules, tagged_messages(rules, msgs, load_ledger(), count_from), week)
+
+
+def render_draft(lines: list, week: str) -> str:
+    out = [f'Черновик {week}']
+    for line in lines:
+        head = f'  {line.sheet:<8} {WEEKDAYS[line.day.weekday()]} {line.day:%d.%m}'
+        if 'empty-day' in line.flags:
+            out.append(f'{head}  — пустой день, активности нет')
+            continue
+        tail = ' [ручная]' if line.source == 'manual' else ''
+        tail += ' [уже в Jira]' if line.sent_id else ''
+        amount = f'{line.seconds / 3600:5.2f}'.replace('.', ',')
+        out.append(f'{head}  {line.key:<10} {amount}{tail}{"  " + line.comment if line.comment else ""}')
+    if len(out) == 1:
+        out.append('  предлагать нечего: все будние дни добраны')
+    return '\n'.join(out)
+
+
+def _load(args):
+    week = args.week or current_week()
+    return week, load_rules(args.rules, accounts_available())
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog='timesheet')
     sub = ap.add_subparsers(dest='cmd', required=True)
-    p = sub.add_parser('summary')
-    p.add_argument('--week', default=None)
-    p.add_argument('--rules', type=Path, default=RULES_PATH)
+    for name in ('summary', 'draft'):
+        p = sub.add_parser(name)
+        p.add_argument('--week', default=None)
+        p.add_argument('--rules', type=Path, default=RULES_PATH)
+    m = sub.add_parser('manual')
+    msub = m.add_subparsers(dest='action', required=True)
+    add = msub.add_parser('add')
+    add.add_argument('--sheet', required=True)
+    add.add_argument('--day', required=True, type=date.fromisoformat)
+    add.add_argument('--key', required=True)
+    add.add_argument('--hours', required=True, type=float)
+    add.add_argument('--comment', default='')
+    rm = msub.add_parser('rm')
+    rm.add_argument('--week', required=True)
+    rm.add_argument('index', type=int)
+    ls = msub.add_parser('list')
+    ls.add_argument('--week', default=None)
     args = ap.parse_args(argv)
-    week = args.week or current_week()
+
+    if args.cmd == 'manual':
+        if args.action == 'add':
+            week = current_week(args.day)
+            items = load_manual(week)
+            items.append({'sheet': args.sheet, 'day': args.day.isoformat(), 'key': args.key.upper(),
+                          'seconds': round(args.hours * 3600), 'comment': args.comment})
+            save_manual(week, items)
+        elif args.action == 'rm':
+            week = args.week if '-W' in args.week.upper() else current_week(week_range(args.week)[0])
+            items = load_manual(week)
+            if not 0 <= args.index < len(items):
+                print(f'timesheet: нет ручной записи #{args.index}', file=sys.stderr)
+                return 2
+            items.pop(args.index)
+            save_manual(week, items)
+        else:
+            week = args.week if args.week and '-W' in args.week.upper() else \
+                current_week(week_range(args.week)[0] if args.week else None)
+            items = load_manual(week)
+        for i, it in enumerate(items):
+            print(f'{i}  {it["sheet"]:<8} {it["day"]}  {it["key"]:<10} {hours(it["seconds"])}  {it.get("comment", "")}')
+        return 0
+
     try:
-        rules = load_rules(args.rules, accounts_available())
+        week, rules = _load(args)
     except RulesError as e:
         print(f'timesheet: {e}', file=sys.stderr)
         return 2
-    print(render(summary(rules, fetch_worklogs(rules, week), week), week))
+    if '-W' not in week.upper():
+        week = current_week(week_range(week)[0])
+    worklogs = fetch_worklogs(rules, week)
+    if args.cmd == 'summary':
+        print(render(summary(rules, worklogs, week), week))
+        return 0
+    lines = draft_client(rules, worklogs, load_activity(rules, week), load_manual(week), week)
+    path = save_draft(week, lines)
+    print(render_draft(lines, week))
+    print(f'\nЧерновик записан: {path}')
     return 0
 
 
