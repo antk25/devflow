@@ -690,7 +690,7 @@ def render_apply(actions: list, skipped: list, week: str, yes: bool) -> str:
 
 
 def _load(args):
-    week = args.week or current_week()
+    week = getattr(args, 'week', None) or current_week()
     return week, load_rules(args.rules, accounts_available())
 
 
@@ -711,6 +711,17 @@ def run_apply(rules: Rules, week: str, sheets, yes: bool) -> int:
         failed += bool(err)
         print(f'  {line.sheet} {line.day} {line.key}: ' + (f'ОШИБКА {err}' if err else f'записан, worklog {wid}'))
     return 1 if failed else 0
+
+
+def run_serve(rules: Rules, port: int) -> int:
+    from devflow.timesheet_server import App, make_server
+    server = make_server(App(rules), port)
+    print(f'timesheet: http://127.0.0.1:{server.server_address[1]}/  (Ctrl+C — остановить)', flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def main(argv=None) -> int:
@@ -738,6 +749,9 @@ def main(argv=None) -> int:
     rm.add_argument('index', type=int)
     ls = msub.add_parser('list')
     ls.add_argument('--week', default=None)
+    srv = sub.add_parser('serve')
+    srv.add_argument('--port', type=int, default=8765)
+    srv.add_argument('--rules', type=Path, default=RULES_PATH)
     args = ap.parse_args(argv)
 
     if args.cmd == 'manual':
@@ -770,6 +784,8 @@ def main(argv=None) -> int:
         return 2
     if '-W' not in week.upper():
         week = current_week(week_range(week)[0])
+    if args.cmd == 'serve':
+        return run_serve(rules, args.port)
     if args.cmd == 'apply':
         return run_apply(rules, week, args.sheet, args.yes)
     worklogs = fetch_worklogs(rules, week)

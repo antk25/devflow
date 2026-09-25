@@ -1,0 +1,184 @@
+<!doctype html>
+<title>Табель</title>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+
+<style>
+/*TOKENS*/
+
+:root{
+  --s1:#3B82C4;  /* client */
+  --s2:#A8447E;  /* employer */
+}
+.bar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-top:1.4rem}
+.bar button{font:500 .85rem "IBM Plex Sans",sans-serif;padding:.45rem .9rem;background:var(--surface);
+  color:var(--ink);border:1px solid var(--rule-strong);cursor:pointer}
+.bar button.sig{background:var(--sig);color:var(--surface);border-color:var(--sig)}
+.bar button:disabled{opacity:.5;cursor:wait}
+.bar .d{font-size:.83rem}
+.sheet-client{color:var(--s1)} .sheet-employer{color:var(--s2)}
+td.day{white-space:nowrap;font-family:"IBM Plex Mono",monospace}
+tr.first td{border-top:2px solid var(--rule-strong)}
+.muted{color:var(--ink-3)}
+</style>
+
+<div class="page">
+<header>
+  <p class="eyebrow" id="eyebrow">Табель</p>
+  <h1 id="title">Загрузка…</h1>
+  <p class="standfirst" id="stand"></p>
+  <div class="bar">
+    <button id="prev">← неделя</button>
+    <button id="cur">текущая</button>
+    <button id="next">неделя →</button>
+    <button id="recompute" class="sig">пересчитать</button>
+    <span class="d" id="status"></span>
+  </div>
+  <div class="readout" id="readout"></div>
+</header>
+
+<section>
+  <div class="sec-head"><h2>По дням против нормы</h2></div>
+  <div id="days"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Черновик</h2></div>
+  <div id="draft"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Уже в Jira</h2></div>
+  <div id="sent"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>По задачам</h2></div>
+  <div id="issues"></div>
+</section>
+
+<footer>
+  <code>timesheet serve</code> · только чтение; запись в Jira — <code>timesheet apply</code>
+</footer>
+</div>
+
+<script>
+const WD = ['пн','вт','ср','чт','пт','сб','вс'];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const h = sec => (sec / 3600).toFixed(2).replace(/\.?0+$/, '').replace('.', ',') || '0';
+const wd = iso => WD[(new Date(iso + 'T12:00:00').getDay() + 6) % 7];
+const dm = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7);
+const sheetTag = s => `<b class="sheet-${esc(s)}">${esc(s)}</b>`;
+let week = location.hash.slice(1) || '__WEEK__', data = null;
+
+function shift(w, n) {
+  const [y, k] = w.split('-W').map(Number);
+  const jan4 = new Date(Date.UTC(y, 0, 4));
+  const mon = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 864e5 + ((k - 1) * 7 + n * 7) * 864e5);
+  const t = new Date(mon.getTime() + 3 * 864e5), y2 = t.getUTCFullYear();
+  const j4 = new Date(Date.UTC(y2, 0, 4));
+  const wk = 1 + Math.round((mon - (j4.getTime() - ((j4.getUTCDay() + 6) % 7) * 864e5)) / (7 * 864e5));
+  return `${y2}-W${String(wk).padStart(2, '0')}`;
+}
+
+async function load(w, post) {
+  $('status').textContent = post ? 'пересчитываю — это Jira и транскрипты, до минуты…' : 'загружаю…';
+  $('recompute').disabled = true;
+  try {
+    const r = await fetch(`/api/week/${w}${post ? '/recompute' : ''}`, {method: post ? 'POST' : 'GET'});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    data = j; week = j.week; location.hash = week;
+    render(); $('status').textContent = '';
+  } catch (e) {
+    $('status').innerHTML = `<span class="r">ошибка: ${esc(e.message)}</span>`;
+  } finally { $('recompute').disabled = false; }
+}
+
+function draftBy(sheet, day) {
+  return (data.draft?.lines || []).filter(l => l.sheet === sheet && l.day === day && !l.flags.includes('empty-day'));
+}
+
+function render() {
+  const sheets = Object.entries(data.sheets);
+  $('eyebrow').textContent = `Табель · ${data.week}` + (data.week === data.current ? ' · текущая' : '');
+  $('title').textContent = `Неделя ${data.week.split('-')[1]}: ${dm(data.start)} — ${dm(data.end)}`;
+  $('stand').innerHTML = data.draft
+    ? `Черновик рассчитан <b class="num">${esc(data.draft.generated.replace('T', ' ').slice(0, 16))}</b> МСК. Сводка из Jira — на момент открытия недели в этом процессе; «пересчитать» обновит и то, и другое.`
+    : 'Черновика этой недели нет — нажмите «пересчитать».';
+
+  $('readout').innerHTML = sheets.map(([n, s]) => s.unavailable
+    ? `<div class="cell hot"><span class="k">${esc(n)}</span><span class="v">нет доступа</span><span class="n">${esc(s.unavailable)}</span></div>`
+    : `<div class="cell${s.total < s.norm_week ? ' hot' : ''}"><span class="k">${esc(n)} · ${esc(s.account)}</span><span class="v num">${h(s.total)} / ${h(s.norm_week)}</span><span class="n">часов списано / норма; пустых будних дней: ${s.empty.length}</span></div>`
+  ).join('');
+
+  const avail = sheets.filter(([, s]) => !s.unavailable);
+  const warns = sheets.filter(([, s]) => s.unavailable)
+    .map(([n, s]) => `<div class="note warn"><b>${esc(n)}:</b> нет доступа — ${esc(s.unavailable)}</div>`).join('');
+  const days = avail.length ? avail[0][1].days.map(d => d.day) : [];
+  $('days').innerHTML = warns + (days.length ? `<div class="tw"><table><thead><tr><th>День</th>${avail.map(([n]) =>
+      `<th class="n">${sheetTag(n)} списано</th><th class="n">+ черновик</th>`).join('')}</tr></thead><tbody>${
+    days.map((day, i) => {
+      const weekend = i >= 5;
+      const cells = avail.map(([n, s]) => {
+        const got = s.days[i].seconds, add = draftBy(n, day).reduce((a, l) => a + (l.sent_id ? 0 : l.seconds), 0);
+        const cls = !weekend && got + add < s.norm_day ? ' sig' : '';
+        return `<td class="n${!weekend && !got ? ' sig' : ''}">${h(got)} / ${h(s.norm_day)}</td><td class="n${cls}">${add ? '+' + h(add) : '—'}</td>`;
+      }).join('');
+      if (weekend && !avail.some(([n, s]) => s.days[i].seconds || draftBy(n, day).length)) return '';
+      return `<tr><td class="day">${wd(day)} ${dm(day)}</td>${cells}</tr>`;
+    }).join('')}</tbody></table></div>` : '');
+
+  const lines = data.draft?.lines || [];
+  if (!data.draft) $('draft').innerHTML = '<p class="muted">Черновика нет.</p>';
+  else if (!lines.length) $('draft').innerHTML = '<div class="note ok">Предлагать нечего: все будние дни добраны.</div>';
+  else {
+    const order = [...new Set(lines.map(l => l.day))].sort();
+    let rows = '';
+    for (const day of order) for (const n of Object.keys(data.sheets)) {
+      const ls = lines.filter(l => l.day === day && l.sheet === n);
+      ls.forEach((l, i) => {
+        const empty = l.flags.includes('empty-day');
+        const tags = [
+          l.source === 'manual' ? '<span class="tag line">ручная</span>' : '',
+          l.sent_id ? '<span class="tag ok">уже в Jira</span>' : '',
+          ...l.flags.map(f => `<span class="tag warn">${esc(f)}</span>`),
+        ].join(' ');
+        rows += `<tr class="${i === 0 ? 'first' : ''}"><td class="day">${i === 0 ? wd(day) + ' ' + dm(day) : ''}</td>
+          <td>${i === 0 ? sheetTag(n) : ''}</td>
+          <td class="num">${empty ? '<span class="muted">пустой день, активности нет</span>' : esc(l.key || '?')}${l.mirror_of ? ` <span class="muted">← ${esc(l.mirror_of)}</span>` : ''}</td>
+          <td class="n">${empty ? '' : h(l.seconds)}</td><td>${tags}</td><td>${esc(l.comment)}</td></tr>`;
+      });
+    }
+    $('draft').innerHTML = `<div class="tw"><table><thead><tr><th>День</th><th>Табель</th><th>Задача</th><th class="n">Часы</th><th>Метки</th><th>Комментарий</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  $('sent').innerHTML = avail.map(([n, s]) => {
+    const wl = [...s.worklogs].sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key));
+    if (!wl.length) return `<h3>${sheetTag(n)}</h3><p class="muted">Ворклогов за неделю нет.</p>`;
+    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>День</th><th>Задача</th><th class="n">Часы</th><th>Комментарий</th></tr></thead><tbody>${
+      wl.map(w => `<tr><td class="day">${wd(w.day)} ${dm(w.day)}</td><td class="num">${esc(w.key)}</td><td class="n">${h(w.seconds)}</td><td>${esc(w.comment)}</td></tr>`).join('')
+    }</tbody></table></div>`;
+  }).join('') + warns;
+
+  $('issues').innerHTML = avail.map(([n, s]) => {
+    const ps = Object.entries(s.projects).sort((a, b) => b[1] - a[1]);
+    if (!ps.length) return `<h3>${sheetTag(n)}</h3><p class="muted">Пусто.</p>`;
+    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>Проект / задача</th><th class="n">Часы</th></tr></thead><tbody>${
+      ps.map(([p, sec]) => `<tr class="first"><td><b>${esc(p)}</b></td><td class="n"><b>${h(sec)}</b></td></tr>` +
+        Object.entries(s.issues[p]).sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => `<tr><td class="num">&nbsp;&nbsp;${esc(k)}</td><td class="n">${h(v)}</td></tr>`).join('')).join('')
+    }</tbody></table></div>`;
+  }).join('');
+}
+
+$('prev').onclick = () => load(shift(week, -1));
+$('next').onclick = () => load(shift(week, 1));
+$('cur').onclick = () => load(data?.current || week);
+$('recompute').onclick = () => load(week, true);
+addEventListener('hashchange', () => { const w = location.hash.slice(1); if (w && w !== week) load(w); });
+load(week);
+</script>
