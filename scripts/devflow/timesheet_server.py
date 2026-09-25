@@ -106,7 +106,7 @@ class App:
         lines = self.compute(self.rules, logs, week)
         with self.lock:
             old = self._read(week)
-            lines = sync_manual(lines, ts.load_manual(week, self.state))
+            lines = sync_manual(lines, ts.load_manual(week, self.state), logs, self.rules)
             ts.save_draft(week, merge_edits(lines, old), self.state)
             if old and old.get('removed'):
                 self._write(week, {**self._read(week), 'removed': old['removed']})
@@ -360,8 +360,9 @@ def _manual_line(doc: dict, m: dict) -> int | None:
                  (m['sheet'], m['day'], m['key'], m['seconds'])), None)
 
 
-def sync_manual(lines: list, manual: list) -> list:
-    # ручную запись могли добавить или удалить, пока пересчёт шёл без блокировки
+def sync_manual(lines: list, manual: list, logs: dict, rules) -> list:
+    # ручную запись могли добавить или удалить, пока пересчёт шёл без блокировки;
+    # раскладку не подгоняем заново — день сверх нормы помечаем overflow
     sig = lambda sheet, day, key, sec, comment: (sheet, str(day), key, int(sec), (comment or '').strip())
     want = Counter(sig(m['sheet'], m['day'], m['key'], m['seconds'], m.get('comment')) for m in manual)
     out = []
@@ -375,6 +376,15 @@ def sync_manual(lines: list, manual: list) -> list:
         out.append(ln)
     for (sheet, day, key, sec, comment), n in want.items():
         out += [ts.DraftLine(sheet, date.fromisoformat(day), key, sec, comment, 'manual') for _ in range(n)]
+    for sheet, day in {(s[0], date.fromisoformat(s[1])) for s, n in want.items() if n}:
+        day_logs = logs.get(sheet)
+        logged = sum(w.seconds for w in day_logs if w.day == day and rules.project_of(sheet, w.key)) \
+            if isinstance(day_logs, list) else 0
+        mine = [ln for ln in out if (ln.sheet, ln.day) == (sheet, day) and not ln.sent_id]
+        if logged + sum(ln.seconds for ln in mine) > rules.sheets[sheet].day_hours * 3600:
+            for ln in mine:
+                if ln.source != 'manual' and ln.key and 'overflow' not in ln.flags:
+                    ln.flags.append('overflow')
     return out
 
 

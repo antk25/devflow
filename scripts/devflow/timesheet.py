@@ -17,7 +17,9 @@ MSK = timezone(timedelta(hours=3))
 MODES = ('per-issue', 'bucket')
 WEEKDAYS = ('пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс')
 QUARTER = 900
+SEARCH_LIMIT = 5000
 BLOCK_GAP = timedelta(minutes=15)
+UNRESOLVED = {'mirror-unavailable': 'список {} не загрузился', 'ambiguous-mirror': 'зеркал несколько'}
 
 
 class RulesError(ValueError):
@@ -278,12 +280,16 @@ def discrepancies(rules: Rules, worklogs: dict, candidates: dict, week: str,
     for w in e_logs:
         if rules.project_of(sheet, w.key) in client_projects:
             e_keys[w.key] += w.seconds
-    out, paired = [], set()
+    out, paired, unresolved = [], set(), {}
     for src, sec in sorted(c_keys.items()):
         rule = _mirror_rule(rules, sheet, src)
         if rule is None:
             continue
-        found, _ = find_mirror(src, rule, candidates.get(rule.jira_project))
+        found, flag = find_mirror(src, rule, candidates.get(rule.jira_project))
+        if flag in UNRESOLVED:
+            unresolved[src] = UNRESOLVED[flag].format(rule.jira_project)
+            out.append({'kind': 'unresolved', 'key': src, 'pair': '', 'why': unresolved[src], 'seconds': sec})
+            continue
         paired.add(found)
         if not e_keys.get(found):
             out.append({'kind': 'missing', 'sheet': sheet, 'key': src, 'pair': found, 'seconds': sec})
@@ -292,10 +298,17 @@ def discrepancies(rules: Rules, worklogs: dict, candidates: dict, week: str,
             continue
         rule = next(r for r in rules.projects if r.sheet == sheet and r.owns(key))
         src = next((s for s, m in rule.mirrors.items() if m == key), '')
+        cands = candidates.get(rule.jira_project)
+        if not src and cands is None:
+            why = UNRESOLVED['mirror-unavailable'].format(rule.jira_project)
+            out.append({'kind': 'unresolved', 'key': key, 'pair': '', 'why': why, 'seconds': sec})
+            continue
         if not src:
-            head = re.match(rf'\s*({re.escape(rule.mirror_prefix)}-\d+)(?!\d)',
-                            dict(candidates.get(rule.jira_project) or []).get(key, ''), re.I)
+            head = re.match(rf'\s*({re.escape(rule.mirror_prefix)}-\d+)(?!\d)', dict(cands).get(key, ''), re.I)
             src = head.group(1).upper() if head else ''
+        if src in unresolved:
+            out.append({'kind': 'unresolved', 'key': key, 'pair': src, 'why': unresolved[src], 'seconds': sec})
+            continue
         out.append({'kind': 'missing', 'sheet': client, 'key': key, 'pair': src, 'seconds': sec})
     start, _ = week_range(week)
     for day in (start + timedelta(days=i) for i in range(7)):
@@ -317,6 +330,9 @@ def render_discrepancies(items: list) -> str:
         if x['kind'] == 'missing':
             pair = f' (пара {x["pair"]})' if x['pair'] else ' (пары нет)'
             lines.append(f'  {x["key"]:<10} {hours(x["seconds"]):>5} ч — нет в {x["sheet"]}{pair}')
+        elif x['kind'] == 'unresolved':
+            pair = f' (пара {x["pair"]})' if x['pair'] else ''
+            lines.append(f'  {x["key"]:<10} {hours(x["seconds"]):>5} ч — не удалось сопоставить{pair}: {x["why"]}')
         else:
             d = x['day']
             lines.append(f'  {WEEKDAYS[d.weekday()]} {d:%d.%m}  green employer {hours(x["employer"])} ≠ '
@@ -483,7 +499,8 @@ def fetch_candidates(rules: Rules, sheet: str, prefixes: set, call=jira) -> dict
         if r.sheet != sheet or r.mode != 'per-issue' or r.mirror_prefix.upper() not in prefixes:
             continue
         try:
-            issues = call('jira-jql.sh', '--account', account, f'project = {r.jira_project}', 'summary', '5000')
+            issues = call('jira-jql.sh', '--account', account, f'project = {r.jira_project}', 'summary',
+                          str(SEARCH_LIMIT))
             out[r.jira_project] = [(i['key'], (i.get('fields') or {}).get('summary', '')) for i in issues]
         except JiraError:
             out[r.jira_project] = None
@@ -496,19 +513,32 @@ def account_base_url(account: str) -> str:
     return proc.stdout.strip()
 
 
+def load_mirrors(state: Path = STATE_DIR) -> dict:
+    path = state / 'mirrors.jsonl'
+    if not path.exists():
+        return {}
+    return {r['se']: r['gs'] for r in map(json.loads, filter(str.strip, path.read_text().splitlines()))}
+
+
 def ensure_mirror(rules: Rules, src: str, yes: bool, sheet: str = 'employer', client: str = 'client',
-                  call=jira, run=subprocess.run, base_url=account_base_url) -> tuple:
+                  call=jira, run=subprocess.run, base_url=account_base_url, state: Path = STATE_DIR) -> tuple:
     """(ключ зеркала, created, текст для печати); JiraError — если найти или создать нельзя."""
     src = src.upper()
     rule = _mirror_rule(rules, sheet, src)
     if rule is None:
         raise JiraError(f'для {src} нет правила зеркал в табеле {sheet}')
-    found, flag = find_mirror(src, rule, fetch_candidates(rules, sheet, {rule.mirror_prefix.upper()}, call)
-                              .get(rule.jira_project))
+    # поиск Jira видит новую задачу не сразу — журнал ловит повторный вызов сразу после создания
+    if src in (journal := load_mirrors(state)):
+        return journal[src], False, f'{src} → {journal[src]} (зеркало уже создано, журнал mirrors.jsonl)'
+    cands = fetch_candidates(rules, sheet, {rule.mirror_prefix.upper()}, call).get(rule.jira_project)
+    found, flag = find_mirror(src, rule, cands)
     if found:
         return found, False, f'{src} → {found} (зеркало уже есть)'
     if flag != 'no-mirror':
         raise JiraError(f'{src}: {flag}')
+    if len(cands) >= SEARCH_LIMIT:
+        raise JiraError(f'{src}: поиск по {rule.jira_project} вернул {len(cands)} задач — список мог обрезаться, '
+                        f'зеркало не создаю; найдите его в Jira вручную')
     account = rules.sheets[client].account
     issues = call('jira-jql.sh', '--account', account, f'key = {src}', 'summary', '1')
     if not issues:
@@ -528,6 +558,9 @@ def ensure_mirror(rules: Rules, src: str, yes: bool, sheet: str = 'employer', cl
     key = proc.stdout.split()[0] if proc.stdout.split() else ''
     if not key:
         raise JiraError('jira-create.sh не вернул ключ')
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / 'mirrors.jsonl').open('a') as f:
+        f.write(json.dumps({'se': src, 'gs': key, 'at': datetime.now(MSK).isoformat(timespec='seconds')}) + '\n')
     return key, True, f'{src} → {key} (создано)'
 
 

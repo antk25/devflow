@@ -263,6 +263,9 @@ function Discrepancies({ items }) {
   const line = x => x.kind === 'missing'
     ? html`<li title=${x.pair ? `пара ${x.pair} есть, но в этой неделе на неё не списано` : 'пары в другом табеле не нашлось'}>
         <b class="mono">${x.key}</b> ${hu(x.seconds)} — нет в ${x.sheet}${x.pair ? ` (пара ${x.pair})` : ' (пары нет)'}</li>`
+    : x.kind === 'unresolved'
+    ? html`<li title="пару в другом табеле не определить — сверьте вручную">
+        <b class="mono">${x.key}</b> ${hu(x.seconds)} — не удалось сопоставить${x.pair ? ` (пара ${x.pair})` : ''}: ${x.why}</li>`
     : html`<li title="green в employer должен равняться green в client минус CAP и COM за тот же день">
         ${shortDay(x.day)}: green в employer ${hu(x.employer)} ≠ client ${hu(x.client)} − прочее ${hu(x.other)}, разница ${x.diff < 0 ? '−' : '+'}${hu(Math.abs(x.diff))}</li>`;
   return html`<div class="note warn"><p><b>Расхождения между табелями.</b></p>

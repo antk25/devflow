@@ -76,3 +76,19 @@ def test_no_discrepancies_when_sheets_agree():
             'employer': [Worklog('employer', 'GS-1214', MON, 6 * 3600), Worklog('employer', 'CAP-1', MON, 7200)]}
     assert discrepancies(RULES, logs, {'GS': []}, WEEK) == []
     assert render_discrepancies([]) == 'Расхождений между табелями нет'
+
+
+def test_unavailable_or_ambiguous_mirror_is_unresolved_not_missing():
+    from devflow.timesheet import discrepancies, render_discrepancies
+    logs = {'client': [Worklog('client', 'SE-2158', MON, 8 * 3600)],
+            'employer': [Worklog('employer', 'GS-1243', MON, 8 * 3600)]}
+    out = discrepancies(RULES, logs, {'GS': None}, WEEK)
+    assert [x['kind'] for x in out] == ['unresolved', 'unresolved']
+    assert {x['key'] for x in out} == {'SE-2158', 'GS-1243'}
+    text = render_discrepancies(out)
+    assert 'нет в' not in text and 'не удалось сопоставить' in text and 'список GS не загрузился' in text
+
+    two = {'GS': [('GS-1243', 'SE-2158 Поиск'), ('GS-1244', 'SE-2158 копия')]}
+    out = discrepancies(RULES, logs, two, WEEK)
+    assert {(x['kind'], x['key']) for x in out} == {('unresolved', 'SE-2158'), ('unresolved', 'GS-1243')}
+    assert 'зеркал несколько' in render_discrepancies(out)

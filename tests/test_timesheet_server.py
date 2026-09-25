@@ -438,3 +438,32 @@ def test_week_payload_carries_discrepancies_and_caches_candidates(tmp_path):
     kinds = {(x['kind'], x.get('key')) for x in data['discrepancies']}
     assert ('missing', 'SE-1') in kinds and ('day', None) in kinds
     assert asked == [1]
+
+
+def test_week_payload_marks_unmatched_pairs_when_candidates_unavailable(tmp_path):
+    two = Rules({'client': Sheet('client', 'se', 'me', 8, 40), 'employer': Sheet('employer', 'gs', 'me', 8, 40)},
+                [ProjectRule('green', 'client', 'per-issue', 'SE'),
+                 ProjectRule('green', 'employer', 'per-issue', 'GS', mirror_prefix='SE')])
+
+    def fetch(rules, week):
+        return {'client': [Worklog('client', 'SE-2158', MON, 8 * 3600)],
+                'employer': [Worklog('employer', 'GS-1243', MON, 8 * 3600)]}
+
+    app = App(two, tmp_path, fetch, lambda *a: [], candidates=lambda rules, logs: {'GS': None})
+    diff = app.week(WEEK)['discrepancies']
+    assert {(x['kind'], x['key'], x['why']) for x in diff} == {('unresolved', 'SE-2158', 'список GS не загрузился'),
+                                                              ('unresolved', 'GS-1243', 'список GS не загрузился')}
+
+
+def test_manual_entry_added_during_recompute_over_norm_flags_day_overflow(tmp_path):
+    entry = {'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-188', 'seconds': 3600, 'comment': 'Meeting'}
+
+    def compute(rules, logs, week):
+        save_manual(WEEK, [entry], tmp_path)
+        return [DraftLine('client', MON, 'SE-1', 8 * 3600)]
+
+    app = App(rules(), tmp_path, lambda r, w: {'client': []}, compute)
+    data = app.recompute(WEEK)
+    lines = {(ln['key'], ln['source']): ln['flags'] for ln in data['draft']['lines']}
+    assert lines == {('SE-1', 'activity'): ['overflow'], ('SE-188', 'manual'): []}
+    assert data['pending']['client']['count'] == 1 and data['pending']['client']['skipped'] == 1
