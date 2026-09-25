@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from devflow.timesheet import MSK, Worklog, activity, draft_client, load_rules, round_quarters
+from devflow.timesheet import MSK, Worklog, activity, draft_client, draft_employer, load_rules, round_quarters
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'skills/timesheet/timesheet.example.json'
 RULES = load_rules(EXAMPLE, {'productsearch', 'resolventa'})
@@ -75,3 +75,47 @@ def test_full_day_untouched_and_logged_issue_subtracted():
 def test_captivia_activity_not_in_client():
     act = {WED: {('captivia', 'DEV-620'): 3600, ('green', 'SE-1'): 600}}
     assert [(x.key, x.seconds) for x in lines_on(draft_client(RULES, FULL, act, [], WEEK), WED)] == [('SE-1', 8 * 3600)]
+
+CANDS = {'GS': [('GS-11', 'SE-1 a'), ('GS-12', 'SE-2 b'), ('GS-13', 'SE-3 c'), ('GS-1', 'SE-188 Common')],
+         'CAP': [('CAP-481', 'DEV-620: отчёт')]}
+
+
+def emp(lines, day):
+    return {x.key: x.seconds for x in lines if x.day == day and x.sheet == 'employer'}
+
+
+def test_employer_wednesday_green_cut_from_largest():
+    client = [Worklog('client', 'SE-1', WED, 4 * 3600), Worklog('client', 'SE-2', WED, 3 * 3600),
+              Worklog('client', 'SE-3', WED, 3600)]
+    logs = {'client': client, 'employer': []}
+    act = {WED: {('ai-pipeline', ''): 3600, ('captivia', 'DEV-620'): 1800}}
+    lines = draft_employer(RULES, logs, act, [], [], WEEK, CANDS)
+    got = emp(lines, WED)
+    assert got['COM-1'] == 3600 and got['CAP-481'] == 1800
+    assert got['GS-13'] == 3600
+    assert got['GS-11'] + got['GS-12'] + got['GS-13'] == int(6.5 * 3600)
+    assert got['GS-11'] < 4 * 3600 and got['GS-12'] < 3 * 3600
+    assert sum(got.values()) == 8 * 3600
+    assert [x.comment for x in lines if x.key == 'CAP-481'] == ['QA']
+
+
+def test_employer_projects_without_norm_get_activity_and_manual_se188_mirrored():
+    manual = [{'sheet': 'client', 'day': '2026-09-23', 'key': 'SE-188', 'seconds': 3600, 'comment': 'созвон'}]
+    act = {WED: {('green', 'SE-1'): 3000, ('ai-pipeline', ''): 2 * 3600 + 100, ('captivia', 'DEV-620'): 900}}
+    logs = {'client': FULL['client'], 'employer': []}
+    client_lines = draft_client(RULES, logs, act, manual, WEEK)
+    got = emp(draft_employer(RULES, logs, act, manual, client_lines, WEEK, CANDS), WED)
+    assert got['COM-1'] == 2 * 3600 and got['CAP-481'] == 900
+    assert got['GS-1'] == 3600
+    assert sum(got.values()) == 8 * 3600
+
+
+def test_employer_full_day_untouched_logged_subtracted_and_no_mirror():
+    logs = {'client': [Worklog('client', 'SE-1', d, 8 * 3600) for d in (MON, TUE)] +
+            [Worklog('client', 'SE-7', WED, 8 * 3600)],
+            'employer': [Worklog('employer', 'GS-11', MON, 8 * 3600), Worklog('employer', 'GS-11', TUE, 2 * 3600)]}
+    lines = draft_employer(RULES, logs, {}, [], [], WEEK, CANDS)
+    assert not [x for x in lines if x.day == MON]
+    assert emp(lines, TUE) == {'GS-11': 6 * 3600}
+    wed = [x for x in lines if x.day == WED]
+    assert [(x.key, x.mirror_of, x.seconds, x.flags) for x in wed] == [('', 'SE-7', 8 * 3600, ['no-mirror', 'create-mirror'])]

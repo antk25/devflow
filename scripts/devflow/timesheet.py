@@ -88,6 +88,7 @@ class DraftLine:
     source: str = 'activity'
     flags: list = field(default_factory=list)
     sent_id: str = ''
+    mirror_of: str = ''
 
 
 def _positive(value, where: str) -> float:
@@ -390,6 +391,155 @@ def draft_client(rules: Rules, worklogs: dict, act: dict, manual: list, week: st
     return out
 
 
+def find_mirror(key: str, rule: ProjectRule, candidates) -> tuple:
+    """(ключ зеркала или '', флаг или '')."""
+    if key in rule.mirrors:
+        return rule.mirrors[key], ''
+    if candidates is None:
+        return '', 'mirror-unavailable'
+    head = re.compile(rf'^{re.escape(key)}(?![\d])', re.I)
+    found = sorted({k for k, summary in candidates if head.match(summary.strip())})
+    if len(found) == 1:
+        return found[0], ''
+    return '', 'ambiguous-mirror' if found else 'no-mirror'
+
+
+def fetch_candidates(rules: Rules, sheet: str, prefixes: set, call=jira) -> dict:
+    out = {}
+    account = rules.sheets[sheet].account
+    for r in rules.projects:
+        if r.sheet != sheet or r.mode != 'per-issue' or r.mirror_prefix.upper() not in prefixes:
+            continue
+        try:
+            issues = call('jira-jql.sh', '--account', account, f'project = {r.jira_project}', 'summary', '5000')
+            out[r.jira_project] = [(i['key'], (i.get('fields') or {}).get('summary', '')) for i in issues]
+        except JiraError:
+            out[r.jira_project] = None
+    return out
+
+
+def _nearest_quarter(sec: int) -> int:
+    return round(sec / QUARTER) * QUARTER
+
+
+def _cut_largest(parts: dict, excess: int, keep: set) -> dict:
+    parts = dict(parts)
+    while excess > 0:
+        free = [k for k in parts if k not in keep and parts[k] > 0]
+        if not free:
+            break
+        k = max(free, key=lambda k: parts[k])
+        cut = min(QUARTER, excess, parts[k])
+        parts[k] -= cut
+        excess -= cut
+    return parts
+
+
+def _mirror_rule(rules: Rules, sheet: str, key: str) -> ProjectRule | None:
+    prefix = key.split('-')[0].upper()
+    return next((r for r in rules.projects if r.sheet == sheet and r.mirror_prefix.upper() == prefix), None)
+
+
+def draft_employer(rules: Rules, worklogs: dict, act: dict, manual: list, client_lines: list, week: str,
+                   candidates: dict, sheet: str = 'employer', client: str = 'client') -> list:
+    start, _ = week_range(week)
+    norm = int(rules.sheets[sheet].day_hours * 3600)
+    logs = worklogs.get(sheet)
+    client_logs = worklogs.get(client)
+    if isinstance(logs, Unavailable) or logs is None:
+        return []
+    client_logs = [] if isinstance(client_logs, Unavailable) or client_logs is None else client_logs
+    client_projects = {r.project for r in rules.projects if r.sheet == client}
+    own = [r for r in rules.projects if r.sheet == sheet and r.project not in client_projects]
+    out = []
+
+    def mirror(src: str):
+        rule = _mirror_rule(rules, sheet, src)
+        if rule is None:
+            return '', ['no-mirror'], None
+        found, flag = find_mirror(src, rule, candidates.get(rule.jira_project))
+        flags = [flag] if flag else []
+        if flag == 'no-mirror' and rules.project_of(client, src):
+            flags.append('create-mirror')
+        return found, flags, rule
+
+    for day in (start + timedelta(days=i) for i in range(5)):
+        logged = [w for w in logs if w.day == day and rules.project_of(sheet, w.key)]
+        per_key_logged = defaultdict(int)
+        for w in logged:
+            per_key_logged[w.key] += w.seconds
+        manual_lines = _manual_lines(manual, sheet, day, logged)
+        out += manual_lines
+        manual_unsent = sum(m.seconds for m in manual_lines if not m.sent_id)
+        remaining = norm - manual_unsent - sum(per_key_logged.values())
+        if remaining <= 0:
+            continue
+
+        proposed = []
+        for r in own:
+            items = {k: v for (p, k), v in act.get(day, {}).items() if p == r.project}
+            if r.mode == 'bucket':
+                sec = _nearest_quarter(sum(items.values())) - per_key_logged[r.issue]
+                if sec > 0:
+                    proposed.append(DraftLine(sheet, day, r.issue, sec, r.comment))
+                continue
+            for src, v in items.items():
+                if not src or not src.upper().startswith(r.mirror_prefix.upper() + '-'):
+                    continue
+                found, flags, _ = mirror(src)
+                sec = _nearest_quarter(v) - (per_key_logged[found] if found else 0)
+                if sec > 0:
+                    proposed.append(DraftLine(sheet, day, found, sec, r.comment, flags=flags, mirror_of=src))
+
+        client_day = defaultdict(int)
+        for w in client_logs:
+            if w.day == day and rules.project_of(client, w.key):
+                client_day[w.key] += w.seconds
+        for line in client_lines:
+            if line.day == day and line.key and not line.sent_id:
+                client_day[line.key] += line.seconds
+        keep = {k for r in rules.projects if r.sheet == client for k in r.manual}
+        keep |= {line.key for line in client_lines if line.day == day and line.source == 'manual'}
+
+        parts, info = defaultdict(int), {}
+        for src, sec in client_day.items():
+            found, flags, _ = mirror(src)
+            slot = found or f'?{src}'
+            parts[slot] += sec
+            info.setdefault(slot, (src, flags))
+        keep_slots = {mirror(k)[0] or f'?{k}' for k in keep}
+        other_logged = sum(v for k, v in per_key_logged.items() if k not in parts)
+        budget = norm - manual_unsent - other_logged - sum(x.seconds for x in proposed) \
+            - sum(m.seconds for m in manual_lines if m.sent_id)
+        if budget < 0:
+            for x in proposed:
+                x.flags.append('overflow')
+            budget = 0
+        whole = sum(parts.values())
+        ideal = _cut_largest(parts, whole - budget, keep_slots) if whole > budget else dict(parts)
+        out += proposed
+        for slot, sec in sorted(ideal.items(), key=lambda kv: -kv[1]):
+            src, flags = info[slot]
+            key = '' if slot.startswith('?') else slot
+            need = sec - (per_key_logged[key] if key else 0)
+            if need > 0:
+                out.append(DraftLine(sheet, day, key, need, flags=list(flags), mirror_of=src))
+    return out
+
+
+def draft(rules: Rules, worklogs: dict, act: dict, manual: list, week: str, call=jira) -> list:
+    client = draft_client(rules, worklogs, act, manual, week)
+    if 'employer' not in rules.sheets:
+        return client
+    prefixes = {line.key.split('-')[0].upper() for line in client if line.key}
+    for logs in worklogs.values():
+        if isinstance(logs, list):
+            prefixes |= {w.key.split('-')[0].upper() for w in logs}
+    prefixes |= {k.split('-')[0].upper() for day in act.values() for (_, k) in day if k}
+    candidates = fetch_candidates(rules, 'employer', prefixes, call)
+    return client + draft_employer(rules, worklogs, act, manual, client, week, candidates)
+
+
 def load_manual(week: str, state: Path = STATE_DIR) -> list:
     path = state / f'manual-{week}.json'
     return json.loads(path.read_text()) if path.exists() else []
@@ -426,9 +576,11 @@ def render_draft(lines: list, week: str) -> str:
             out.append(f'{head}  — пустой день, активности нет')
             continue
         tail = ' [ручная]' if line.source == 'manual' else ''
+        tail += f' ← {line.mirror_of}' if line.mirror_of else ''
+        tail += ''.join(f' [{f}]' for f in line.flags)
         tail += ' [уже в Jira]' if line.sent_id else ''
         amount = f'{line.seconds / 3600:5.2f}'.replace('.', ',')
-        out.append(f'{head}  {line.key:<10} {amount}{tail}{"  " + line.comment if line.comment else ""}')
+        out.append(f'{head}  {line.key or "?":<10} {amount}{tail}{"  " + line.comment if line.comment else ""}')
     if len(out) == 1:
         out.append('  предлагать нечего: все будние дни добраны')
     return '\n'.join(out)
@@ -495,7 +647,7 @@ def main(argv=None) -> int:
     if args.cmd == 'summary':
         print(render(summary(rules, worklogs, week), week))
         return 0
-    lines = draft_client(rules, worklogs, load_activity(rules, week), load_manual(week), week)
+    lines = draft(rules, worklogs, load_activity(rules, week), load_manual(week), week)
     path = save_draft(week, lines)
     print(render_draft(lines, week))
     print(f'\nЧерновик записан: {path}')
