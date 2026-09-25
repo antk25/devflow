@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# jira-create.sh — создание задачи в Jira (инстанс JIRA_PS_* из config.env).
+# jira-create.sh — создание задачи в Jira (аккаунт — по ключу проекта -P).
 # Без --yes ничего не отправляет, только печатает запрос: реальная запись идёт
 # под отдельным ask-правилом в ~/.claude/settings.json.
 # Описание — файл в wiki-разметке Jira (API v2 принимает её строкой, ADF не нужен).
@@ -33,14 +33,14 @@ done
 
 [[ "$PROJECT" =~ ^[A-Z][A-Z0-9]+$ ]] || { echo "jira-create: нужен -P <PROJECT>, например -P SE" >&2; exit 2; }
 
-set -a
-# shellcheck disable=SC1090
-source "$HOME/.config/devflow/integrations/config.env"
-set +a
-AUTH="$JIRA_PS_EMAIL:$JIRA_PS_API_TOKEN"
+# shellcheck source=jira-accounts.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/jira-accounts.sh"
+jira_accounts_load
+ACCOUNT="$(jira_account_resolve "$PROJECT")"
+echo "jira-create: аккаунт $ACCOUNT" >&2
 
 if [ "$TYPES" = 1 ]; then
-  curl -sS -u "$AUTH" "$JIRA_PS_BASE_URL/rest/api/2/issue/createmeta/$PROJECT/issuetypes" \
+  jira_curl "$ACCOUNT" "/rest/api/2/issue/createmeta/$PROJECT/issuetypes" -S \
     | jq -r '.issueTypes // .values | .[] | "\(.id)\t\(.name)\(if .subtask then " (subtask)" else "" end)"'
   exit 0
 fi
@@ -66,12 +66,11 @@ if [ "$APPLY" != 1 ]; then
   exit 0
 fi
 
-resp=$(curl -sS -u "$AUTH" -H 'Content-Type: application/json' \
-  -d "$payload" "$JIRA_PS_BASE_URL/rest/api/2/issue")
+resp=$(jira_curl "$ACCOUNT" /rest/api/2/issue -S -H 'Content-Type: application/json' -d "$payload")
 key=$(echo "$resp" | jq -r '.key // empty')
 if [ -z "$key" ]; then
   echo "jira-create: Jira отказала:" >&2
   echo "$resp" | jq . >&2
   exit 1
 fi
-echo "$key $JIRA_PS_BASE_URL/browse/$key"
+echo "$key $(jira_account_field "$ACCOUNT" BASE_URL)/browse/$key"

@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Ищет задачи в Jira productsearch по JQL и печатает одну строку на задачу.
-# Использование:  jira-search.sh 'project = SE AND text ~ "blog" ORDER BY created DESC' [maxResults]
+# Ищет задачи в Jira по JQL (аккаунт — --account, без него — по умолчанию) и печатает одну строку на задачу.
+# Использование:  jira-search.sh [--account <имя>] 'project = SE AND text ~ "blog" ORDER BY created DESC' [maxResults]
 set -euo pipefail
+
+ACCOUNT=""
+if [ "${1:-}" = "--account" ]; then ACCOUNT="${2:?--account: нужно имя}"; shift 2; fi
 
 JQL="${1:?Использование: jira-search.sh <JQL> [maxResults]}"
 MAX="${2:-50}"
 
-set -a
-# shellcheck disable=SC1090
-source "$HOME/.config/devflow/integrations/config.env"
-set +a
+# shellcheck source=jira-accounts.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/jira-accounts.sh"
+jira_accounts_load
+ACCOUNT="$(jira_account_resolve "${ACCOUNT:-${_JIRA_DEFAULT:-$(jira_accounts_list | head -n1)}}")"
 
-curl -sS -u "$JIRA_PS_EMAIL:$JIRA_PS_API_TOKEN" -G \
-  "$JIRA_PS_BASE_URL/rest/api/3/search/jql" \
+jira_curl "$ACCOUNT" /rest/api/3/search/jql -S -G \
   --data-urlencode "jql=$JQL" \
   --data-urlencode "maxResults=$MAX" \
   --data-urlencode "fields=summary,status,assignee,created,updated" \
