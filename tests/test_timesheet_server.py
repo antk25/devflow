@@ -136,3 +136,86 @@ def test_bad_edit_is_rejected(served, body):
         call(server, f'/api/week/{WEEK}/draft/0', 'PUT', body)
     assert e.value.code == 400
     assert json.loads((state / f'draft-{WEEK}.json').read_text())['lines'][0]['seconds'] == 900
+
+
+class FakeJira:
+    def __init__(self):
+        self.calls, self.next_id = [], 100
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd[1:])
+        self.next_id += 1
+        out = json.dumps({'id': str(self.next_id)}) if cmd[1] == 'add' else ''
+        return type('P', (), {'returncode': 0, 'stdout': out, 'stderr': ''})()
+
+
+@pytest.fixture
+def writable(tmp_path):
+    calls, jira = Calls(), FakeJira()
+    server = make_server(App(rules(), tmp_path, calls.fetch_fn, calls.compute_fn, jira), 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-2', 7200, 'код'),
+                      DraftLine('client', MON, 'SE-3', 900, flags=['no-mirror'])], tmp_path)
+    yield server, jira, tmp_path
+    server.shutdown()
+    server.server_close()
+
+
+def status(server, path, method, body=None):
+    try:
+        call(server, path, method, body)
+    except urllib.error.HTTPError as e:
+        return e.code
+    return 200
+
+
+def test_plan_lists_actions_and_skips_per_sheet(writable):
+    server, jira, _ = writable
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    client = plan['sheets']['client']
+    assert [a['key'] for a in client['actions']] == ['SE-2'] and client['total'] == 7200
+    assert client['skipped'][0]['why'] == 'no-mirror'
+    assert plan['hash'] and jira.calls == []
+
+
+def test_apply_without_matching_hash_sends_nothing(writable):
+    server, jira, state = writable
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {}) == 409
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': 'x'}) == 409
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    save_draft(WEEK, [DraftLine('client', MON, 'SE-2', 3600, 'код')], state)
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']}) == 409
+    assert jira.calls == [] and not (state / 'sent.jsonl').exists()
+
+
+def test_apply_writes_once_and_repeat_press_makes_no_duplicates(writable):
+    server, jira, state = writable
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    data = call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']})
+    assert data['results'] == [{'sheet': 'client', 'day': MON.isoformat(), 'key': 'SE-2', 'worklog_id': '101', 'error': ''}]
+    assert jira.calls[0][:2] == ['add', 'SE-2'] and jira.calls[0][-1] == '--yes'
+    assert status(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']}) == 409
+    again = call(server, f'/api/week/{WEEK}/plan')
+    assert again['sheets']['client']['actions'] == []
+    call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': again['hash']})
+    assert len(jira.calls) == 1
+    assert len((state / 'sent.jsonl').read_text().splitlines()) == 1
+
+
+def test_sent_change_requires_confirm(writable):
+    server, jira, _ = writable
+    assert status(server, f'/api/week/{WEEK}/sent/55', 'PUT', {'key': 'SE-1', 'seconds': 1800}) == 400
+    assert status(server, f'/api/week/{WEEK}/sent/55', 'DELETE', {'key': 'SE-1', 'confirm': 'yes'}) == 400
+    assert jira.calls == []
+
+
+def test_sent_update_and_delete_with_confirm_sync_journal(writable):
+    server, jira, state = writable
+    plan = call(server, f'/api/week/{WEEK}/plan')
+    call(server, f'/api/week/{WEEK}/apply', 'POST', {'hash': plan['hash']})
+    call(server, f'/api/week/{WEEK}/sent/101', 'PUT', {'key': 'SE-2', 'seconds': 5400, 'confirm': True})
+    assert jira.calls[-1] == ['update', 'SE-2', '101', '--seconds', '5400', '--yes']
+    assert json.loads((state / 'sent.jsonl').read_text())['seconds'] == 5400
+    call(server, f'/api/week/{WEEK}/sent/101', 'DELETE', {'key': 'SE-2', 'confirm': True})
+    assert jira.calls[-1] == ['delete', 'SE-2', '101', '--yes']
+    assert (state / 'sent.jsonl').read_text() == ''

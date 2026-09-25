@@ -1,5 +1,7 @@
+import hashlib
 import json
 import re
+import subprocess
 import threading
 from dataclasses import asdict
 from datetime import date
@@ -12,11 +14,15 @@ HOST = '127.0.0.1'
 SKILL_DIR = Path(__file__).resolve().parents[2] / 'skills'
 INDEX = SKILL_DIR / 'timesheet' / 'index.html'
 TOKENS = SKILL_DIR / 'page' / 'references' / 'tokens.css'
-ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual)(?:/(\d+))?)?$', re.I)
+ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual|plan|apply|sent)(?:/(\d+))?)?$', re.I)
 KEY = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
 
 
 class BadRequest(ValueError):
+    pass
+
+
+class Conflict(ValueError):
     pass
 
 
@@ -31,8 +37,9 @@ def _json_default(v):
 
 
 class App:
-    def __init__(self, rules, state=ts.STATE_DIR, fetch=ts.fetch_worklogs, compute=None):
-        self.rules, self.state, self.fetch = rules, state, fetch
+    def __init__(self, rules, state=ts.STATE_DIR, fetch=ts.fetch_worklogs, compute=None, run=subprocess.run):
+        self.rules, self.state, self.fetch, self.run = rules, state, fetch, run
+        self.write_lock = threading.Lock()
         self.compute = compute or (lambda rules, logs, week: ts.draft(
             rules, logs, ts.load_activity(rules, week), ts.load_manual(week, state), week))
         self.cache, self.lock = {}, threading.Lock()
@@ -152,6 +159,78 @@ class App:
                     self._write(week, doc)
         return self.week(week)
 
+    def _plan(self, week: str) -> tuple:
+        try:
+            lines = ts.load_draft(week, self.state)
+        except FileNotFoundError:
+            raise BadRequest('черновика нет — сначала «пересчитать»')
+        actions, skipped = ts.plan_apply(lines, ts.load_sent(self.state), self._worklogs(week, fresh=True))
+        row = lambda x: {'day': x.day.isoformat(), 'key': x.key, 'seconds': x.seconds, 'comment': x.comment,
+                         'mirror_of': x.mirror_of}
+        sheets = {}
+        for name in sorted({x.sheet for x in actions} | {x.sheet for x, _ in skipped}):
+            mine = [row(x) for x in actions if x.sheet == name]
+            sheets[name] = {'actions': mine, 'total': sum(x['seconds'] for x in mine),
+                            'skipped': [{**row(x), 'why': why} for x, why in skipped if x.sheet == name]}
+        body = {'week': week, 'sheets': sheets}
+        body['hash'] = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return body, actions
+
+    def plan(self, week: str) -> dict:
+        return self._plan(week)[0]
+
+    def apply(self, week: str, body: dict) -> dict:
+        with self.write_lock:
+            plan, actions = self._plan(week)
+            if not body.get('hash') or body['hash'] != plan['hash']:
+                raise Conflict('план изменился с момента показа — ничего не отправлено, проверьте заново')
+            results = ts.apply(actions, True, week, self.state, self.run)
+            self._worklogs(week, fresh=True)
+        return {**self.week(week), 'results': [
+            {'sheet': x.sheet, 'day': x.day.isoformat(), 'key': x.key, 'worklog_id': wid, 'error': err}
+            for x, wid, err in results]}
+
+    def change_sent(self, week: str, wid: int, body: dict | None) -> dict:
+        body = body or {}
+        if body.get('confirm') is not True:
+            raise BadRequest('правка и удаление в Jira — только с confirm: true')
+        key = str(body.get('key', '')).strip().upper()
+        if not KEY.match(key):
+            raise BadRequest(f'плохой ключ задачи {key!r}')
+        delete = body.get('delete') is True
+        args = ['delete' if delete else 'update', key, str(wid)]
+        if not delete:
+            sec = body.get('seconds')
+            if sec is not None:
+                if not isinstance(sec, (int, float)) or isinstance(sec, bool) or not 0 < sec <= 24 * 3600:
+                    raise BadRequest(f'плохие часы {sec!r}')
+                args += ['--seconds', str(round(sec))]
+            if 'comment' in body:
+                args += ['--comment', str(body['comment'])]
+            if len(args) == 3:
+                raise BadRequest('нечего менять: нужны seconds или comment')
+        with self.write_lock:
+            proc = self.run([str(ts.INTEGRATIONS / 'jira-worklog.sh'), *args, '--yes'], capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise BadRequest((proc.stderr.strip().splitlines() or [f'код {proc.returncode}'])[-1])
+            self._sync_sent(str(wid), None if delete else body)
+            self._worklogs(week, fresh=True)
+        return self.week(week)
+
+    def _sync_sent(self, wid: str, change: dict | None) -> None:
+        path = self.state / 'sent.jsonl'
+        if not path.exists():
+            return
+        out = []
+        for r in ts.load_sent(self.state):
+            if r.get('worklog_id') == wid:
+                if change is None:
+                    continue
+                r = {**r, **{k: change[k] for k in ('seconds', 'comment') if k in change}}
+                r['seconds'] = round(r['seconds'])
+            out.append(json.dumps(r, ensure_ascii=False))
+        path.write_text(''.join(line + '\n' for line in out))
+
     def index(self) -> bytes:
         html = INDEX.read_text().replace('/*TOKENS*/', TOKENS.read_text()).replace('__WEEK__', ts.current_week())
         return html.encode()
@@ -205,6 +284,10 @@ def make_handler(app: App):
                 ('DELETE', 'draft', True): lambda w: app.edit_line(w, int(idx), None),
                 ('POST', 'manual', False): lambda w: app.add_manual(w, self._body()),
                 ('DELETE', 'manual', True): lambda w: app.remove_manual(w, int(idx)),
+                ('GET', 'plan', False): lambda w: app.plan(w),
+                ('POST', 'apply', False): lambda w: app.apply(w, self._body()),
+                ('PUT', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': False}),
+                ('DELETE', 'sent', True): lambda w: app.change_sent(w, int(idx), {**self._body(), 'delete': True}),
             }
             fn = handlers.get((method, action, idx is not None)) if m else None
             if fn is None:
@@ -213,6 +296,8 @@ def make_handler(app: App):
                 self._json(200, fn(norm_week(m.group(1))))
             except BadRequest as e:
                 self._json(400, {'error': str(e)})
+            except Conflict as e:
+                self._json(409, {'error': str(e)})
             except Exception as e:
                 self._json(500, {'error': str(e)})
 

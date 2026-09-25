@@ -28,6 +28,8 @@ tr.first td{border-top:2px solid var(--rule-strong)}
 .ed button{font-size:.8rem;padding:.2rem .5rem;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);cursor:pointer}
 .ed tr.edited td{background:color-mix(in srgb,var(--sig) 6%,transparent)}
 form.ed{display:flex;flex-wrap:wrap;gap:.4rem;align-items:end;margin-top:.8rem}
+dialog{max-width:52rem;width:92vw;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);padding:1.2rem 1.4rem}
+dialog::backdrop{background:rgb(0 0 0 / .35)}
 form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--ink-3)}
 </style>
 
@@ -41,6 +43,7 @@ form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--in
     <button id="cur">текущая</button>
     <button id="next">неделя →</button>
     <button id="recompute" class="sig">пересчитать</button>
+    <button id="apply">записать в Jira…</button>
     <span class="d" id="status"></span>
   </div>
   <div class="readout" id="readout"></div>
@@ -71,8 +74,16 @@ form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--in
   </form>
 </section>
 
+<dialog id="confirm">
+  <h2 id="ctitle">Запись в Jira</h2>
+  <div class="note warn">Сервер пишет в Jira напрямую, в обход подтверждения Claude. Эта кнопка — единственная проверка: сверьте список.</div>
+  <div id="cbody"></div>
+  <div class="bar"><button id="cgo" class="sig">записать</button><button id="cno">отмена</button><span class="d" id="cstat"></span></div>
+</dialog>
+
 <section>
   <div class="sec-head"><h2>Уже в Jira</h2></div>
+  <p class="muted">Правка и удаление уходят в Jira сразу после подтверждения.</p>
   <div id="sent"></div>
 </section>
 
@@ -82,7 +93,7 @@ form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--in
 </section>
 
 <footer>
-  <code>timesheet serve</code> · правки — только в файлах недели; запись в Jira — <code>timesheet apply</code>
+  <code>timesheet serve</code> · запись в Jira — кнопкой «записать в Jira…» или <code>timesheet apply</code>
 </footer>
 </div>
 
@@ -221,8 +232,9 @@ function render() {
   $('sent').innerHTML = avail.map(([n, s]) => {
     const wl = [...s.worklogs].sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key));
     if (!wl.length) return `<h3>${sheetTag(n)}</h3><p class="muted">Ворклогов за неделю нет.</p>`;
-    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>День</th><th>Задача</th><th class="n">Часы</th><th>Комментарий</th></tr></thead><tbody>${
-      wl.map(w => `<tr><td class="day">${wd(w.day)} ${dm(w.day)}</td><td class="num">${esc(w.key)}</td><td class="n">${h(w.seconds)}</td><td>${esc(w.comment)}</td></tr>`).join('')
+    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>День</th><th>Задача</th><th class="n">Часы</th><th>Комментарий</th><th></th></tr></thead><tbody>${
+      wl.map(w => `<tr><td class="day">${wd(w.day)} ${dm(w.day)}</td><td class="num">${esc(w.key)}</td><td class="n">${h(w.seconds)}</td><td>${esc(w.comment)}</td>
+        <td>${w.id ? `<button onclick="editSent('${esc(w.key)}', ${Number(w.id)}, ${w.seconds})">часы…</button> <button onclick="dropSent('${esc(w.key)}', ${Number(w.id)}, ${w.seconds})" title="удалить в Jira">×</button>` : ''}</td></tr>`).join('')
     }</tbody></table></div>`;
   }).join('') + warns;
 
@@ -236,6 +248,57 @@ function render() {
     }</tbody></table></div>`;
   }).join('');
 }
+
+function editSent(key, id, sec) {
+  const v = prompt(`${key}, ворклог ${id}: новые часы (сейчас ${h(sec)}). Изменение уйдёт в Jira сразу.`, h(sec));
+  if (v === null) return;
+  const s = toSec(v);
+  if (!(s > 0)) return alert('плохие часы');
+  if (confirm(`Изменить в Jira ${key}: ${h(sec)} → ${h(s)} ч?`)) mutate(`sent/${id}`, 'PUT', {key, seconds: s, confirm: true});
+}
+
+function dropSent(key, id, sec) {
+  if (confirm(`Удалить в Jira ворклог ${key} (${h(sec)} ч)? Отменить нельзя.`)) mutate(`sent/${id}`, 'DELETE', {key, confirm: true});
+}
+
+let shownHash = null;
+function planRow(a, extra) {
+  return `<tr><td class="day">${wd(a.day)} ${dm(a.day)}</td><td class="num">${esc(a.key || '?')}${a.mirror_of ? ` <span class="muted">← ${esc(a.mirror_of)}</span>` : ''}</td><td class="n">${h(a.seconds)}</td><td>${extra}</td></tr>`;
+}
+
+async function openPlan() {
+  shownHash = null; $('cgo').disabled = true; $('cbody').innerHTML = ''; $('cstat').textContent = 'сверяю с Jira…';
+  $('confirm').showModal();
+  try {
+    const r = await fetch(`/api/week/${week}/plan`), p = await r.json();
+    if (!r.ok) throw new Error(p.error || r.status);
+    const ss = Object.entries(p.sheets), n = ss.reduce((a, [, s]) => a + s.actions.length, 0);
+    $('ctitle').textContent = `Запись в Jira · ${p.week}`;
+    $('cbody').innerHTML = ss.length ? ss.map(([name, s]) => `<h3>${sheetTag(name)}: к записи ${s.actions.length}, всего ${h(s.total)} ч</h3>
+      <div class="tw"><table><tbody>${s.actions.map(a => planRow(a, esc(a.comment))).join('')}${
+        s.skipped.map(a => planRow(a, `<span class="tag warn">пропуск: ${esc(a.why)}</span>`)).join('')}</tbody></table></div>`).join('')
+      : '<p class="muted">Записывать нечего.</p>';
+    shownHash = p.hash; $('cgo').disabled = !n;
+    $('cstat').textContent = n ? '' : 'записывать нечего';
+  } catch (e) { $('cstat').innerHTML = `<span class="r">ошибка: ${esc(e.message)}</span>`; }
+}
+
+$('cgo').onclick = async () => {
+  $('cgo').disabled = true; $('cstat').textContent = 'записываю…';
+  try {
+    const r = await fetch(`/api/week/${week}/apply`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hash: shownHash})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    data = j; render();
+    const bad = j.results.filter(x => x.error);
+    $('cbody').innerHTML = `<p>Записано: ${j.results.length - bad.length}${bad.length ? `, ошибок: ${bad.length}` : ''}.</p>` +
+      bad.map(x => `<div class="note warn">${esc(x.sheet)} ${esc(x.day)} ${esc(x.key)}: ${esc(x.error)}</div>`).join('');
+    $('cstat').textContent = '';
+  } catch (e) { $('cstat').innerHTML = `<span class="r">${esc(e.message)}</span>`; }
+};
+$('cno').onclick = () => $('confirm').close();
+$('apply').onclick = openPlan;
 
 $('madd').onsubmit = e => {
   e.preventDefault();
