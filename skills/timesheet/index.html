@@ -22,6 +22,13 @@
 td.day{white-space:nowrap;font-family:"IBM Plex Mono",monospace}
 tr.first td{border-top:2px solid var(--rule-strong)}
 .muted{color:var(--ink-3)}
+.ed input,.ed select{font:inherit;font-size:.85rem;padding:.2rem .3rem;border:1px solid var(--rule);background:var(--surface);color:var(--ink);width:100%;box-sizing:border-box}
+.ed input.h{width:4.5rem;text-align:right;font-family:"IBM Plex Mono",monospace}
+.ed input.k{width:7rem;font-family:"IBM Plex Mono",monospace}
+.ed button{font-size:.8rem;padding:.2rem .5rem;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+.ed tr.edited td{background:color-mix(in srgb,var(--sig) 6%,transparent)}
+form.ed{display:flex;flex-wrap:wrap;gap:.4rem;align-items:end;margin-top:.8rem}
+form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--ink-3)}
 </style>
 
 <div class="page">
@@ -46,7 +53,22 @@ tr.first td{border-top:2px solid var(--rule-strong)}
 
 <section>
   <div class="sec-head"><h2>Черновик</h2></div>
+  <p class="muted">Правка сохраняется сразу при уходе из поля. Поправленные строки переживают «пересчитать»; удалённые не возвращаются.</p>
   <div id="draft"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Ручные записи</h2></div>
+  <p class="muted">Встречи и прочее, чего нет в транскриптах. Идут первыми; остаток дня раскладывается вокруг них по «пересчитать».</p>
+  <div id="manual"></div>
+  <form class="ed" id="madd">
+    <label>день<select name="day" id="mday"></select></label>
+    <label>табель<select name="sheet" id="msheet"></select></label>
+    <label>задача<input name="key" class="k" placeholder="SE-2185" required></label>
+    <label>часы<input name="hours" class="h" inputmode="decimal" placeholder="1,5" required></label>
+    <label style="flex:1">комментарий<input name="comment"></label>
+    <button type="submit">добавить</button>
+  </form>
 </section>
 
 <section>
@@ -60,7 +82,7 @@ tr.first td{border-top:2px solid var(--rule-strong)}
 </section>
 
 <footer>
-  <code>timesheet serve</code> · только чтение; запись в Jira — <code>timesheet apply</code>
+  <code>timesheet serve</code> · правки — только в файлах недели; запись в Jira — <code>timesheet apply</code>
 </footer>
 </div>
 
@@ -71,6 +93,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const h = sec => (sec / 3600).toFixed(2).replace(/\.?0+$/, '').replace('.', ',') || '0';
 const wd = iso => WD[(new Date(iso + 'T12:00:00').getDay() + 6) % 7];
 const dm = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7);
+const toSec = v => { const x = parseFloat(String(v).replace(',', '.')); return isFinite(x) ? Math.round(x * 3600) : NaN; };
 const sheetTag = s => `<b class="sheet-${esc(s)}">${esc(s)}</b>`;
 let week = location.hash.slice(1) || '__WEEK__', data = null;
 
@@ -98,6 +121,32 @@ async function load(w, post) {
   } finally { $('recompute').disabled = false; }
 }
 
+async function mutate(path, method, body) {
+  $('status').textContent = 'сохраняю…';
+  try {
+    const r = await fetch(`/api/week/${week}/${path}`, {method, headers: {'Content-Type': 'application/json'},
+      body: body === undefined ? undefined : JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    data = j; render(); $('status').textContent = 'сохранено';
+  } catch (e) {
+    $('status').innerHTML = `<span class="r">ошибка: ${esc(e.message)}</span>`; render();
+  }
+}
+
+function editLine(i, field, value) {
+  const body = {};
+  if (field === 'hours') body.seconds = toSec(value);
+  else body[field] = value;
+  mutate(`draft/${i}`, 'PUT', body);
+}
+
+function daySelect(cur, attrs) {
+  const ds = [];
+  for (let t = new Date(data.start + 'T12:00:00'); ds.length < 7; t = new Date(t.getTime() + 864e5)) ds.push(t.toISOString().slice(0, 10));
+  return `<select ${attrs}>${ds.map(d => `<option value="${d}"${d === cur ? ' selected' : ''}>${wd(d)} ${dm(d)}</option>`).join('')}</select>`;
+}
+
 function draftBy(sheet, day) {
   return (data.draft?.lines || []).filter(l => l.sheet === sheet && l.day === day && !l.flags.includes('empty-day'));
 }
@@ -120,13 +169,13 @@ function render() {
     .map(([n, s]) => `<div class="note warn"><b>${esc(n)}:</b> нет доступа — ${esc(s.unavailable)}</div>`).join('');
   const days = avail.length ? avail[0][1].days.map(d => d.day) : [];
   $('days').innerHTML = warns + (days.length ? `<div class="tw"><table><thead><tr><th>День</th>${avail.map(([n]) =>
-      `<th class="n">${sheetTag(n)} списано</th><th class="n">+ черновик</th>`).join('')}</tr></thead><tbody>${
+      `<th class="n">${sheetTag(n)} списано / норма</th><th class="n">+ черновик = итог</th>`).join('')}</tr></thead><tbody>${
     days.map((day, i) => {
       const weekend = i >= 5;
       const cells = avail.map(([n, s]) => {
         const got = s.days[i].seconds, add = draftBy(n, day).reduce((a, l) => a + (l.sent_id ? 0 : l.seconds), 0);
         const cls = !weekend && got + add < s.norm_day ? ' sig' : '';
-        return `<td class="n${!weekend && !got ? ' sig' : ''}">${h(got)} / ${h(s.norm_day)}</td><td class="n${cls}">${add ? '+' + h(add) : '—'}</td>`;
+        return `<td class="n${!weekend && !got ? ' sig' : ''}">${h(got)} / ${h(s.norm_day)}</td><td class="n${cls}">${add ? '+' + h(add) + ' = ' + h(got + add) : '—'}</td>`;
       }).join('');
       if (weekend && !avail.some(([n, s]) => s.days[i].seconds || draftBy(n, day).length)) return '';
       return `<tr><td class="day">${wd(day)} ${dm(day)}</td>${cells}</tr>`;
@@ -141,20 +190,33 @@ function render() {
     for (const day of order) for (const n of Object.keys(data.sheets)) {
       const ls = lines.filter(l => l.day === day && l.sheet === n);
       ls.forEach((l, i) => {
-        const empty = l.flags.includes('empty-day');
+        const idx = lines.indexOf(l), empty = l.flags.includes('empty-day'), ro = empty || l.sent_id;
         const tags = [
           l.source === 'manual' ? '<span class="tag line">ручная</span>' : '',
           l.sent_id ? '<span class="tag ok">уже в Jira</span>' : '',
+          l.edited ? '<span class="tag line">правка</span>' : '',
           ...l.flags.map(f => `<span class="tag warn">${esc(f)}</span>`),
         ].join(' ');
-        rows += `<tr class="${i === 0 ? 'first' : ''}"><td class="day">${i === 0 ? wd(day) + ' ' + dm(day) : ''}</td>
+        const on = f => `onchange="editLine(${idx}, '${f}', this.value)"`;
+        rows += `<tr class="${i === 0 ? 'first' : ''}${l.edited ? ' edited' : ''}"><td class="day">${ro ? (i === 0 ? wd(day) + ' ' + dm(day) : '') : daySelect(day, on('day'))}</td>
           <td>${i === 0 ? sheetTag(n) : ''}</td>
-          <td class="num">${empty ? '<span class="muted">пустой день, активности нет</span>' : esc(l.key || '?')}${l.mirror_of ? ` <span class="muted">← ${esc(l.mirror_of)}</span>` : ''}</td>
-          <td class="n">${empty ? '' : h(l.seconds)}</td><td>${tags}</td><td>${esc(l.comment)}</td></tr>`;
+          <td class="num">${empty ? '<span class="muted">пустой день, активности нет</span>' : ro ? esc(l.key || '?') : `<input class="k" value="${esc(l.key)}" ${on('key')}>`}${l.mirror_of ? ` <span class="muted">← ${esc(l.mirror_of)}</span>` : ''}</td>
+          <td class="n">${empty ? '' : ro ? h(l.seconds) : `<input class="h" value="${h(l.seconds)}" ${on('hours')}>`}</td><td>${tags}</td>
+          <td>${ro ? esc(l.comment) : `<input value="${esc(l.comment)}" ${on('comment')}>`}</td>
+          <td>${ro ? '' : `<button onclick="mutate('draft/${idx}', 'DELETE')" title="удалить строку">×</button>`}</td></tr>`;
       });
     }
-    $('draft').innerHTML = `<div class="tw"><table><thead><tr><th>День</th><th>Табель</th><th>Задача</th><th class="n">Часы</th><th>Метки</th><th>Комментарий</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    $('draft').innerHTML = `<div class="tw"><table><thead><tr><th>День</th><th>Табель</th><th>Задача</th><th class="n">Часы</th><th>Метки</th><th>Комментарий</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    $('draft').firstChild.classList.add('ed');
   }
+
+  const man = data.manual || [];
+  $('manual').innerHTML = man.length ? `<div class="tw ed"><table><thead><tr><th>День</th><th>Табель</th><th>Задача</th><th class="n">Часы</th><th>Комментарий</th><th></th></tr></thead><tbody>${
+    man.map((m, i) => `<tr><td class="day">${wd(m.day)} ${dm(m.day)}</td><td>${sheetTag(m.sheet)}</td><td class="num">${esc(m.key)}</td><td class="n">${h(m.seconds)}</td><td>${esc(m.comment)}</td><td><button onclick="mutate('manual/${i}', 'DELETE')" title="удалить">×</button></td></tr>`).join('')
+  }</tbody></table></div>` : '<p class="muted">Ручных записей нет.</p>';
+  const md = $('mday').value, ms = $('msheet').value;
+  $('mday').outerHTML = daySelect(md || data.start, 'name="day" id="mday"');
+  $('msheet').innerHTML = Object.keys(data.sheets).map(n => `<option${n === ms ? ' selected' : ''}>${esc(n)}</option>`).join('');
 
   $('sent').innerHTML = avail.map(([n, s]) => {
     const wl = [...s.worklogs].sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key));
@@ -175,6 +237,15 @@ function render() {
   }).join('');
 }
 
+$('madd').onsubmit = e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  mutate('manual', 'POST', {day: f.get('day'), sheet: f.get('sheet'), key: f.get('key').trim(),
+    seconds: toSec(f.get('hours')), comment: f.get('comment')}).then(() => {
+      if (!$('status').querySelector('.r')) { e.target.key.value = ''; e.target.hours.value = ''; e.target.comment.value = '';
+        $('status').textContent = 'добавлено; «пересчитать» разложит остаток дня вокруг записи'; }
+    });
+};
 $('prev').onclick = () => load(shift(week, -1));
 $('next').onclick = () => load(shift(week, 1));
 $('cur').onclick = () => load(data?.current || week);

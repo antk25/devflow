@@ -89,6 +89,7 @@ class DraftLine:
     flags: list = field(default_factory=list)
     sent_id: str = ''
     mirror_of: str = ''
+    edited: bool = False
 
 
 def _positive(value, where: str) -> float:

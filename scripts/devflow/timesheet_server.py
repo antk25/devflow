@@ -12,7 +12,12 @@ HOST = '127.0.0.1'
 SKILL_DIR = Path(__file__).resolve().parents[2] / 'skills'
 INDEX = SKILL_DIR / 'timesheet' / 'index.html'
 TOKENS = SKILL_DIR / 'page' / 'references' / 'tokens.css'
-ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(/recompute)?$', re.I)
+ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual)(?:/(\d+))?)?$', re.I)
+KEY = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
+
+
+class BadRequest(ValueError):
+    pass
 
 
 def norm_week(week: str) -> str:
@@ -51,16 +56,117 @@ class App:
                 data['worklogs'] = [asdict(w) for w in logs[name]]
             sheets[name] = data
         return {'week': week, 'start': start, 'end': end, 'current': ts.current_week(),
-                'sheets': sheets, 'draft': draft}
+                'sheets': sheets, 'draft': draft, 'manual': ts.load_manual(week, self.state)}
 
     def recompute(self, week: str) -> dict:
         logs = self._worklogs(week, fresh=True)
-        ts.save_draft(week, self.compute(self.rules, logs, week), self.state)
+        lines = self.compute(self.rules, logs, week)
+        with self.lock:
+            old = self._read(week)
+            ts.save_draft(week, merge_edits(lines, old), self.state)
+            if old and old.get('removed'):
+                self._write(week, {**self._read(week), 'removed': old['removed']})
+        return self.week(week)
+
+    def _read(self, week: str) -> dict | None:
+        path = self.state / f'draft-{week}.json'
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def _write(self, week: str, doc: dict) -> None:
+        (self.state / f'draft-{week}.json').write_text(json.dumps(doc, ensure_ascii=False, indent=1))
+
+    def _entry(self, week: str, body: dict, partial: dict | None = None) -> dict:
+        e = dict(partial or {})
+        for f in ('sheet', 'day', 'key', 'seconds', 'comment'):
+            if f in body:
+                e[f] = body[f]
+        start, end = ts.week_range(week)
+        if e.get('sheet') not in self.rules.sheets:
+            raise BadRequest(f'нет табеля {e.get("sheet")!r}')
+        try:
+            day = date.fromisoformat(str(e.get('day')))
+        except ValueError:
+            raise BadRequest(f'плохая дата {e.get("day")!r}')
+        if not start <= day <= end:
+            raise BadRequest(f'{day} вне недели {week}')
+        key = str(e.get('key', '')).strip().upper()
+        if not KEY.match(key):
+            raise BadRequest(f'плохой ключ задачи {key!r}')
+        sec = e.get('seconds')
+        if not isinstance(sec, (int, float)) or isinstance(sec, bool) or sec <= 0 or sec > 24 * 3600:
+            raise BadRequest(f'плохие часы {sec!r}')
+        return {**e, 'day': day.isoformat(), 'key': key, 'seconds': round(sec), 'comment': str(e.get('comment', ''))}
+
+    def edit_line(self, week: str, i: int, body: dict | None) -> dict:
+        with self.lock:
+            doc = self._read(week)
+            if not doc or not 0 <= i < len(doc['lines']):
+                raise BadRequest(f'нет строки черновика #{i}')
+            line = doc['lines'][i]
+            if line.get('sent_id'):
+                raise BadRequest('строка уже в Jira — правьте её в разделе отправленного')
+            removed = doc.setdefault('removed', [])
+            if line.get('key'):
+                removed.append({'sheet': line['sheet'], 'day': line['day'], 'key': line['key']})
+            if body is None:
+                doc['lines'].pop(i)
+            else:
+                new = self._entry(week, body, line)
+                flags = [f for f in line.get('flags', []) if f != 'empty-day']
+                doc['lines'][i] = {**line, **new, 'flags': flags, 'edited': True}
+                sig = {'sheet': new['sheet'], 'day': new['day'], 'key': new['key']}
+                doc['removed'] = [r for r in removed if r != sig]
+            self._write(week, doc)
+        return self.week(week)
+
+    def add_manual(self, week: str, body: dict) -> dict:
+        entry = self._entry(week, body)
+        with self.lock:
+            items = ts.load_manual(week, self.state)
+            items.append({k: entry[k] for k in ('sheet', 'day', 'key', 'seconds', 'comment')})
+            ts.save_manual(week, items, self.state)
+            doc = self._read(week)
+            if doc is not None:
+                doc['lines'] = [ln for ln in doc['lines'] if not (
+                    ln['sheet'] == entry['sheet'] and ln['day'] == entry['day'] and 'empty-day' in ln.get('flags', []))]
+                doc['lines'].append({**asdict(ts.DraftLine(entry['sheet'], date.fromisoformat(entry['day']),
+                                     entry['key'], entry['seconds'], entry['comment'], 'manual')), 'day': entry['day']})
+                doc['lines'].sort(key=lambda ln: (ln['day'], ln['sheet']))
+                self._write(week, doc)
+        return self.week(week)
+
+    def remove_manual(self, week: str, i: int) -> dict:
+        with self.lock:
+            items = ts.load_manual(week, self.state)
+            if not 0 <= i < len(items):
+                raise BadRequest(f'нет ручной записи #{i}')
+            m = items.pop(i)
+            ts.save_manual(week, items, self.state)
+            doc = self._read(week)
+            if doc is not None:
+                j = next((j for j, ln in enumerate(doc['lines']) if ln.get('source') == 'manual' and not ln.get('sent_id')
+                          and (ln['sheet'], ln['day'], ln['key'], ln['seconds']) ==
+                          (m['sheet'], m['day'], m['key'], m['seconds'])), None)
+                if j is not None:
+                    doc['lines'].pop(j)
+                    self._write(week, doc)
         return self.week(week)
 
     def index(self) -> bytes:
         html = INDEX.read_text().replace('/*TOKENS*/', TOKENS.read_text()).replace('__WEEK__', ts.current_week())
         return html.encode()
+
+
+def merge_edits(lines: list, old: dict | None) -> list:
+    if not old:
+        return lines
+    kept = [ts.DraftLine(**{**r, 'day': date.fromisoformat(r['day'])}) for r in old['lines'] if r.get('edited')]
+    drop = {(r['sheet'], r['day'], r['key']) for r in old.get('removed', [])}
+    drop |= {(k.sheet, k.day.isoformat(), k.key) for k in kept}
+    busy = {(k.sheet, k.day) for k in kept}
+    fresh = [ln for ln in lines if (ln.sheet, ln.day.isoformat(), ln.key) not in drop
+             and not ('empty-day' in ln.flags and (ln.sheet, ln.day) in busy)]
+    return sorted(fresh + kept, key=lambda ln: (ln.day, ln.sheet))
 
 
 def make_handler(app: App):
@@ -79,23 +185,50 @@ def make_handler(app: App):
             self._send(code, json.dumps(obj, ensure_ascii=False, default=_json_default).encode(),
                        'application/json; charset=utf-8')
 
-        def _route(self, post: bool):
+        def _body(self) -> dict:
+            n = int(self.headers.get('Content-Length') or 0)
+            try:
+                body = json.loads(self.rfile.read(n) or b'{}')
+            except ValueError:
+                raise BadRequest('тело запроса — не JSON')
+            if not isinstance(body, dict):
+                raise BadRequest('тело запроса — не объект')
+            return body
+
+        def _route(self, method: str):
             m = ROUTE.match(self.path.split('?')[0])
-            if not m or bool(m.group(2)) != post:
+            action, idx = (m.group(2) or '').lower(), m.group(3) if m else None
+            handlers = {
+                ('GET', '', False): lambda w: app.week(w),
+                ('POST', 'recompute', False): lambda w: app.recompute(w),
+                ('PUT', 'draft', True): lambda w: app.edit_line(w, int(idx), self._body()),
+                ('DELETE', 'draft', True): lambda w: app.edit_line(w, int(idx), None),
+                ('POST', 'manual', False): lambda w: app.add_manual(w, self._body()),
+                ('DELETE', 'manual', True): lambda w: app.remove_manual(w, int(idx)),
+            }
+            fn = handlers.get((method, action, idx is not None)) if m else None
+            if fn is None:
                 return self._json(404, {'error': 'нет такого адреса'})
             try:
-                week = norm_week(m.group(1))
-                self._json(200, app.recompute(week) if post else app.week(week))
+                self._json(200, fn(norm_week(m.group(1))))
+            except BadRequest as e:
+                self._json(400, {'error': str(e)})
             except Exception as e:
                 self._json(500, {'error': str(e)})
 
         def do_GET(self):
             if self.path.split('?')[0] in ('/', '/index.html'):
                 return self._send(200, app.index(), 'text/html; charset=utf-8')
-            self._route(post=False)
+            self._route('GET')
 
         def do_POST(self):
-            self._route(post=True)
+            self._route('POST')
+
+        def do_PUT(self):
+            self._route('PUT')
+
+        def do_DELETE(self):
+            self._route('DELETE')
 
     return Handler
 
