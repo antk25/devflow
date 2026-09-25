@@ -3,7 +3,7 @@ import json
 import re
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -549,6 +549,25 @@ def load_manual(week: str, state: Path = STATE_DIR) -> list:
 def save_manual(week: str, items: list, state: Path = STATE_DIR) -> None:
     state.mkdir(parents=True, exist_ok=True)
     (state / f'manual-{week}.json').write_text(json.dumps(items, ensure_ascii=False, indent=1))
+
+
+def remember_comments(worklogs: dict, state: Path = STATE_DIR) -> None:
+    path = state / 'comments.json'
+    known = json.loads(path.read_text()) if path.exists() else {}
+    fresh = {w.id: [w.key, w.comment.strip()] for logs in worklogs.values() if isinstance(logs, list)
+             for w in logs if w.id and w.comment.strip()}
+    if any(known.get(i) != v for i, v in fresh.items()):
+        state.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({**known, **fresh}, ensure_ascii=False, indent=1))
+
+
+def comment_hints(state: Path = STATE_DIR) -> dict:
+    path = state / 'comments.json'
+    counts = defaultdict(Counter)
+    for key, comment in (json.loads(path.read_text()) if path.exists() else {}).values():
+        counts[key][comment] += 1
+        counts[key.split('-')[0]][comment] += 1
+    return {k: [c for c, _ in v.most_common(8)] for k, v in counts.items()}
 
 
 def save_draft(week: str, lines: list, state: Path = STATE_DIR) -> Path:

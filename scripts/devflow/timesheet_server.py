@@ -48,6 +48,7 @@ class App:
         with self.lock:
             if fresh or week not in self.cache:
                 self.cache[week] = self.fetch(self.rules, week)
+                ts.remember_comments(self.cache[week], self.state)
             return self.cache[week]
 
     def week(self, week: str) -> dict:
@@ -63,7 +64,8 @@ class App:
                 data['worklogs'] = [asdict(w) for w in logs[name]]
             sheets[name] = data
         return {'week': week, 'start': start, 'end': end, 'current': ts.current_week(),
-                'sheets': sheets, 'draft': draft, 'manual': ts.load_manual(week, self.state)}
+                'sheets': sheets, 'draft': draft, 'manual': ts.load_manual(week, self.state),
+                'hints': ts.comment_hints(self.state)}
 
     def recompute(self, week: str) -> dict:
         logs = self._worklogs(week, fresh=True)

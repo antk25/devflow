@@ -6,7 +6,8 @@ from datetime import date
 
 import pytest
 
-from devflow.timesheet import DraftLine, ProjectRule, Rules, Sheet, Worklog, save_draft
+from devflow.timesheet import (DraftLine, ProjectRule, Rules, Sheet, Worklog, comment_hints, remember_comments,
+                               save_draft)
 from devflow.timesheet_server import App, make_server
 
 WEEK = '2026-W38'
@@ -225,3 +226,22 @@ def test_sent_update_and_delete_with_confirm_sync_journal(writable):
     call(server, f'/api/week/{WEEK}/sent/101', 'DELETE', {'key': 'SE-2', 'confirm': True})
     assert jira.calls[-1] == ['delete', 'SE-2', '101', '--yes']
     assert (state / 'sent.jsonl').read_text() == ''
+
+
+def test_comment_hints_remember_own_comments_by_issue_and_project(tmp_path):
+    logs = {'employer': [Worklog('employer', 'CAP-483', MON, 1800, 'QA', '7'),
+                         Worklog('employer', 'CAP-1', MON, 900, 'Meeting', '8'),
+                         Worklog('employer', 'CAP-1', MON, 900, 'Meeting', '9'),
+                         Worklog('employer', 'CAP-2', MON, 900, 'без id')]}
+    remember_comments(logs, tmp_path)
+    remember_comments(logs, tmp_path)
+    hints = comment_hints(tmp_path)
+    assert hints['CAP-1'] == ['Meeting']
+    assert hints['CAP'] == ['Meeting', 'QA']
+    assert 'CAP-2' not in hints
+
+
+def test_week_returns_comment_hints(served):
+    server, _, state = served
+    remember_comments({'client': [Worklog('client', 'SE-188', MON, 900, 'Meeting', '1')]}, state)
+    assert call(server, f'/api/week/{WEEK}')['hints']['SE-188'] == ['Meeting']

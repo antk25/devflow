@@ -69,10 +69,12 @@ form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--in
     <label>табель<select name="sheet" id="msheet"></select></label>
     <label>задача<input name="key" class="k" placeholder="SE-2185" required></label>
     <label>часы<input name="hours" class="h" inputmode="decimal" placeholder="1,5" required></label>
-    <label style="flex:1">комментарий<input name="comment"></label>
+    <label style="flex:1">комментарий<input name="comment" list="hints" onfocus="hint(this, this.form.key.value)"></label>
     <button type="submit">добавить</button>
   </form>
 </section>
+
+<datalist id="hints"></datalist>
 
 <dialog id="confirm">
   <h2 id="ctitle">Запись в Jira</h2>
@@ -101,6 +103,10 @@ form.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--in
 const WD = ['пн','вт','ср','чт','пт','сб','вс'];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function hint(input, key) {
+  const hs = data?.hints || {}, k = (key || '').trim().toUpperCase();
+  $('hints').innerHTML = (hs[k] || hs[k.split('-')[0]] || []).map(c => `<option value="${esc(c)}">`).join('');
+}
 const h = sec => (sec / 3600).toFixed(2).replace(/\.?0+$/, '').replace('.', ',') || '0';
 const wd = iso => WD[(new Date(iso + 'T12:00:00').getDay() + 6) % 7];
 const dm = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7);
@@ -213,7 +219,7 @@ function render() {
           <td>${i === 0 ? sheetTag(n) : ''}</td>
           <td class="num">${empty ? '<span class="muted">пустой день, активности нет</span>' : ro ? esc(l.key || '?') : `<input class="k" value="${esc(l.key)}" ${on('key')}>`}${l.mirror_of ? ` <span class="muted">← ${esc(l.mirror_of)}</span>` : ''}</td>
           <td class="n">${empty ? '' : ro ? h(l.seconds) : `<input class="h" value="${h(l.seconds)}" ${on('hours')}>`}</td><td>${tags}</td>
-          <td>${ro ? esc(l.comment) : `<input value="${esc(l.comment)}" ${on('comment')}>`}</td>
+          <td>${ro ? esc(l.comment) : `<input value="${esc(l.comment)}" list="hints" onfocus="hint(this, '${esc(l.key)}')" ${on('comment')}>`}</td>
           <td>${ro ? '' : `<button onclick="mutate('draft/${idx}', 'DELETE')" title="удалить строку">×</button>`}</td></tr>`;
       });
     }
@@ -241,10 +247,11 @@ function render() {
   $('issues').innerHTML = avail.map(([n, s]) => {
     const ps = Object.entries(s.projects).sort((a, b) => b[1] - a[1]);
     if (!ps.length) return `<h3>${sheetTag(n)}</h3><p class="muted">Пусто.</p>`;
-    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>Проект / задача</th><th class="n">Часы</th></tr></thead><tbody>${
-      ps.map(([p, sec]) => `<tr class="first"><td><b>${esc(p)}</b></td><td class="n"><b>${h(sec)}</b></td></tr>` +
+    return `<h3>${sheetTag(n)}</h3><div class="tw"><table><thead><tr><th>Проект / задача</th><th class="n">Часы</th><th>Комментарии</th></tr></thead><tbody>${
+      ps.map(([p, sec]) => `<tr class="first"><td><b>${esc(p)}</b></td><td class="n"><b>${h(sec)}</b></td><td></td></tr>` +
         Object.entries(s.issues[p]).sort((a, b) => b[1] - a[1])
-          .map(([k, v]) => `<tr><td class="num">&nbsp;&nbsp;${esc(k)}</td><td class="n">${h(v)}</td></tr>`).join('')).join('')
+          .map(([k, v]) => `<tr><td class="num">&nbsp;&nbsp;${esc(k)}</td><td class="n">${h(v)}</td><td>${
+            esc([...new Set(s.worklogs.filter(w => w.key === k && w.comment).map(w => w.comment.trim()))].join(', '))}</td></tr>`).join('')).join('')
     }</tbody></table></div>`;
   }).join('');
 }
