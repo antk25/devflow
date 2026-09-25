@@ -95,6 +95,29 @@ def test_index_inlines_design_tokens(served):
     assert '/*TOKENS*/' not in html and '--sig' in html and '__WEEK__' not in html
 
 
+def test_page_scripts_are_served_locally(served):
+    base = f'http://127.0.0.1:{served[0].server_address[1]}'
+    html = urllib.request.urlopen(base + '/').read().decode()
+    assert '/app.mjs' in html and 'https://' not in html
+    for path in ('/app.mjs', '/vendor/preact-htm.mjs'):
+        with urllib.request.urlopen(base + path) as r:
+            assert r.headers['Content-Type'].startswith('text/javascript') and r.read()
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(base + '/vendor/other.mjs')
+    assert e.value.code == 404
+
+
+def test_explicit_key_clears_mirror_flags_and_hours_clear_overflow(served):
+    server, _, state = served
+    save_draft(WEEK, [DraftLine('client', MON, '', 900, flags=['no-mirror', 'create-mirror'], mirror_of='SE-9'),
+                      DraftLine('client', MON, 'SE-8', 900, flags=['overflow', 'no-mirror'])], state)
+    call(server, f'/api/week/{WEEK}/draft/0', 'PUT', {'key': 'SE-7'})
+    data = call(server, f'/api/week/{WEEK}/draft/1', 'PUT', {'seconds': 1800})
+    first, second = data['draft']['lines']
+    assert (first['key'], first['flags'], first['mirror_of']) == ('SE-7', [], 'SE-9')
+    assert second['flags'] == ['no-mirror']
+
+
 def test_line_edit_and_manual_entry_survive_restart(served):
     server, calls, state = served
     save_draft(WEEK, [DraftLine('client', MON, 'SE-9', 900), DraftLine('client', MON, 'SE-8', 900)], state)

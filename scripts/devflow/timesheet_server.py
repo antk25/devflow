@@ -14,6 +14,8 @@ HOST = '127.0.0.1'
 SKILL_DIR = Path(__file__).resolve().parents[2] / 'skills'
 INDEX = SKILL_DIR / 'timesheet' / 'index.html'
 TOKENS = SKILL_DIR / 'page' / 'references' / 'tokens.css'
+STATIC = {'/app.mjs': INDEX.parent / 'app.mjs', '/vendor/preact-htm.mjs': INDEX.parent / 'vendor' / 'preact-htm.mjs'}
+MIRROR_FLAGS = ('no-mirror', 'ambiguous-mirror', 'create-mirror', 'mirror-unavailable')
 ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual|plan|apply|sent)(?:/(\d+))?)?$', re.I)
 KEY = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
 
@@ -121,7 +123,12 @@ class App:
                 doc['lines'].pop(i)
             else:
                 new = self._entry(week, body, line)
-                flags = [f for f in line.get('flags', []) if f != 'empty-day']
+                drop = {'empty-day'}
+                if str(body.get('key') or '').strip():
+                    drop.update(MIRROR_FLAGS)
+                if 'seconds' in body:
+                    drop.add('overflow')
+                flags = [f for f in line.get('flags', []) if f not in drop]
                 doc['lines'][i] = {**line, **new, 'flags': flags, 'edited': True}
                 sig = {'sheet': new['sheet'], 'day': new['day'], 'key': new['key']}
                 doc['removed'] = [r for r in removed if r != sig]
@@ -234,7 +241,8 @@ class App:
         path.write_text(''.join(line + '\n' for line in out))
 
     def index(self) -> bytes:
-        html = INDEX.read_text().replace('/*TOKENS*/', TOKENS.read_text()).replace('__WEEK__', ts.current_week())
+        theme = TOKENS.read_text().split('/* ---------- каркас')[0]
+        html = INDEX.read_text().replace('/*TOKENS*/', theme).replace('__WEEK__', ts.current_week())
         return html.encode()
 
 
@@ -259,6 +267,7 @@ def make_handler(app: App):
             self.send_response(code)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(body)
 
@@ -306,8 +315,11 @@ def make_handler(app: App):
                 self._json(500, {'error': str(e)})
 
         def do_GET(self):
-            if self.path.split('?')[0] in ('/', '/index.html'):
+            path = self.path.split('?')[0]
+            if path in ('/', '/index.html'):
                 return self._send(200, app.index(), 'text/html; charset=utf-8')
+            if path in STATIC:
+                return self._send(200, STATIC[path].read_bytes(), 'text/javascript; charset=utf-8')
             self._route('GET')
 
         def do_POST(self):
