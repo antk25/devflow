@@ -1,6 +1,7 @@
 ---
 project: devflow
 vault: /mnt/f/notes_2/projects/devflow
+jev: true
 ---
 
 # DevFlow
