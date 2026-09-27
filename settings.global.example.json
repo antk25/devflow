@@ -42,7 +42,10 @@
       "Bash(lcurl:*)"
     ],
     "ask": [
-      "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)"
+      "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)",
+      "Bash(bash ~/.config/devflow/integrations/jira-worklog.sh * --yes*)",
+      "Bash(~/.claude/skills/timesheet/timesheet apply * --yes*)",
+      "Bash(~/.claude/skills/timesheet/timesheet mirror * --yes*)"
     ],
     "deny": [
       "Bash(gh api:*)",

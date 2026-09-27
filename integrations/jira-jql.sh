@@ -35,8 +35,12 @@ while :; do
     printf '%s' "$resp" | jq -r '.errorMessages[]' >&2
     exit 1
   fi
+  if ! printf '%s' "$resp" | jq -e 'type == "object" and (.issues | type == "array")' >/dev/null 2>&1; then
+    echo "jira-jql: в ответе нет issues: $(printf '%s' "$resp" | head -c 200)" >&2
+    exit 1
+  fi
 
-  printf '%s' "$resp" | jq -c '.issues[]?'
+  printf '%s' "$resp" | jq -c '.issues[]'
   n=$(printf '%s' "$resp" | jq '(.issues // []) | length')
   got=$((got + n))
   page=$((page + 1))

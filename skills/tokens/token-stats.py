@@ -16,9 +16,10 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-PROJECTS_ROOT = Path.home() / ".claude" / "projects"
-LEDGER = Path.home() / ".claude" / "devflow" / "task-ledger.jsonl"
-NO_TASK = "(без задачи)"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
+from devflow.transcripts import (LEDGER, NO_TASK, PROJECTS_ROOT, assign_tasks, load_ledger,  # noqa: E402
+                                 parse_ts, project_of, user_text)
 
 # $ за 1M токенов, прайс-лист Anthropic. cache write ×1.25 (5m) / ×2.0 (1h), cache read ×0.1.
 PRICES = {
@@ -46,57 +47,6 @@ def price_for(model, speed):
     if speed == "fast" and model in FAST_PRICES:
         return FAST_PRICES[model]
     return PRICES.get(model, DEFAULT_PRICE)
-
-
-def project_of(cwd):
-    if not cwd:
-        return "?"
-    home = str(Path.home())
-    for base in (f"{home}/projects/", f"{home}/"):
-        if cwd.startswith(base):
-            return cwd[len(base):] or "?"
-    return cwd
-
-
-def parse_ts(raw):
-    if not raw:
-        return None
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def user_text(message):
-    """Текст, который набрал пользователь. Без tool_result и системных напоминаний."""
-    content = message.get("content")
-    if isinstance(content, str):
-        chunks = [content]
-    elif isinstance(content, list):
-        chunks = [b.get("text", "") for b in content
-                  if isinstance(b, dict) and b.get("type") == "text"]
-    else:
-        return ""
-    text = " ".join(chunks)
-    return re.sub(r"<system-reminder>.*?</system-reminder>", " ", text, flags=re.S)
-
-
-def load_ledger():
-    by_session = defaultdict(list)
-    if not LEDGER.exists():
-        return by_session
-    for line in LEDGER.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        sid, task = entry.get("session"), entry.get("task")
-        if sid and task:
-            by_session[sid].append((parse_ts(entry.get("ts")), task.upper()))
-    return by_session
 
 
 def scan(root, key_re, ledger):
@@ -161,26 +111,6 @@ def scan(root, key_re, ledger):
         assign_tasks(msgs, marks)
         records.extend(msgs)
     return records
-
-
-def assign_tasks(msgs, marks):
-    """Задача сообщения — последний ключ, упомянутый до него; голова сессии заполняется первым."""
-    dated = sorted([m for m in marks if m[0]], key=lambda m: m[0])
-    if not dated:
-        fallback = marks[0][1] if marks else NO_TASK
-        for m in msgs:
-            m["task"] = fallback
-        return
-    first = dated[0][1]
-    for m in msgs:
-        current = first
-        if m["ts"]:
-            for ts, task in dated:
-                if ts <= m["ts"]:
-                    current = task
-                else:
-                    break
-        m["task"] = current
 
 
 def aggregate(records, key):

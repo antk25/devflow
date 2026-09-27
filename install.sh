@@ -6,7 +6,7 @@ DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
-SKILLS=(note project devflow standup tokens page review jira jira-create xreview)
+SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet)
 [ ! -d "$DEVFLOW_DIR/skills/autoresearch" ] || SKILLS+=(autoresearch)
 AGENTS=(research plan implement review-standards review-conformance crossreview)
 RETIRED_SKILLS=(research plan implement quick)
@@ -84,6 +84,7 @@ for c in guard_probe(sys.argv[2]): print("BROKEN global hook PreToolUse", c)
 d = settings_drift(sys.argv[2], sys.argv[3])
 for c in d["hooks"]: print("MISS global hook", c)
 for p in d["allow"]: print("MISS global allow", p)
+for p in d["ask"]: print("MISS global ask", p)
 for p in d["deny"]: print("MISS global deny", p)
 for p in d["extra_deny"]: print("STALE global deny", p)' \
             "$DEVFLOW_DIR/scripts" "$CLAUDE_DIR/settings.json" "$DEVFLOW_DIR/settings.global.example.json")" || issues=1
