@@ -36,6 +36,8 @@ for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
     sources+=("$src")
     destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")
 done
+sources+=("$DEVFLOW_DIR/integrations/config.env.template")
+destinations+=("$INTEGRATIONS_DIR/config.env.template")
 
 issues=0
 for i in "${!sources[@]}"; do

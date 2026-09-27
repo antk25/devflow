@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# jira-digest.sh — «мои задачи: что нового с прошлого раза» по обоим Jira-инстансам.
+# jira-digest.sh — «мои задачи: что нового с прошлого раза» по всем аккаунтам Jira из config.env.
 # Сверху — корзина «ждут тебя»: задачи, где последний комментарий не твой, старейшие первыми.
 # Корзина считается по всем полученным задачам, а не только по изменившимся: она стоячая,
 # и задача, которую ты видел, но не ответил, из неё не исчезает.
-# resolventa (JIRA_*) + productsearch (JIRA_PS_*). Дифф по jira-seen.json.
+# Дифф по jira-seen.json рядом с config.env.
 #
 # Использование:
 #   jira-digest.sh          # печатает дайджест и отмечает показанное (двигает state)
@@ -12,21 +12,14 @@
 # Первый запуск (нет jira-seen.json): окно 7 дней. Yandex Tracker не подключается.
 set -euo pipefail
 
-INTEGRATIONS_DIR="$HOME/.config/devflow/integrations"
-CONFIG_FILE="$INTEGRATIONS_DIR/config.env"
-SEEN_FILE="$INTEGRATIONS_DIR/jira-seen.json"
+# shellcheck source=jira-accounts.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/jira-accounts.sh"
+jira_accounts_load
+CONFIG_FILE="${DEVFLOW_JIRA_CONFIG:-$HOME/.config/devflow/integrations/config.env}"
+SEEN_FILE="$(dirname "$CONFIG_FILE")/jira-seen.json"
 
 PEEK=0
 [[ "${1:-}" == "--peek" ]] && PEEK=1
-
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "error: config not found: $CONFIG_FILE" >&2
-    exit 1
-fi
-set -a
-# shellcheck disable=SC1090
-source "$CONFIG_FILE"
-set +a
 
 # --- Load state ---
 FIRST_RUN=0
@@ -50,21 +43,23 @@ FIRST_JSON=$([[ "$FIRST_RUN" == "1" ]] && echo true || echo false)
 
 # --- Render one instance; updates global NEW_STATE as a side effect ---
 digest_instance() {
-    local label="$1" base="$2" email="$3" token="$4"
+    local label="$1" base
+    base="$(jira_account_field "$label" BASE_URL)"
 
-    if [[ -z "$base" || -z "$email" || -z "$token" ]]; then
-        DIGEST_OUT+="═══ $label ═══"$'\n'"  warn: креды не заданы в config.env — пропуск"$'\n\n'
+    local out code
+    out="$(jira_curl_status "$label" /rest/api/3/myself)"
+    code="${out%%$'\t'*}"
+    if [[ "$code" == 401 || "$code" == 403 ]]; then
+        DIGEST_OUT+="═══ $label ═══"$'\n'"  нет доступа (HTTP $code)"$'\n\n'
         return 0
     fi
-
     local me=""
-    me=$(curl -sS -u "$email:$token" "$base/rest/api/3/myself" 2>/dev/null \
-        | jq -r '.accountId // ""' 2>/dev/null) || me=""
+    me=$(jq -r '.accountId // ""' <<< "${out#*$'\t'}" 2>/dev/null) || me=""
 
     local jql="assignee = currentUser() ORDER BY updated DESC"
 
     local resp
-    resp=$(curl -sS -u "$email:$token" -G "$base/rest/api/3/search/jql" \
+    resp=$(jira_curl "$label" /rest/api/3/search/jql -G \
         --data-urlencode "jql=$jql" \
         --data-urlencode "maxResults=50" \
         --data-urlencode "fields=summary,status,updated,comment") || {
@@ -149,8 +144,9 @@ digest_instance() {
 echo "Jira-дайджест — новое с прошлого раза$([[ "$FIRST_RUN" == "1" ]] && echo " (первый запуск: окно 7 дней)")"
 echo ""
 
-digest_instance "resolventa" "${JIRA_BASE_URL:-}" "${JIRA_EMAIL:-}" "${JIRA_API_TOKEN:-}"
-digest_instance "productsearch" "${JIRA_PS_BASE_URL:-}" "${JIRA_PS_EMAIL:-}" "${JIRA_PS_API_TOKEN:-}"
+while read -r account; do
+    digest_instance "$account"
+done < <(jira_accounts_list)
 
 echo "⏳ ждут тебя — последний комментарий не твой, старейшие сверху"
 if [[ -n "$BUCKET" ]]; then

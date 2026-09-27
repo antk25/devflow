@@ -1,6 +1,6 @@
 ---
 name: standup
-description: Morning Jira digest — "what's new on my tasks since last time" across both instances, then help pick a task and route it to the right devflow phase. Read-only; calls jira-digest.sh, never MCP.
+description: Morning Jira digest — "what's new on my tasks since last time" across every Jira account in config.env, then help pick a task and route it to the right devflow phase. Read-only; calls jira-digest.sh, never MCP.
 user_invocable: true
 arguments:
   - name: mode
@@ -11,7 +11,7 @@ arguments:
 # /standup — Jira digest → pick a task → route
 
 Thin front-end over `jira-digest.sh`. Shows what changed on your assigned Jira tasks since last time
-(both instances), helps you pick one, and computes which devflow phase it's at. Does **not** spawn
+(every Jira account), helps you pick one, and computes which devflow phase it's at. Does **not** spawn
 phase agents — that's `/devflow`'s job. This skill ends with a recommendation.
 
 ## Step 1: Project context
@@ -27,14 +27,14 @@ bash ~/.config/devflow/integrations/jira-digest.sh --peek   # when invoked as `/
 Print the output as-is. It opens with the **`⏳ ждут тебя`** bucket — every assigned task whose
 **last comment isn't yours**, oldest first, with how long it has been waiting. That bucket is a
 standing list, not a diff: a task you read yesterday and never answered stays in it until you reply.
-Below it come the per-instance sections (`═══ resolventa/productsearch ═══`) listing each changed
+Below it come the per-account sections (`═══ <account> ═══`, one per account in `config.env`) listing each changed
 task (`▸ KEY [status] · NEW|UPD`) with new comments (author + `(ты)` + time) and description-edit
 flags.
 
 Don't re-sort or summarise the bucket away — it is the first thing the user should read.
 
-**Degradation:** if the script prints `warn:` lines (creds missing, API error, network), surface
-them plainly and stop — do **not** fall back to Atlassian MCP. If both instances say "нового нет",
+**Degradation:** if the script prints `warn:` lines (creds missing, API error, network) or an account section says
+«нет доступа» with an HTTP code, surface them plainly and stop — do **not** fall back to Atlassian MCP. If every account says "нового нет",
 say so.
 
 ## Step 3: Pick a task

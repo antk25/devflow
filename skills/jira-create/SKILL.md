@@ -10,9 +10,8 @@ arguments:
 
 # /jira-create — завести задачу в Jira
 
-Скрипт: `~/.config/devflow/integrations/jira-create.sh` (ставится `install.sh`, пишет в инстанс
-`JIRA_PS_*` из `config.env`). Для инстанса `JIRA_*` (resolventa) — не использовать: там `tracker`,
-запись вручную.
+Скрипт: `~/.config/devflow/integrations/jira-create.sh` (ставится `install.sh`). Аккаунт Jira
+скрипт выбирает сам по ключу проекта `-P` из `config.env`; список — `jira-accounts.sh check`.
 
 ## Порядок
 
@@ -44,5 +43,5 @@ arguments:
 
 - Не создавать задачу по собственной инициативе.
 - Не повторять `--yes` после ошибки, не разобравшись: Jira могла создать задачу и ответить
-  ошибкой. Сначала поиск: `jira-search.sh 'project = <KEY> AND summary ~ "<слова>" AND created >= -1d'`.
+  ошибкой. Сначала поиск: `jira-search.sh --account <аккаунт> 'project = <KEY> AND summary ~ "<слова>" AND created >= -1d'`.
 - Комментарии, смена статуса, учёт времени — скрипт этого не умеет; только веб-интерфейс.

@@ -25,7 +25,7 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 - **Read the TZ** if present: `<vault>/tz/<slug>.md`, or scan `<vault>/tz/` for a matching spec.
   What it settles is settled — don't re-open its decisions in Open questions.
 - **Read the Jira ticket.** Key = slug prefix up to the second hyphen, upper-cased (`SE-2039`).
-  `SE-*` → `bash ~/.config/devflow/integrations/jira-issue.sh <KEY>`, other keys → `/jira`; no key
+  Read it with `bash ~/.config/devflow/integrations/jira-issue.sh <KEY>` (account by key); no key
   in the slug or the ticket is not found (internal tasks such as `DF-*`) → skip. Read the
   description and comments written before this research by every author except the user (git
   `user.name`). Attachments and screenshots are not read.

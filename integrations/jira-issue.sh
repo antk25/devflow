@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Читает задачу Jira productsearch и печатает поля/описание/комментарии.
+# Читает задачу Jira (аккаунт — по ключу) и печатает поля/описание/комментарии.
 # Использование:  jira-issue.sh SE-1983
 set -euo pipefail
 
 KEY="${1:?Использование: jira-issue.sh <ISSUE-KEY>}"
 
-set -a
-# shellcheck disable=SC1090
-source "$HOME/.config/devflow/integrations/config.env"
-set +a
+# shellcheck source=jira-accounts.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/jira-accounts.sh"
+jira_accounts_load
+ACCOUNT="$(jira_account_resolve "$KEY")"
 
-curl -s -u "$JIRA_PS_EMAIL:$JIRA_PS_API_TOKEN" \
-  "$JIRA_PS_BASE_URL/rest/api/3/issue/$KEY?expand=renderedFields" \
+jira_curl "$ACCOUNT" "/rest/api/3/issue/$KEY?expand=renderedFields" \
   | jq -r '
       "KEY: \(.key)",
       "SUMMARY: \(.fields.summary)",
