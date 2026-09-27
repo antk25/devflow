@@ -22,6 +22,7 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Check install state: `./install.sh --check`
 - Remove: `./install.sh --remove`
 - Launch with project picker: `./start.sh` (interactive gum menu → fable 5.1 driver)
+- Launch pi with the project context: `devflow-pi <project> [--model provider/id[:thinking]]` (no state DB created)
 
 ## Conventions
 - Model policy: phase and review agents carry `model: inherit` + `effort: low` — they run on the session's model, low effort, for their whole run. `./start.sh` starts the session on **claude-fable-5-1**; when Fable limits run out, `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` or `/model opus` inside the session — the next agent picks it up. `/devflow`, `/standup`, `/review` pin no model either.

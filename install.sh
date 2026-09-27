@@ -32,6 +32,8 @@ sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
 destinations+=("$BIN_DIR/devflow")
 sources+=("$DEVFLOW_DIR/bin/lcurl")
 destinations+=("$BIN_DIR/lcurl")
+sources+=("$DEVFLOW_DIR/bin/devflow-pi")
+destinations+=("$BIN_DIR/devflow-pi")
 for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
     sources+=("$src")
     destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")

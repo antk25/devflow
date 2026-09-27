@@ -182,6 +182,23 @@ environment. A project without `AGENTS.md` is not launched blind: the launcher p
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
+### Launching pi instead of Claude Code
+
+```bash
+devflow-pi <name>                                   # pi in the project directory, DevFlow context appended
+devflow-pi <name> --model openai-codex/gpt-6-astra  # explicit model; otherwise PI_PROVIDER/PI_MODEL[:PI_REASONING_LEVEL] or pi's default
+```
+
+`devflow-pi` (`bin/devflow-pi`, linked into `~/.local/bin` by `install.sh`) runs the same launcher as
+`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared. pi has no
+SessionStart hook, so the launcher writes what the hook would print — `PROJECT_RESTORE`,
+`OBSIDIAN_CONTEXT`, the latest `/cut` hand-off of the active task (`devflow handoff latest --task <key>`)
+and a short block of pi rules (state moves only through `devflow`, never call `claude`, `approve` only
+on the user's word, on `running` inspect before `finish`/`resume`/`interrupt`) — to a temp file and
+starts `pi --append-system-prompt <file>`. Nothing is written into the project: no state database is
+created, a project without `AGENTS.md` gets a warning and a bare pi. If the model would resolve to
+`claude-bridge`, a warning goes to stderr before launch.
+
 ### Model per phase
 
 Все три фазы идут с `effort: low` на модели сессии — по умолчанию **Claude Fable 5.1**: на новых моделях низкий effort закрывает рутину не хуже, чем прежний high на прошлом поколении, а токенов тратит меньше. Во frontmatter агентов стоит `model: inherit`, поэтому смена модели сессии переводит на неё и следующий фазовый прогон:
