@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from . import project
-from .documents import WorkflowError, artifact, context, document, plan_steps, resolve_slug
+from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
 from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start
 
@@ -54,6 +54,8 @@ def parser():
     project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
+    handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
+    a = handoff_commands.add_parser('latest'); a.add_argument('--task')
     return p
 
 
@@ -66,6 +68,12 @@ def execute(args):
     ctx = context(args.cwd)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
+    if args.command == 'handoff':
+        doc = handoff_latest(ctx['vault'], args.task)
+        if doc is None:
+            return {'path': None}
+        return {'path': doc['path'], 'created': str(doc['meta'].get('created', '')),
+                'task': doc['meta'].get('task'), 'title': title(doc)}
     if args.command == 'active' and args.limit < 1:
         raise WorkflowError('--limit must be positive')
     db = None
