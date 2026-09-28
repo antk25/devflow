@@ -143,7 +143,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally.
+DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally. The subagent-free skills (`note`, `jira`, `project`, `cut`) are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` works in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
 ```bash
 git clone <repo> ~/projects/devflow
@@ -161,7 +161,7 @@ links; it preserves the registry, environment and workflow state.
 
 After install, skills and agents are available in any Claude Code session. The shared CLI is
 `~/.claude/skills/devflow/devflow`, or `./scripts/devflow-cli.sh` from this checkout.
-`DEVFLOW_CLAUDE_DIR` overrides the symlink destination for isolated installation checks.
+`DEVFLOW_CLAUDE_DIR` and `DEVFLOW_PI_DIR` override the symlink destinations for isolated installation checks.
 
 ---
 
