@@ -145,6 +145,14 @@ The obsidian vault for each project follows this structure:
 
 DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
+**Rate limits.** `./install.sh` links `~/.local/bin/devflow-rate-limits` (`scripts/rate-limits.sh`): it reads the statusline JSON from stdin and, when `.rate_limits` is present, atomically writes `~/.claude/devflow/rate-limits.json` = `{five_hour, seven_day, model, at}`. Claude Code only feeds that JSON to the statusline, so add one line to your own `~/.claude/statusline.sh` right after `input=$(cat)`:
+
+```bash
+echo "$input" | devflow-rate-limits
+```
+
+`--check` prints `MISS statusline call devflow-rate-limits` while the line is absent. `route` reads the file through `limits` in `model-policy.json` (`threshold`, `max_age_min`): a window with `used_percentage ≥ threshold` that has not reset yet switches `implement` to the `fallback` column, and `launch.claude.model` carries the alias (`opus`) for the driver to pass to `Agent`. A file older than `max_age_min` counts as no signal (`limits: null`).
+
 ```bash
 git clone <repo> ~/projects/devflow
 cd ~/projects/devflow

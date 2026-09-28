@@ -7,6 +7,7 @@ CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
 POLICY_FILE="${DEVFLOW_MODEL_POLICY:-$CLAUDE_DIR/devflow/model-policy.json}"
+STATUSLINE="${DEVFLOW_STATUSLINE:-$CLAUDE_DIR/statusline.sh}"
 SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut)
 PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
 PI_SKILLS=(note jira project cut devflow)
@@ -59,6 +60,8 @@ sources+=("$DEVFLOW_DIR/bin/lcurl")
 destinations+=("$BIN_DIR/lcurl")
 sources+=("$DEVFLOW_DIR/bin/devflow-pi")
 destinations+=("$BIN_DIR/devflow-pi")
+sources+=("$DEVFLOW_DIR/scripts/rate-limits.sh")
+destinations+=("$BIN_DIR/devflow-rate-limits")
 for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
     sources+=("$src")
     destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")
@@ -133,6 +136,10 @@ if [ "$mode" = check ]; then
         if [ -n "$stale" ]; then
             echo "$stale"; issues=1
         fi
+    fi
+    # statusline.sh is the user's own file: the one-line hook (README, "Rate limits") is pasted by hand.
+    if [ -f "$STATUSLINE" ] && ! grep -q 'devflow-rate-limits' "$STATUSLINE"; then
+        echo 'MISS statusline call devflow-rate-limits'; issues=1
     fi
     if [ -x "$PYTHON" ]; then
         drift="$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1])

@@ -1,4 +1,5 @@
 import json
+import time
 
 import pytest
 
@@ -171,3 +172,65 @@ def test_write_agents_is_atomic_and_replaces_symlink(example, tmp_path):
     assert actions['research'] == 'generate' and not (d / 'research.md').is_symlink()
     assert not list(d.glob('*.tmp'))
     assert dict(policy.write_agents(example, d)) == {n: 'ok' for n in policy.agent_names(example)}
+
+
+def limits_file(path, now, five=(97, 3600), seven=(40, 86400), at=None):
+    path.write_text(json.dumps({'five_hour': {'used_percentage': five[0], 'resets_at': now + five[1]},
+                                'seven_day': {'used_percentage': seven[0], 'resets_at': now + seven[1]},
+                                'model': 'claude-fable-5-1', 'at': now if at is None else at}))
+    return path
+
+
+def test_limits_missing_stale_or_broken(tmp_path):
+    now = 1_700_000_000
+    assert policy.limits(tmp_path / 'none.json', 95, 10, now) is None
+    assert policy.limits(limits_file(tmp_path / 'old.json', now, at=now - 601), 95, 10, now) is None
+    assert policy.limits(limits_file(tmp_path / 'fresh.json', now, at=now - 599), 95, 10, now)['exhausted'] is True
+    (tmp_path / 'bad.json').write_text('{')
+    assert policy.limits(tmp_path / 'bad.json', 95, 10, now) is None
+
+
+def test_limits_exhausted_only_above_threshold_before_reset(tmp_path):
+    now = 1_700_000_000
+    got = policy.limits(limits_file(tmp_path / 'l.json', now), 95, 10, now)
+    assert got == {'exhausted': True, 'window': 'five_hour', 'used_percentage': 97, 'resets_at': now + 3600, 'at': now}
+    got = policy.limits(limits_file(tmp_path / 'l.json', now, five=(94, 3600)), 95, 10, now)
+    assert got['exhausted'] is False and got['window'] == 'five_hour'
+    got = policy.limits(limits_file(tmp_path / 'l.json', now, five=(97, -1)), 95, 10, now)
+    assert got['exhausted'] is False
+    got = policy.limits(limits_file(tmp_path / 'l.json', now, five=(10, 3600), seven=(96, 86400)), 95, 10, now)
+    assert got['exhausted'] is True and got['window'] == 'seven_day'
+
+
+@pytest.fixture
+def ready(proj):
+    plan = proj['vault'] / 'plans/x.md'
+    rev = documents.document(proj['vault'] / 'research/x.md')['revision']
+    plan.write_text(f'---\nschema: 1\nresearch_revision: {rev}\nsteps:\n  - {{id: s1, n: 1, blocked_by: []}}\n---\n'
+                    '# p\n\n## Steps\n\n### s1: one\n- **Goal:** g\n')
+    workflow.approve(proj['ctx'], proj['db'], 'x', 'plan', documents.document(plan)['revision'])
+    return proj
+
+
+def test_route_exhausted_limits_switch_implement_to_fallback(ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time())))
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['state'] == 'ready' and out['phase'] == 'implement'
+    assert out['limits']['exhausted'] is True
+    assert out['launch']['claude'] == {'agent': 'implement', 'model': 'opus', 'id': 'claude-opus-5-5', 'effort': 'low'}
+
+
+def test_route_without_limits_file_keeps_default(ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(tmp_path / 'absent.json'))
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['limits'] is None
+    assert out['launch']['claude'] == {'agent': 'implement', 'model': None, 'id': 'claude-fable-5-1', 'effort': 'low'}
+
+
+def test_route_stale_limits_do_not_fall_back(ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time(), at=time.time() - 3600)))
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['limits'] is None and out['launch']['claude']['model'] is None

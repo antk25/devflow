@@ -107,3 +107,15 @@ def test_remove_deletes_only_generated_files(home):
     r = install(home, '--remove')
     assert r.returncode == 0
     assert sorted(p.name for p in agents(home).iterdir()) == ['mine.md']
+
+
+def test_check_flags_statusline_without_rate_limits_call(home):
+    assert install(home).returncode == 0
+    assert (home / 'bin/devflow-rate-limits').is_symlink()
+    statusline = home / '.claude/statusline.sh'
+    statusline.write_text('#!/usr/bin/env bash\ninput=$(cat)\n')
+    r = install(home, '--check')
+    assert r.returncode == 1 and 'MISS statusline call devflow-rate-limits' in r.stdout
+    statusline.write_text('#!/usr/bin/env bash\ninput=$(cat)\necho "$input" | devflow-rate-limits\n')
+    r = install(home, '--check')
+    assert r.returncode == 0 and 'MISS statusline' not in r.stdout

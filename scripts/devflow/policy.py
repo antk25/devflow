@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 from .documents import WorkflowError
@@ -58,6 +59,34 @@ def alias(model_id):
 
 def pi_model(entry):
     return entry['model'] + (':' + entry['effort'] if entry.get('effort') else '')
+
+
+def limits_path():
+    return Path(os.environ.get('DEVFLOW_RATE_LIMITS', str(Path.home() / '.claude/devflow/rate-limits.json')))
+
+
+def limits(path, threshold, max_age_min, now):
+    """rate-limits.json → {exhausted, window, used_percentage, resets_at, at}; None if absent, stale or broken."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    at = data.get('at') if isinstance(data, dict) else None
+    if not isinstance(at, (int, float)) or now - at > max_age_min * 60:
+        return None
+    windows = [(name, w['used_percentage'], w.get('resets_at')) for name in ('five_hour', 'seven_day')
+               if isinstance(w := data.get(name), dict) and isinstance(w.get('used_percentage'), (int, float))]
+    if not windows:
+        return {'exhausted': False, 'window': None, 'used_percentage': None, 'resets_at': None, 'at': at}
+
+    def blown(pct, resets_at):
+        return pct >= threshold and isinstance(resets_at, (int, float)) and now < resets_at
+
+    name, pct, resets_at = max(windows, key=lambda w: (blown(w[1], w[2]), w[1]))
+    return {'exhausted': blown(pct, resets_at), 'window': name, 'used_percentage': pct, 'resets_at': resets_at, 'at': at}
 
 
 def agents_dir():
@@ -122,18 +151,23 @@ def write_agents(policy, directory, source_dir=SOURCE_DIR):
         yield name, 'generate'
 
 
-def launch(phase, complexity=None, exhausted=False):
-    """`policy` + `launch` fields for `route`; empty dict when no policy file is installed."""
+def launch(phase, complexity=None, now=None):
+    """`policy`, `limits` + `launch` fields for `route`; only `policy: None` when no policy file is installed."""
     path = policy_path()
     policy = load(path)
     if policy is None:
         return {'policy': None}
+    cfg = policy['limits']
+    signal = limits(limits_path(), cfg.get('threshold', 95), cfg.get('max_age_min', 10), time.time() if now is None else now)
+    exhausted = bool(signal and signal['exhausted'])
     claude = resolve(policy, 'claude', phase, complexity, exhausted)
     pi = resolve(policy, 'pi', phase, complexity, exhausted)
     agent = phase + '-high' if claude['column'] == 'high' and phase + '-high' in agent_names(policy) else phase
+    model = alias(claude['model']) if claude['column'] == 'fallback' else None
     return {'policy': str(path),
+            'limits': signal,
             'policy_stale': installed_stale(policy),
-            'launch': {'claude': {'id': claude['model'], 'effort': claude['effort'], 'model': None, 'agent': agent},
+            'launch': {'claude': {'id': claude['model'], 'effort': claude['effort'], 'model': model, 'agent': agent},
                        'pi': {'model': pi_model(pi)}}}
 
 
