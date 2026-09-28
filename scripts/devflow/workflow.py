@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -56,7 +57,16 @@ def user_complexity(db, slug):
     return None
 
 
-def complexity(ctx, db, query, value=None, gate=None):
+def jev_complexity(db, slug):
+    """Last shadow `complexity` event from Jev, or None."""
+    for row in db.execute("SELECT at, data FROM events WHERE slug=? AND action='complexity' ORDER BY id DESC", (slug,)):
+        data = json.loads(row['data'])
+        if data.get('source') == 'jev':
+            return dict(data, at=row['at'])
+    return None
+
+
+def complexity(ctx, db, query, value=None, gate=None, shadow=True):
     slug = resolve_slug(ctx['vault'], query)
     if value:
         if value not in COMPLEXITY:
@@ -65,7 +75,70 @@ def complexity(ctx, db, query, value=None, gate=None):
             raise WorkflowError('--gate must be one of: ' + ', '.join(GATES))
         with transaction(db):
             event(db, 'complexity', slug, value=value, gate=gate, source='user', applied=True)
-    return {'slug': slug, 'user': user_complexity(db, slug), 'jev': None}
+        if shadow:
+            shadow_complexity(ctx, db, slug, gate)
+    return {'slug': slug, 'user': user_complexity(db, slug), 'jev': jev_complexity(db, slug)}
+
+
+def shadow_complexity(ctx, db, slug, gate):
+    """Ask Jev what it would answer and record it as `source=jev, applied=false`; never raises, never applied."""
+    data = {'value': None, 'gate': gate, 'source': 'jev', 'applied': False, 'choice': None, 'confidence': None,
+            'noul': {'unclear': None, 'wide': None}, 'model': None, 'input_chars': 0, 'sources': [],
+            'latency_ms': None, 'error': None}
+    data['error'] = _shadow_complexity(ctx, slug, data)
+    with transaction(db):
+        event(db, 'complexity', slug, **data)
+    return data
+
+
+def section_text(body, title):
+    hs = headings(body)
+    for i, (level, name, start) in enumerate(hs):
+        if level == 2 and name == title:
+            end = next((h[2] for h in hs[i + 1:] if h[0] <= 2), len(body))
+            chunk = body[start:end]
+            return chunk.split('\n', 1)[1].strip() if '\n' in chunk else ''
+    return ''
+
+
+def _shadow_complexity(ctx, slug, data):
+    if document(ctx['cwd'] / 'AGENTS.md')['meta'].get('jev') is not True:
+        return 'jev не включён в AGENTS.md'
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        return 'OPENROUTER_API_KEY не задан'
+    tz = artifact(ctx['vault'], 'tz', slug)
+    research = artifact(ctx['vault'], 'research', slug)
+    state = {'tz': jev.mask(tz['body'].strip()) if tz else '',
+             'requirements': jev.mask(section_text(research['body'], 'Requirements')) if research else ''}
+    data['sources'] = [k for k, v in state.items() if v]
+    if not data['sources']:
+        return 'нет ни ТЗ, ни требований'
+    questions = jev.complexity_questions()
+    data['input_chars'] = len(json.dumps({'state': state, 'questions': questions}, ensure_ascii=False))
+    if data['input_chars'] > PLAN_LIMIT:
+        return f"вход больше лимита: {data['input_chars']} символов"
+    started = time.monotonic()
+    out = jev.decide(state, questions)
+    data['latency_ms'] = int((time.monotonic() - started) * 1000)
+    if 'error' in out:
+        return out['error']
+    data['model'] = out['model']
+    answers = out['answers']
+    for key in ('unclear', 'wide'):
+        noul = (answers.get(key) or {}).get('noul')
+        if not isinstance(noul, (int, float)):
+            return f'в ответе нет noul для {key}'
+        data['noul'][key] = noul
+    level = answers.get('level') or {}
+    choice = level.get('choice')
+    if choice not in COMPLEXITY:
+        return 'в ответе нет choice для level'
+    data['choice'] = data['value'] = choice
+    confidence = level.get('confidence')
+    if not isinstance(confidence, (int, float)):
+        confidence = (level.get('probabilities') or {}).get(choice)
+    data['confidence'] = confidence if isinstance(confidence, (int, float)) else None
+    return None
 
 
 def _route(ctx, db, query):

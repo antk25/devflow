@@ -42,7 +42,7 @@ def parser():
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
     a = commands.add_parser('approve'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan']); a.add_argument('--revision', required=True)
-    a = commands.add_parser('complexity'); a.add_argument('slug'); a.add_argument('--set', dest='value', choices=['high', 'medium', 'low']); a.add_argument('--gate', choices=['research', 'plan'])
+    a = commands.add_parser('complexity'); a.add_argument('slug'); a.add_argument('--set', dest='value', choices=['high', 'medium', 'low']); a.add_argument('--gate', choices=['research', 'plan']); a.add_argument('--no-shadow', action='store_true')
     a = commands.add_parser('start'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True)
     a = commands.add_parser('finish'); a.add_argument('run_id'); a.add_argument('--status', choices=['done', 'blocked', 'partial'], required=True); a.add_argument('--changelog', required=True); a.add_argument('--reason')
     a = commands.add_parser('check'); a.add_argument('slug'); g = a.add_mutually_exclusive_group(required=True); g.add_argument('--run'); g.add_argument('--all', action='store_true'); g.add_argument('--plan', action='store_true')
@@ -104,7 +104,7 @@ def execute(args):
         if args.command == 'complexity':
             if args.value and not args.gate:
                 raise WorkflowError('--set requires --gate')
-            return complexity(ctx, db, args.slug, args.value, args.gate)
+            return complexity(ctx, db, args.slug, args.value, args.gate, shadow=not args.no_shadow)
         if args.command == 'start':
             return start(ctx, db, args.slug, args.step, args.revision)
         if args.command == 'finish':
