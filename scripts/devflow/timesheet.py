@@ -730,11 +730,12 @@ def save_draft(week: str, lines: list, state: Path = STATE_DIR) -> Path:
 
 
 def load_activity(rules: Rules, week: str) -> dict:
-    from devflow.transcripts import PROJECTS_ROOT, human_messages, load_ledger
+    from devflow.transcripts import PI_ROOT, PROJECTS_ROOT, human_messages, load_ledger, pi_messages
     start, end = week_range(week)
     count_from = datetime(start.year, start.month, start.day, tzinfo=MSK) - timedelta(days=2)
     until = datetime(end.year, end.month, end.day, tzinfo=MSK) - timedelta(days=1)
-    msgs = list(human_messages(PROJECTS_ROOT, count_from - timedelta(days=7), until))
+    since = count_from - timedelta(days=7)
+    msgs = [*human_messages(PROJECTS_ROOT, since, until), *pi_messages(PI_ROOT, since, until)]
     return activity(rules, tagged_messages(rules, msgs, load_ledger(), count_from), week)
 
 
