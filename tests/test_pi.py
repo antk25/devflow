@@ -201,3 +201,91 @@ def test_cli_phase_run_exit_code_follows_pi(proj, fake_pi, monkeypatch, capsys):
     monkeypatch.setattr(sys, 'argv', ['devflow', '--cwd', str(proj['cwd']), 'phase', 'run', 'x', 'plan'])
     assert cli.main() == 1
     assert json.loads(capsys.readouterr().out)['exit_code'] == 2
+
+
+PLAN = '''---
+schema: 1
+research_revision: {rev}
+steps:
+  - {{id: one, n: 1, blocked_by: []}}
+  - {{id: two, n: 2, blocked_by: [one]}}
+---
+
+# X — Plan
+
+## Steps
+
+### one: Первый
+- **Acceptance:** критерий
+
+### two: Второй
+- **Acceptance:** критерий
+'''
+
+FAKE_PI_FINISH = FAKE_PI.replace('echo "отчёт фазы"', '''grep -o 'run_id: [^ ]*' "$FAKE_PI_LOG" | cut -d' ' -f2 > "$FAKE_PI_LOG.run"
+printf '# X — Changelog\\n\\n<!-- devflow-run: %s -->\\n## Шаг 1\\n\\n**Status:** done\\n' "$(cat "$FAKE_PI_LOG.run")" > "$FAKE_PI_CHANGELOG"
+devflow --cwd "$PWD" finish "$(cat "$FAKE_PI_LOG.run")" --status done --changelog "$FAKE_PI_CHANGELOG" > /dev/null
+echo "отчёт фазы"''')
+
+
+def approve_plan(proj):
+    rev = approve_research(proj)
+    (proj['vault'] / 'plans/x.md').write_text(PLAN.format(rev=rev))
+    plan_rev = documents.document(proj['vault'] / 'plans/x.md')['revision']
+    workflow.approve(proj['ctx'], proj['db'], 'x', 'plan', plan_rev)
+    return plan_rev
+
+
+def runs(proj):
+    return [dict(r) for r in proj['db'].execute('SELECT * FROM runs')]
+
+
+def test_implement_refuses_when_not_ready_without_start(proj, fake_pi):
+    approve_research(proj)
+    with pytest.raises(WorkflowError, match='state plan'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+
+
+def test_implement_refuses_foreign_step_without_start(proj, fake_pi):
+    approve_plan(proj)
+    with pytest.raises(WorkflowError, match='two is not on the frontier'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', step='two', env=fake_pi['env'])
+    with pytest.raises(WorkflowError, match='nope is not on the frontier'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', step='nope', env=fake_pi['env'])
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+
+
+def test_implement_starts_run_before_pi_and_warns_when_left_running(proj, fake_pi):
+    plan_rev = approve_plan(proj)
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
+    started = runs(proj)
+    assert len(started) == 1 and started[0]['step_id'] == 'one' and started[0]['status'] == 'running'
+    message = fake_pi['log'].read_text()
+    assert f"run_id: {started[0]['id']}" in message and 'step: one (n=1)' in message
+    assert f'plan_revision: {plan_rev}' in message and 'DevFlow Phase — implement.' in message
+    assert out['run_id'] == started[0]['id']
+    assert out['route']['state'] == 'running' and out['route']['run_id'] == started[0]['id']
+    assert 'finish' in out['warning'] and 'phase run implement again' in out['warning']
+
+
+def test_implement_run_started_before_pi_is_launched(proj, fake_pi, tmp_path):
+    approve_plan(proj)
+    state = tmp_path / 'state'
+    probe = FAKE_PI.replace('echo "отчёт фазы"',
+                            f'devflow --cwd "$PWD" status x | grep -o \'"state": "[a-z]*"\' > "{tmp_path}/seen"')
+    (tmp_path / 'bin/pi').write_text(probe)
+    pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env={**fake_pi['env'], 'DEVFLOW_STATE_DIR': str(state)})
+    assert (tmp_path / 'seen').read_text().strip() == '"state": "running"'
+
+
+def test_implement_finished_by_pi_has_no_warning_and_routes_to_next_step(proj, fake_pi, tmp_path):
+    approve_plan(proj)
+    (tmp_path / 'bin/pi').write_text(FAKE_PI_FINISH)
+    env = {**fake_pi['env'], 'DEVFLOW_STATE_DIR': str(tmp_path / 'state'),
+           'FAKE_PI_CHANGELOG': str(proj['vault'] / 'changelog/2026-01-01-x.md')}
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', step='one', env=env)
+    assert out['exit_code'] == 0, out['stderr']
+    assert 'warning' not in out
+    assert out['route']['state'] == 'ready' and out['route']['step'] == 'two' and out['route']['done'] == ['one']
+    assert runs(proj)[0]['status'] == 'done'

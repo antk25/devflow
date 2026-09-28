@@ -8,13 +8,15 @@ import tempfile
 from pathlib import Path
 
 from .documents import WorkflowError, artifact, document
-from .workflow import route
+from .workflow import route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
 AGENTS = Path(__file__).resolve().parents[2] / 'agents'
 INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
-PHASES = ('research', 'plan')
-PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated')}
+PHASES = ('research', 'plan', 'implement')
+PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
+RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
+                   'devflow finish/resume/interrupt; do not run phase run implement again')
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
          'Write': ('write',), 'Edit': ('edit',)}
 BRIDGE_WARNING = ('WARNING: pi will run on claude-bridge — that is Claude; set PI_PROVIDER/PI_MODEL or '
@@ -114,6 +116,14 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     current = route(ctx, db, slug)
     if current['state'] not in PRECONDITIONS.get(phase, ()):
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
+    run = None
+    if phase == 'implement':
+        step = step or current['step']
+        if step not in current['frontier']:
+            raise WorkflowError(f'Step {step} is not on the frontier: ' + ', '.join(current['frontier']))
+        run = start(ctx, db, current['slug'], step, current['revision'])
+        if step != current['step']:
+            current = dict(current, n=None)
     body, tools = agent_body(phase)
     chosen = model_arg(env, model)
     if warns_claude_bridge(chosen, PI_SETTINGS):
@@ -123,9 +133,15 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
         fh.write(body)
     body_file = Path(fh.name)
     try:
-        proc = subprocess.run(build_command(body_file, tools, chosen, task_message(phase, ctx, current, step, None, note)),
+        proc = subprocess.run(build_command(body_file, tools, chosen, task_message(phase, ctx, current, step, run, note)),
                               stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
     finally:
         body_file.unlink(missing_ok=True)
-    return {'phase': phase, 'slug': current['slug'], 'model': chosen, 'exit_code': proc.returncode,
-            'report': proc.stdout, 'stderr': proc.stderr, 'route': route(ctx, db, current['slug'])}
+    after = route(ctx, db, current['slug'])
+    result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'exit_code': proc.returncode,
+              'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
+    if run:
+        result['run_id'] = run['run_id']
+        if after['state'] == 'running':
+            result['warning'] = RUNNING_WARNING
+    return result
