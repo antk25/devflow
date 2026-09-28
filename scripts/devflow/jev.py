@@ -30,6 +30,19 @@ PLAN_CLASSES = {
     "not_covered": "The plan does not address the requirement, mentions it only as background, or explicitly defers it.",
 }
 
+UNCLEAR = ("The state holds a software task: the ticket text (`tz`) and the requirements a researcher extracted from it "
+           "(`requirements`). Is the task statement unclear: goals or expected behaviour are ambiguous, contradictory, "
+           "missing, or would need clarification from the customer before implementation can start?")
+WIDE = ("The state holds a software task: the ticket text (`tz`) and the requirements a researcher extracted from it "
+        "(`requirements`). Does implementing it require a large number of changes across many parts of the system, "
+        "with a real risk of breaking the current behaviour?")
+LEVEL = "Classify the complexity of the software task in the state."
+COMPLEXITY_CLASSES = {
+    "high": "The task statement is unclear (ambiguous, contradictory or incomplete) and/or it requires many changes across the system with a real risk of breaking current behaviour.",
+    "medium": "The task statement is clear enough, and the change is contained but touches several places or has some risk to existing behaviour.",
+    "low": "The task statement is clear and the change is small and local, with little risk to current behaviour.",
+}
+
 SECRETS = [
     re.compile(r"(?i)\b(sk|pk|rk|ghp|gho|github_pat|xox[abp]|glpat)[-_][A-Za-z0-9_\-]{10,}"),
     re.compile(r"(?i)(bearer|token|password|passwd|pwd|secret|api[_-]?key|authorization)(\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?\S+"),
@@ -72,6 +85,14 @@ def plan_questions(reqs: list[str]) -> list[dict]:
         out.append({'key': f'addr_{n}', 'type': 'noul', 'instructions': ADDR.format(r=r)})
         out.append({'key': f'cov_{n}', 'type': 'choice', 'instructions': COVER.format(r=r), 'criteria': PLAN_CLASSES})
     return out
+
+
+def complexity_questions() -> list[dict]:
+    return [
+        {'key': 'unclear', 'type': 'noul', 'instructions': UNCLEAR},
+        {'key': 'wide', 'type': 'noul', 'instructions': WIDE},
+        {'key': 'level', 'type': 'choice', 'instructions': LEVEL, 'criteria': COMPLEXITY_CLASSES},
+    ]
 
 
 def decide(state: dict, questions: list[dict], timeout: float = 5) -> dict:

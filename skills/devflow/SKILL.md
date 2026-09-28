@@ -1,6 +1,6 @@
 ---
 name: devflow
-description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on the session model (fable 5.1 via start.sh).
+description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase.
 user_invocable: true
 arguments:
   - name: slug
@@ -11,7 +11,7 @@ arguments:
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)
 
 Interactive orchestrator. Runs the `research` / `plan` / `implement` phases as separate autonomous
-agents (on the session model, effort low), shows you each artifact, and **waits for your explicit
+agents (model and effort per phase from `model-policy.json`), shows you each artifact, and **waits for your explicit
 approval at each gate** before the next phase. Git follows the global rule: the assistant creates
 branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base
 branch; pushes to the base/production branch and merges are the user's; `implement` commits each step.
@@ -25,10 +25,13 @@ of the `Agent` tool, then use one column for the whole session:
 
 | | Claude Code (`Agent` tool present) | pi (no `Agent` tool) |
 |---|---|---|
-| Launch a phase | `Agent(subagent_type=<phase>)` with cwd, slug, revision (and run data for implement) | `devflow phase run <slug> <phase> [--step <id>] [--note <text>]` — the CLI runs the phase body in a separate `pi` process on the session model |
+| Launch a phase | `Agent(subagent_type=launch.claude.agent, model=launch.claude.model)` from `df route` (`<phase>` or `<phase>-high` by complexity), with cwd, slug, revision (and run data for implement) | `devflow phase run <slug> <phase> [--step <id>] [--note <text>]` — the CLI runs the phase body in a separate `pi` process on `launch.pi.model` |
 | Relay a remark at the gate | `SendMessage` to the same agent | repeat `devflow phase run <slug> <phase> --note "<remark>"` |
 | `start` before implement | the driver runs `df start`, passes `run_id` to the agent | `phase run … implement` calls `start` itself and returns `run_id` |
 | Result | the agent's hand-off | JSON: `exit_code`, `report`, `route`, `run_id`, `warning` — show `report`, act on `route` |
+
+If `route` returns a non-empty `policy_stale`, print one line — «запусти `./install.sh` в devflow:
+агенты <имена> устарели» — and launch anyway (old frontmatter is not a refusal).
 
 pi rules: never call `claude` in any form (`claude`, `claude -p`, `claude --bg`, `claude --agent`,
 `claude-bridge`) — without the `Agent` tool a phase is launched only through `phase run`. The first
@@ -84,9 +87,13 @@ each updated version. **Only after explicit user approval in this session**, run
 ```
 df approve <slug> <research|plan> --revision <hash-that-was-shown>
 ```
+At the research gate, before `df approve`, ask the complexity by the research criterion — unclear TZ
+and/or many changes that risk breaking behaviour → `high`, otherwise `medium` / `low` — and record it:
+`df complexity <slug> --set <high|medium|low> --gate research`. Only then approve.
 If the CLI rejects a stale revision, show the changed artifact and ask again. This command records
 the user's decision; its availability is never permission for the agent to approve its own work.
-Then route again. Existing files with no recorded approval go through the same gate.
+Then route again and launch through the launch layer. Existing files with no recorded approval go
+through the same gate.
 At the plan gate, show the plan agent's Jev остаток (требование, источник, `noul`) ordered
 неразобранные → Отложено → учтено; a `skipped` check is one line.
 
