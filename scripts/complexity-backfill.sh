@@ -10,7 +10,7 @@ mkdir -p "$(dirname "$out")"
 for tz in "$vault"/tz/*.md; do
     [ -e "$tz" ] || continue
     slug="$(basename "$tz" .md)"
-    if ! ls "$vault"/plans/"$slug".md >/dev/null 2>&1; then
+    if [ -z "$(find "$vault/plans" -maxdepth 1 -iname "$slug.md" -print -quit)" ]; then
         echo "skip $slug: нет плана"; continue
     fi
     result="$("$devflow" --cwd "$cwd" complexity "$slug" --gate backfill)" || { echo "fail $slug"; continue; }

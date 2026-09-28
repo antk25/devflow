@@ -258,6 +258,7 @@ def test_backfill_script_skips_tasks_without_plan(done_run, tmp_path, monkeypatc
     import subprocess
     ctx, vault = done_run['ctx'], done_run['ctx']['vault']
     (vault / 'tz/y.md').write_text('# y\n')
+    (vault / 'plans/x.md').rename(vault / 'plans/X.md')
     out = tmp_path / 'backfill.jsonl'
     root = documents.Path(__file__).resolve().parents[1]
     env = dict(os.environ, DEVFLOW_COMPLEXITY_BACKFILL=str(out), DEVFLOW_BIN=str(root / 'scripts/devflow-cli.sh'))

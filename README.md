@@ -248,7 +248,9 @@ echo "$input" | devflow-rate-limits
 `~/.claude/devflow/rate-limits.json` = `{five_hour, seven_day, model, at}`. `route` читает файл по
 `limits` из policy (`threshold: 95`, `max_age_min: 10`): окно с `used_percentage ≥ threshold`, ещё
 не сброшенное, переводит `implement` на колонку `fallback`, и `launch.claude.model` несёт алиас
-(`opus`) для `Agent`. Файл старше `max_age_min` — сигнала нет (`limits: null`). Пока строки в
+(`opus`; для id без префикса `claude-*` — сам id) для `Agent`. Если в `fallback` другой effort,
+`install.sh` генерирует ещё `implement-fallback`, и `route` выбирает его; при равном effort
+лишнего агента нет. Файл старше `max_age_min` — сигнала нет (`limits: null`). Пока строки в
 statusline нет, `--check` печатает `MISS statusline call devflow-rate-limits`.
 
 ### Доразметка сложности прошлых задач

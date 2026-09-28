@@ -159,9 +159,9 @@ def test_installed_stale_missing_and_effort_drift(example, tmp_path):
     list(policy.write_agents(example, d))
     assert policy.installed_stale(example, d) == []
     example['claude']['implement']['default']['effort'] = 'medium'
-    assert policy.installed_stale(example, d) == ['implement']
+    assert policy.installed_stale(example, d) == ['implement', 'implement-fallback']
     (d / 'plan.md').write_text((d / 'plan.md').read_text() + '\nextra body line\n')
-    assert policy.installed_stale(example, d) == ['plan', 'implement']
+    assert policy.installed_stale(example, d) == ['plan', 'implement', 'implement-fallback']
 
 
 def test_write_agents_is_atomic_and_replaces_symlink(example, tmp_path):
@@ -234,3 +234,44 @@ def test_route_stale_limits_do_not_fall_back(ready, monkeypatch, tmp_path):
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time(), at=time.time() - 3600)))
     out = workflow.route(ready['ctx'], ready['db'], 'x')
     assert out['limits'] is None and out['launch']['claude']['model'] is None
+
+
+def test_paths_follow_claude_dir(monkeypatch, tmp_path):
+    monkeypatch.delenv('DEVFLOW_MODEL_POLICY', raising=False)
+    monkeypatch.delenv('DEVFLOW_RATE_LIMITS', raising=False)
+    monkeypatch.setenv('DEVFLOW_CLAUDE_DIR', str(tmp_path))
+    assert policy.policy_path() == tmp_path / 'devflow/model-policy.json'
+    assert policy.limits_path() == tmp_path / 'devflow/rate-limits.json'
+    assert policy.agents_dir() == tmp_path / 'agents'
+
+
+@pytest.mark.parametrize('host, phase', [('claude', 'plan'), ('pi', 'implement')])
+def test_load_rejects_policy_without_default_for_a_phase(tmp_path, example, host, phase):
+    del example[host][phase]['default']
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    with pytest.raises(WorkflowError, match=f'{host}/{phase}'):
+        policy.load(path)
+
+
+def test_fallback_with_unknown_prefix_passes_full_id(ready, monkeypatch, tmp_path, example):
+    example['claude']['implement']['fallback']['model'] = 'opus'
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(path))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time())))
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['launch']['claude']['model'] == 'opus'
+
+
+def test_fallback_effort_differing_from_default_gets_its_own_agent(ready, monkeypatch, tmp_path, example):
+    example['claude']['implement']['fallback']['effort'] = 'medium'
+    assert policy.agent_names(example)[-2:] == ['implement', 'implement-fallback']
+    front = policy.render_agent(example, 'implement-fallback').split('---\n', 2)[1]
+    assert 'name: implement-fallback\n' in front and 'effort: medium\n' in front
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(path))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time())))
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['launch']['claude']['agent'] == 'implement-fallback' and out['launch']['claude']['effort'] == 'medium'
