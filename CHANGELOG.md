@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-19: модель и effort фазовых агентов по правилу
+- **`~/.claude/devflow/model-policy.json`** (эталон `model-policy.example.json`, `scripts/devflow/policy.py`) — правило хост × фаза × сложность → модель + effort: research/plan — Opus 5.5 medium, `high` — Opus 5.5 high; implement — Fable 5.1 low с колонкой `fallback` Opus 5.5 low; pi — `openai-codex/gpt-6-astra` high/medium/low. `install.sh` копирует эталон, если файла нет; `--check` печатает `MISS model policy`. `devflow route` с фазой отдаёт `policy` и `launch` для обоих хостов.
+- **`devflow complexity <slug> [--set high|medium|low] [--gate research|backfill] [--no-shadow]`** — событие сложности в SQLite (`source=user`); при `--set` рядом пишется теневая оценка Jev (`source=jev`, `applied=false`, `noul`, `choice`, `confidence`). Драйвер спрашивает сложность на гейте research до `df approve`. Вывод содержит `facts` (шаги плана, прогоны и статусы, ревизии) для калибровки.
+- **Пары агентов** — `research`, `research-high`, `plan`, `plan-high`, `implement` в `~/.claude/agents/` генерируются из `agents/<phase>.md` и policy (`-high` только там, где колонка `high` отличается); `--check` печатает `STALE agent <name>`, `route` — `policy_stale`, `launch.claude.agent` — имя нужного агента.
+- **`devflow-rate-limits`** (`scripts/rate-limits.sh`, ссылка в `~/.local/bin`) — одна строка в `~/.claude/statusline.sh` пишет `~/.claude/devflow/rate-limits.json`; `route` по `policy.limits` (`threshold`, `max_age_min`) переводит `implement` на `fallback` и отдаёт алиас в `launch.claude.model`; `--check` напоминает `MISS statusline call devflow-rate-limits`.
+- **`scripts/complexity-backfill.sh <project-cwd>`** — доразметка прошлых задач по `tz/` проекта: теневые прогоны Jev в JSONL (`~/.claude/devflow/complexity-backfill.jsonl`) для калибровки порога.
+
+### Changed — DF-19
+- Фазовые агенты больше не несут `model: inherit` + `effort: low` — модель и effort приходят из policy через генерацию при `./install.sh`; симлинки на `agents/<phase>.md` заменены копиями. Ревью-агенты и скиллы `/devflow`, `/standup`, `/review` по-прежнему идут на модели сессии.
+- pi: `devflow phase run` берёт модель фазы из `launch.pi.model` (приоритет `--model` > policy > `PI_*` > дефолт pi), в результате поле `model_source`.
+- `AGENTS.md`, README «Model per phase», `devflow-instructions.md`, описание `/devflow` — старая проза «все фазы low на модели сессии» заменена ссылкой на policy-файл.
+
 ### Added — создание задач в Jira и Jira-скрипты в репозитории
 - **`integrations/jira-*.sh`** — скрипты Jira теперь в репозитории; `install.sh` ставит на них ссылки в `~/.config/devflow/integrations/` (`config.env`, `tracker`, `jira-seen.json` остаются там).
 - **`integrations/jira-create.sh` + скилл `/jira-create`** — создание задачи (`-P <KEY>` обязателен, описание в wiki-разметке, API v2). Без `--yes` — dry run; `--yes` стоит под ask-правилом в `settings.global.example.json`. Ключ проекта, язык и эпики скилл берёт из раздела `## Jira` в `AGENTS.md` проекта.

@@ -25,7 +25,7 @@ DevFlow itself is the meta-project. Skills (`skills/`) and phase agents (`agents
 - Launch pi with the project context: `devflow-pi <project> [--model provider/id[:thinking]]` (no state DB created)
 
 ## Conventions
-- Model policy: phase and review agents carry `model: inherit` + `effort: low` — they run on the session's model, low effort, for their whole run. `./start.sh` starts the session on **claude-fable-5-1**; when Fable limits run out, `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` or `/model opus` inside the session — the next agent picks it up. `/devflow`, `/standup`, `/review` pin no model either.
+- Model policy: which model and effort a phase agent gets (host × phase × complexity) is a rule in `~/.claude/devflow/model-policy.json` (reference copy: `model-policy.example.json`). After editing it run `./install.sh` — the phase agents in `~/.claude/agents/` are generated from it (`--check` prints `STALE` until then). Task complexity is set at the research gate with `df complexity <slug> --set <high|medium|low>`; `df complexity <slug>` shows the current choice, the Jev shadow verdict and the facts. Review agents and `/devflow`, `/standup`, `/review` pin no model — they run on the session model. See README «Model per phase».
 - Base branch: `main`
 - Production branch: `main`
 - Commit format: `<type>(<scope>): <subject>` (e.g. `feat(plan): tighten step format`); body optional; types from conventional commits (`feat`, `fix`, `docs`, `refactor`, `chore`).

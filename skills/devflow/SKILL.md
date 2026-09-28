@@ -1,6 +1,6 @@
 ---
 name: devflow
-description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase. Session runs on the session model (fable 5.1 via start.sh).
+description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase.
 user_invocable: true
 arguments:
   - name: slug
@@ -11,7 +11,7 @@ arguments:
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)
 
 Interactive orchestrator. Runs the `research` / `plan` / `implement` phases as separate autonomous
-agents (on the session model, effort low), shows you each artifact, and **waits for your explicit
+agents (model and effort per phase from `model-policy.json`), shows you each artifact, and **waits for your explicit
 approval at each gate** before the next phase. Git follows the global rule: the assistant creates
 branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base
 branch; pushes to the base/production branch and merges are the user's; `implement` commits each step.

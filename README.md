@@ -26,9 +26,9 @@ The driver spawns three **phase agents** (`~/.claude/agents/`), each with its mo
 
 | Phase agent | Model | Output |
 |-------------|-------|--------|
-| `research` | session model (effort low) | `<vault>/research/<slug>.md` |
-| `plan` | session model (effort low) | `<vault>/plans/<slug>.md` |
-| `implement` | session model (effort low) | `<vault>/changelog/<date>-<slug>.md` |
+| `research` | from `model-policy.json` (Opus 5.5 medium; `research-high` — high) | `<vault>/research/<slug>.md` |
+| `plan` | from `model-policy.json` (Opus 5.5 medium; `plan-high` — high) | `<vault>/plans/<slug>.md` |
+| `implement` | from `model-policy.json` (Fable 5.1 low; Opus 5.5 low when Fable limits are out) | `<vault>/changelog/<date>-<slug>.md` |
 | `crossreview` | session model (effort low) | `<vault>/notes/<slug>-cross-review.md` — after the last step: own review + Codex second opinion, every finding verified in code |
 
 The artifact from one phase is the input to the next; the driver re-routes after each gate through
@@ -96,7 +96,7 @@ is read from the local transcripts in `~/.claude/projects/` — nothing leaves t
 ./start.sh --current       current project → fable 5.1 driver
 ```
 
-The driver session runs on fable 5.1; phase agents carry `model: inherit` + `effort: low` and follow the session. Fable limits exhausted? `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>`, or `/model opus` in a running session.
+The driver session runs on fable 5.1; each phase agent gets its own model and effort from `~/.claude/devflow/model-policy.json` — see [Model per phase](#model-per-phase).
 
 ---
 
@@ -145,13 +145,7 @@ The obsidian vault for each project follows this structure:
 
 DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
-**Rate limits.** `./install.sh` links `~/.local/bin/devflow-rate-limits` (`scripts/rate-limits.sh`): it reads the statusline JSON from stdin and, when `.rate_limits` is present, atomically writes `~/.claude/devflow/rate-limits.json` = `{five_hour, seven_day, model, at}`. Claude Code only feeds that JSON to the statusline, so add one line to your own `~/.claude/statusline.sh` right after `input=$(cat)`:
-
-```bash
-echo "$input" | devflow-rate-limits
-```
-
-`--check` prints `MISS statusline call devflow-rate-limits` while the line is absent. `route` reads the file through `limits` in `model-policy.json` (`threshold`, `max_age_min`): a window with `used_percentage ≥ threshold` that has not reset yet switches `implement` to the `fallback` column, and `launch.claude.model` carries the alias (`opus`) for the driver to pass to `Agent`. A file older than `max_age_min` counts as no signal (`limits: null`).
+`./install.sh` also links `~/.local/bin/devflow-rate-limits`; the statusline hook-up is described under [Model per phase](#model-per-phase).
 
 ```bash
 git clone <repo> ~/projects/devflow
@@ -210,7 +204,7 @@ created, a project without `AGENTS.md` gets a warning and a bare pi. If the mode
 `/devflow <slug>` in pi is the same driver skill as in Claude Code; only the launch layer differs.
 Where Claude Code spawns a phase through the `Agent` tool, pi runs
 `devflow phase run <slug> <research|plan|implement> [--step <id>] [--note <text>]`: the CLI starts a
-separate `pi -p` process on the session model with the phase body (`agents/<phase>.md`) appended to
+separate `pi -p` process on `launch.pi.model` from the policy with the phase body (`agents/<phase>.md`) appended to
 the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`). Gate
 remarks go back as a repeated `phase run --note`. For `implement` the CLI calls `devflow start`
 itself before the process; if the step ends without `devflow finish`, `route` stays `running` and the
@@ -219,13 +213,43 @@ result carries a `warning` — the driver then inspects (`git status`, changelog
 
 ### Model per phase
 
-Все три фазы идут с `effort: low` на модели сессии — по умолчанию **Claude Fable 5.1**: на новых моделях низкий effort закрывает рутину не хуже, чем прежний high на прошлом поколении, а токенов тратит меньше. Во frontmatter агентов стоит `model: inherit`, поэтому смена модели сессии переводит на неё и следующий фазовый прогон:
+Модель и effort фазового агента не зашиты в агентах и драйвере — это правило в
+`~/.claude/devflow/model-policy.json` (эталон — `model-policy.example.json` в корне; `./install.sh`
+копирует его, если файла нет). Правило — хост × фаза × сложность задачи; стартовое:
 
-| Phase agent | Model | Effort |
-|-------------|-------|--------|
-| `research`, `plan`, `implement` | модель сессии (`inherit`) | low |
+| Фаза | Сложная задача (`high`) | Средняя / простая |
+|------|-------------------------|-------------------|
+| `research`, `plan` | Opus 5.5 high | Opus 5.5 medium |
+| `implement` | Fable 5.1 low; кончились лимиты Fable — Opus 5.5 low (`fallback`) | то же |
+| в pi | `gpt-6-astra` high | `gpt-6-astra` medium; `implement` — low |
 
-`./start.sh` запускает `claude --model ${DEVFLOW_MODEL:-claude-fable-5-1}`; драйвер, `/standup`, `/review` и ревью-агенты модель не пинят и идут на модели сессии. Кончились лимиты на Fable — `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` или `/model opus` в идущей сессии. `/code-review` встроенный и frontmatter'а не имеет — он наследует модель сессии.
+Вышла новая модель — меняется одна строка в JSON, затем `./install.sh`: агенты `research`,
+`research-high`, `plan`, `plan-high`, `implement` в `~/.claude/agents/` генерируются из тела
+`agents/<phase>.md` и колонок policy (см. [Install](#install)); до перезапуска `--check` печатает
+`STALE`, а `route` — `policy_stale`. Драйвер, `/standup`, `/review`, ревью-агенты и встроенный
+`/code-review` модель не пинят и идут на модели сессии (`./start.sh` — `claude --model
+${DEVFLOW_MODEL:-claude-fable-5-1}`).
+
+**Сложность.** На гейте research драйвер спрашивает сложность по критерию исследования и пишет
+`devflow complexity <slug> --set <high|medium|low> --gate research`; рядом ложится теневая оценка
+Jev (`source=jev`, `applied=false`) для калибровки. `devflow route` по выбору отдаёт `launch`:
+для Claude Code — имя агента (`plan` или `plan-high`) и алиас модели при fallback, для pi —
+`provider/id:level` (`launch.pi.model`; приоритет `--model` > policy > `PI_*` > дефолт pi).
+
+**Лимиты Fable.** Поток: `statusline → rate-limits.json → route`. Claude Code передаёт
+`rate_limits` только в статусную строку, поэтому в свой `~/.claude/statusline.sh` сразу после
+`input=$(cat)` добавляется одна строка:
+
+```bash
+echo "$input" | devflow-rate-limits
+```
+
+`devflow-rate-limits` (`scripts/rate-limits.sh`, ссылка от `./install.sh`) атомарно пишет
+`~/.claude/devflow/rate-limits.json` = `{five_hour, seven_day, model, at}`. `route` читает файл по
+`limits` из policy (`threshold: 95`, `max_age_min: 10`): окно с `used_percentage ≥ threshold`, ещё
+не сброшенное, переводит `implement` на колонку `fallback`, и `launch.claude.model` несёт алиас
+(`opus`) для `Agent`. Файл старше `max_age_min` — сигнала нет (`limits: null`). Пока строки в
+statusline нет, `--check` печатает `MISS statusline call devflow-rate-limits`.
 
 ### Доразметка сложности прошлых задач
 
