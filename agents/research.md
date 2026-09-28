@@ -54,7 +54,7 @@ of exactly three outcomes:
 A fix designed for a defect nobody has seen is a guess, and the plan gate can't tell the difference.
 
 ## Step 4: Write the research doc
-Use `~/.claude/skills/devflow/devflow route <slug>` to find an existing `research_path`;
+Use `devflow route <slug>` to find an existing `research_path`;
 write there, otherwise to `<vault>/research/<slug>.md`. Clarity beats completeness — a future reader (the plan agent,
 then you) must grasp it with zero effort. Section headers English, prose Russian:
 

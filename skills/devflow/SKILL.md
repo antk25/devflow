@@ -24,7 +24,7 @@ phase logic lives in the agent bodies** — don't re-implement a phase here.
   old per-phase `/research` `/plan` `/implement` entry points).
 
 ## Step 0: Project context
-Read `AGENTS.md` from cwd. The shared CLI is `~/.claude/skills/devflow/devflow` (called `df` below
+Read `AGENTS.md` from cwd. The shared CLI is `devflow` (called `df` below
 for brevity; invoke the full path, not an assumed shell alias). Commands return JSON.
 Run `df context`. A new project needs `df init` once; the launcher does this automatically.
 A missing database for an existing identity is an error: restore it, never silently reset progress.

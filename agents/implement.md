@@ -23,7 +23,7 @@ not "just finish the next one while you're here".
 ## Step 1: Project context
 1. Read `AGENTS.md` from cwd.
 2. Require the driver-provided **run ID, step ID and plan revision**. Run
-   `~/.claude/skills/devflow/devflow status <slug>` and verify this is the active run, step and revision, with `documents_changed: false`.
+   `devflow status <slug>` and verify this is the active run, step and revision, with `documents_changed: false`.
    Do not create a second run. Missing state or mismatched input → stop and report it.
 3. Read the returned `plan_path` and, if needed, `research_path`. Execute only the section `### <step-id>: <title>`.
 4. Note the current git branch. Do not push or create PRs from this agent; the driver or user publishes.
@@ -127,7 +127,7 @@ If partial or blocked, be explicit about what's incomplete and why — the chang
 shares or reads when the task comes back.
 
 ## Проверка покрытия
-After Step 5, before Step 6, run `~/.claude/skills/devflow/devflow check <slug> --run <run-id>`.
+After Step 5, before Step 6, run `devflow check <slug> --run <run-id>`.
 Jev never blocks; it only points at criteria your changelog section doesn't evidence.
 - `skipped` because `jev` is not enabled in `AGENTS.md` → do nothing: no changelog line, no action.
 - Any other `skipped` → add one line to `### Tests`: «проверка Jev не выполнялась: <reason>».
@@ -138,7 +138,7 @@ Jev never blocks; it only points at criteria your changelog section doesn't evid
   not loop.
 
 ## Step 6: Record the result
-Run `~/.claude/skills/devflow/devflow finish <run-id> --status <done|partial|blocked>
+Run `devflow finish <run-id> --status <done|partial|blocked>
 --changelog <absolute-path>`, adding `--reason <reason>` for partial/blocked.
 A done result requires unchanged approved documents. If it is rejected, report the error; never
 claim the step closed. The command is idempotent for the same run section. Reuse that section
@@ -150,7 +150,7 @@ Compact hand-off (goes to the driver, not the user):
 - 2-3 lines: what got done; if blocked/partial, the exact stop reason.
 - Current branch and the step's commit hash (or why nothing was committed).
 - Criteria still flagged by Jev after the single re-check, if any.
-- Result of `~/.claude/skills/devflow/devflow route <slug>`; do not compute the next step yourself.
+- Result of `devflow route <slug>`; do not compute the next step yourself.
 
 ## Rules
 - **One step per run.** Autonomous inside it; the gate already happened. Never run ahead into the
