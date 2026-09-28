@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from devflow.transcripts import human_messages, parse_ts, user_text
+from devflow.transcripts import human_messages, parse_ts, pi_messages, user_text
 
 UTC = timezone.utc
 
@@ -41,3 +41,17 @@ def test_parse_ts():
 
 def test_user_text_drops_system_reminders():
     assert user_text({'content': 'a<system-reminder>x</system-reminder>b'}) == 'a b'
+
+
+def test_pi_messages_take_cwd_and_id_from_session_header(tmp_path):
+    def msg(ts, role, content):
+        return {'type': 'message', 'timestamp': ts, 'message': {'role': role, 'content': content}}
+    write(tmp_path / '--green--' / 'f.jsonl', [
+        {'type': 'session', 'id': 'pi1', 'timestamp': '2026-09-22T08:59:00Z', 'cwd': '/home/u/projects/green'},
+        msg('2026-09-22T09:00:00Z', 'user', [{'type': 'text', 'text': 'сделай SE-1'}]),
+        msg('2026-09-22T09:01:00Z', 'assistant', [{'type': 'text', 'text': 'готово'}]),
+        msg('2026-09-22T09:02:00Z', 'toolResult', [{'type': 'text', 'text': 'ok'}]),
+        msg('2026-09-30T09:00:00Z', 'user', [{'type': 'text', 'text': 'за пределами'}]),
+    ])
+    msgs = list(pi_messages(tmp_path, datetime(2026, 9, 21, tzinfo=UTC), datetime(2026, 9, 28, tzinfo=UTC)))
+    assert [(m.text, m.cwd, m.session) for m in msgs] == [('сделай SE-1', '/home/u/projects/green', 'pi1')]

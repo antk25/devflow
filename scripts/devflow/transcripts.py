@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterator, NamedTuple
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
+PI_ROOT = Path.home() / ".pi" / "agent" / "sessions"
 LEDGER = Path.home() / ".claude" / "devflow" / "task-ledger.jsonl"
 NO_TASK = "(без задачи)"
 
@@ -103,3 +104,27 @@ def human_messages(root: Path, since: datetime, until: datetime) -> Iterator[Msg
             text = user_text(entry.get("message", {})).strip()
             if text:
                 yield Msg(ts, entry.get("cwd") or "", entry.get("sessionId") or path.stem, text)
+
+
+def pi_messages(root: Path, since: datetime, until: datetime) -> Iterator[Msg]:
+    for path in sorted(root.glob("*/*.jsonl")):
+        cwd, session = "", path.stem
+        for line in path.open(encoding="utf-8", errors="ignore"):
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("type") == "session":
+                cwd, session = entry.get("cwd") or "", entry.get("id") or session
+                continue
+            message = entry.get("message")
+            if entry.get("type") != "message" or not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            ts = parse_ts(entry.get("timestamp"))
+            if not ts or not since <= ts < until:
+                continue
+            text = user_text(message).strip()
+            if text:
+                yield Msg(ts, cwd, session, text)
