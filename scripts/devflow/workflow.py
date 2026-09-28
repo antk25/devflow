@@ -36,7 +36,7 @@ def pending_path(ctx, slug):
 
 
 COMPLEXITY = ('high', 'medium', 'low')
-GATES = ('research', 'plan')
+GATES = ('research', 'plan', 'backfill')
 
 
 def route(ctx, db, query):
@@ -77,7 +77,27 @@ def complexity(ctx, db, query, value=None, gate=None, shadow=True):
             event(db, 'complexity', slug, value=value, gate=gate, source='user', applied=True)
         if shadow:
             shadow_complexity(ctx, db, slug, gate)
-    return {'slug': slug, 'user': user_complexity(db, slug), 'jev': jev_complexity(db, slug)}
+    elif gate == 'backfill' and shadow:
+        # Backfill: only Jev's shadow opinion; the user's value stays untouched until a later --set.
+        shadow_complexity(ctx, db, slug, gate)
+    return {'slug': slug, 'user': user_complexity(db, slug), 'jev': jev_complexity(db, slug),
+            'facts': complexity_facts(ctx, db, slug)}
+
+
+def complexity_facts(ctx, db, slug):
+    """What actually happened to the task: plan size, runs and their outcomes, artifact revisions."""
+    plan = artifact(ctx['vault'], 'plans', slug)
+    try:
+        steps = len(plan_steps(plan)) if plan else 0
+    except WorkflowError:
+        steps = len(plan['meta'].get('steps') or []) if isinstance(plan['meta'].get('steps'), list) else 0
+    statuses = {}
+    for row in db.execute('SELECT status, COUNT(*) AS n FROM runs WHERE slug=? GROUP BY status ORDER BY status', (slug,)):
+        statuses[row['status']] = row['n']
+    def revisions(phase):
+        return db.execute('SELECT COUNT(*) AS n FROM artifacts WHERE slug=? AND phase=?', (slug, phase)).fetchone()['n']
+    return {'steps': steps, 'runs': sum(statuses.values()), 'statuses': statuses,
+            'research_revisions': revisions('research'), 'plan_revisions': revisions('plan')}
 
 
 def shadow_complexity(ctx, db, slug, gate):

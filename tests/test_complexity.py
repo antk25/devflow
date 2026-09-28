@@ -64,7 +64,8 @@ def events(db, slug):
 
 
 def test_show_without_events(proj):
-    assert workflow.complexity(proj['ctx'], proj['db'], 'x') == {'slug': 'x', 'user': None, 'jev': None}
+    out = workflow.complexity(proj['ctx'], proj['db'], 'x')
+    assert out['slug'] == 'x' and out['user'] is None and out['jev'] is None and out['facts']['runs'] == 0
     assert workflow.route(proj['ctx'], proj['db'], 'x')['complexity'] is None
 
 
@@ -179,3 +180,93 @@ def test_route_launch_never_from_jev(proj, monkeypatch):
     workflow.complexity(proj['ctx'], proj['db'], 'x', 'low', 'research')
     route = workflow.route(proj['ctx'], proj['db'], 'x')
     assert route['complexity']['value'] == 'low' and route['launch']['claude']['effort'] != 'high'
+
+
+PLAN = '''---
+schema: 1
+research_revision: {rev}
+steps:
+  - {{id: one, n: 1, blocked_by: []}}
+  - {{id: two, n: 2, blocked_by: [one]}}
+---
+
+# X — Plan
+
+## Steps
+
+### one: Первый
+- **Acceptance:** а
+
+### two: Второй
+- **Acceptance:** б
+'''
+
+
+@pytest.fixture
+def done_run(proj):
+    ctx, db, vault = proj['ctx'], proj['db'], proj['ctx']['vault']
+    rev = documents.document(vault / 'research/x.md')['revision']
+    (vault / 'plans/x.md').write_text(PLAN.format(rev=rev))
+    plan = documents.document(vault / 'plans/x.md')
+    workflow.approve(ctx, db, 'x', 'plan', plan['revision'])
+    run = workflow.start(ctx, db, 'x', 'one', plan['revision'])['run_id']
+    log = vault / 'changelog/2026-09-28-x.md'
+    log.write_text(f'# X\n\n<!-- devflow-run: {run} -->\n## Шаг 1\n**Status:** done\nок\n')
+    workflow.finish(ctx, db, run, 'done', str(log), None)
+    return proj
+
+
+def test_facts_without_plan(proj):
+    assert workflow.complexity_facts(proj['ctx'], proj['db'], 'x') == {
+        'steps': 0, 'runs': 0, 'statuses': {}, 'research_revisions': 1, 'plan_revisions': 0}
+
+
+def test_facts_count_steps_runs_and_revisions(done_run):
+    facts = workflow.complexity_facts(done_run['ctx'], done_run['db'], 'x')
+    assert facts == {'steps': 2, 'runs': 1, 'statuses': {'done': 1}, 'research_revisions': 1, 'plan_revisions': 1}
+    assert workflow.complexity(done_run['ctx'], done_run['db'], 'x')['facts'] == facts
+
+
+def test_backfill_gate_writes_only_shadow(done_run, monkeypatch, capsys):
+    ctx, db = done_run['ctx'], done_run['db']
+    monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(choice='medium'))
+    monkeypatch.setattr(sys, 'argv', ['devflow', '--cwd', str(ctx['cwd']), 'complexity', 'x', '--gate', 'backfill'])
+    assert cli.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out['user'] is None and out['jev']['choice'] == 'medium' and out['facts']['steps'] == 2
+    shadow, = events(db, 'x')
+    assert shadow['source'] == 'jev' and shadow['applied'] is False and shadow['gate'] == 'backfill'
+    assert workflow.route(ctx, db, 'x')['complexity'] is None
+
+
+def test_backfill_keeps_existing_user_value(proj, monkeypatch):
+    workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research', shadow=False)
+    monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(choice='low'))
+    out = workflow.complexity(proj['ctx'], proj['db'], 'x', None, 'backfill')
+    assert out['user']['value'] == 'high' and out['jev']['choice'] == 'low'
+    assert [e['source'] for e in events(proj['db'], 'x')] == ['user', 'jev']
+
+
+def test_backfill_rejects_no_shadow(proj, monkeypatch, capsys):
+    monkeypatch.setattr(sys, 'argv', ['devflow', '--cwd', str(proj['ctx']['cwd']), 'complexity', 'x', '--gate', 'backfill', '--no-shadow'])
+    assert cli.main() != 0
+    assert events(proj['db'], 'x') == []
+
+
+def test_backfill_script_skips_tasks_without_plan(done_run, tmp_path, monkeypatch):
+    import os
+    import subprocess
+    ctx, vault = done_run['ctx'], done_run['ctx']['vault']
+    (vault / 'tz/y.md').write_text('# y\n')
+    out = tmp_path / 'backfill.jsonl'
+    root = documents.Path(__file__).resolve().parents[1]
+    env = dict(os.environ, DEVFLOW_COMPLEXITY_BACKFILL=str(out), DEVFLOW_BIN=str(root / 'scripts/devflow-cli.sh'))
+    env.pop('OPENROUTER_API_KEY', None)
+    done_run['db'].close()
+    res = subprocess.run([str(root / 'scripts/complexity-backfill.sh'), str(ctx['cwd'])], env=env, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    assert 'skip y: нет плана' in res.stdout and 'ok x' in res.stdout
+    rows = [json.loads(l) for l in out.read_text().splitlines()]
+    assert [r['slug'] for r in rows] == ['x']
+    assert rows[0]['facts']['steps'] == 2 and rows[0]['choice'] is None and rows[0]['error'] == 'OPENROUTER_API_KEY не задан'
+    assert set(rows[0]) == {'slug', 'choice', 'noul', 'facts', 'error'}

@@ -227,6 +227,19 @@ result carries a `warning` — the driver then inspects (`git status`, changelog
 
 `./start.sh` запускает `claude --model ${DEVFLOW_MODEL:-claude-fable-5-1}`; драйвер, `/standup`, `/review` и ревью-агенты модель не пинят и идут на модели сессии. Кончились лимиты на Fable — `DEVFLOW_MODEL=claude-opus-5-5 ./start.sh <project>` или `/model opus` в идущей сессии. `/code-review` встроенный и frontmatter'а не имеет — он наследует модель сессии.
 
+### Доразметка сложности прошлых задач
+
+Для калибровки Jev нужна таблица «ответ Jev × решение пользователя × факт». Факты собирает
+`devflow complexity <slug>` — в ответе рядом с `user`/`jev` есть `facts`: число шагов плана, число
+прогонов и их статусы, число ревизий research/plan. `devflow complexity <slug> --gate backfill` без
+`--set` пишет только теневое событие Jev (`applied=false`), выбор пользователя не трогает.
+
+`scripts/complexity-backfill.sh <project-cwd>` проходит по `tz/*.md` проекта: задачи с планом
+получают такой теневой прогон, строки `{slug, choice, noul, facts, error}` копятся в
+`~/.claude/devflow/complexity-backfill.jsonl` (переопределяется `DEVFLOW_COMPLEXITY_BACKFILL`),
+задачи без плана пропускаются с пометкой. Нужен `OPENROUTER_API_KEY` и `jev: true` в `AGENTS.md`;
+свой вердикт по каждой задаче пользователь потом ставит `devflow complexity <slug> --set … --gate backfill`.
+
 ---
 
 ## Adding a new project
