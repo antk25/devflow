@@ -1,4 +1,6 @@
-"""Everything DevFlow knows about pi as a process: system-prompt addition, model selection, phase runs."""
+"""Everything DevFlow knows about pi as a process: system-prompt addition, model selection, phase runs.
+
+Model for a phase run: `--model` > policy (`route.launch.pi.model`) > `PI_*` env > pi default."""
 import json
 import os
 import re
@@ -141,7 +143,9 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
         run = start(ctx, db, current['slug'], step, current['revision'])
         if step != current['step']:
             current = dict(current, n=None)
-    chosen = model_arg(env, model)
+    from_policy = current.get('launch', {}).get('pi', {}).get('model')
+    chosen = model_arg(env, model or from_policy)
+    source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
     if warns_claude_bridge(chosen, PI_SETTINGS):
         print(BRIDGE_WARNING, file=sys.stderr)
     with tempfile.NamedTemporaryFile('w', suffix='.md', prefix='devflow-' + phase + '-', delete=False,
@@ -158,7 +162,7 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     finally:
         body_file.unlink(missing_ok=True)
     after = route(ctx, db, current['slug'])
-    result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'exit_code': proc.returncode,
+    result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'model_source': source, 'exit_code': proc.returncode,
               'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
     if run:
         result['run_id'] = run['run_id']

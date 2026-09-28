@@ -82,6 +82,7 @@ exit "${FAKE_PI_EXIT:-0}"
 @pytest.fixture
 def proj(tmp_path, monkeypatch):
     monkeypatch.setenv('DEVFLOW_STATE_DIR', str(tmp_path / 'state'))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(tmp_path / 'no-policy.json'))
     vault, cwd = tmp_path / 'vault', tmp_path / 'proj'
     for d in ('tz', 'plans', 'research', 'changelog'):
         (vault / d).mkdir(parents=True)
@@ -168,6 +169,7 @@ def test_run_phase_launches_fake_pi_with_model_from_env(proj, fake_pi):
     assert fake_pi['stdin'].read_text().strip() == 'closed'
     assert out['exit_code'] == 0 and out['report'].strip() == 'отчёт фазы'
     assert out['model'] == 'openai-codex/gpt-6-astra:low' and out['phase'] == 'plan'
+    assert out['model_source'] == 'env'
     assert out['route']['state'] == 'plan'
     assert not Path(argv[argv.index('--append-system-prompt') + 1]).exists()
 
@@ -177,6 +179,31 @@ def test_run_phase_nonzero_exit_is_reported_not_raised(proj, fake_pi):
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], 'FAKE_PI_EXIT': '3'})
     assert out['exit_code'] == 3
     assert '--model' not in fake_pi['argv']()
+    assert out['model_source'] == 'default'
+
+
+EXAMPLE_POLICY = Path(__file__).resolve().parents[1] / 'model-policy.example.json'
+
+
+def test_run_phase_takes_model_from_policy_over_env(proj, fake_pi, monkeypatch):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
+    approve_research(proj)
+    env = {**fake_pi['env'], 'PI_PROVIDER': 'anthropic', 'PI_MODEL': 'x', 'PI_REASONING_LEVEL': 'low'}
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=env)
+    argv = fake_pi['argv']()
+    assert argv[argv.index('--model') + 1] == 'openai-codex/gpt-6-astra:medium'
+    assert out['model'] == 'openai-codex/gpt-6-astra:medium' and out['model_source'] == 'policy'
+
+
+def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
+    approve_research(proj)
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', model='x/y:z', env=fake_pi['env'])
+    argv = fake_pi['argv']()
+    assert argv[argv.index('--model') + 1] == 'x/y:z'
+    assert out['model'] == 'x/y:z' and out['model_source'] == 'override'
 
 
 @pytest.mark.parametrize('env_model,settings', [
