@@ -94,6 +94,30 @@ def artifact(vault, folder, slug):
     return document(matches[0]) if matches else None
 
 
+def handoff_latest(vault, task=None):
+    """Latest /cut hand-off by frontmatter `created`; ties go to the newer mtime."""
+    best, best_key = None, None
+    for path in (Path(vault) / 'notes').glob('handoff-*.md'):
+        try:
+            doc = document(path)
+        except (WorkflowError, yaml.YAMLError):
+            continue
+        meta = doc['meta']
+        if meta.get('type') != 'handoff':
+            continue
+        if task is not None and str(meta.get('task', '')).lower() != task.lower():
+            continue
+        key = (str(meta.get('created', '')), path.stat().st_mtime)
+        if best_key is None or key > best_key:
+            best, best_key = doc, key
+    return best
+
+
+def title(doc):
+    m = re.search(r'^#\s+(.+?)\s*$', doc['body'], re.M)
+    return m[1] if m else None
+
+
 def headings(body):
     """Ignore fenced examples when looking for actual step sections."""
     lines = body.splitlines(keepends=True)

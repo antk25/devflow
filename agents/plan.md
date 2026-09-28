@@ -21,7 +21,7 @@ architectural boundaries respected") must be answered *here*, before implementat
 
 ## Step 1: Project context
 1. Read `AGENTS.md` from cwd → `project`, `vault`, stack, conventions.
-2. Run `~/.claude/skills/devflow/devflow route <slug>` and read its `research_path`.
+2. Run `devflow route <slug>` and read its `research_path`.
    Require `research_approved: true` before planning. Use its exact hash as
    `research_revision`. On missing/stale state stop and return the CLI diagnostic.
 3. Read `<vault>/tz/<slug>.md` if it exists — the task contract. **What it settles is settled:**
@@ -136,10 +136,10 @@ Before you finish, check the cut:
 - **Mirror the cut into `steps`** — one entry per `### <id>: <title>` heading, `blocked_by` listing the step
   IDs this one genuinely needs finished first (an empty list is the common case).
 
-Run `~/.claude/skills/devflow/devflow validate <slug>` before returning; fix schema errors.
+Run `devflow validate <slug>` before returning; fix schema errors.
 
 ## Step 6: Проверка по требованиям
-After `validate`, run `~/.claude/skills/devflow/devflow check <slug> --plan`. Jev never blocks; it
+After `validate`, run `devflow check <slug> --plan`. Jev never blocks; it
 points at research `## Requirements` items the plan may not address (`requirements[]` with `n`,
 `text`, `source`, `noul`, `choice`, `flagged`).
 - `skipped` with reason «jev не включён в AGENTS.md» → do nothing, no mention.

@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
-# Install DevFlow's Claude skills; all conflicts are checked before writing.
+# Install DevFlow's Claude skills (and the pi subset); all conflicts are checked before writing.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
-SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet)
+SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut)
+PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
+PI_SKILLS=(note jira project cut devflow)
+PI_PROMPTS=(note jira project cut devflow)
+# Skills not linked into pi: name → reason (needs Claude Code subagents, or not verified there).
+# devflow is linked: in pi it launches phases through `devflow phase run` instead of Agent.
+PI_SKIPPED=(
+    "review: uses Agent/SendMessage"
+    "tokens: uses Agent"
+    "standup: not verified for pi"
+    "xreview: not verified for pi"
+    "jira-create: not verified for pi"
+    "timesheet: not verified for pi"
+    "page: not verified for pi"
+)
 [ ! -d "$DEVFLOW_DIR/skills/autoresearch" ] || SKILLS+=(autoresearch)
 AGENTS=(research plan implement review-standards review-conformance crossreview)
 RETIRED_SKILLS=(research plan implement quick)
@@ -28,10 +42,20 @@ for name in "${AGENTS[@]}"; do
     sources+=("$DEVFLOW_DIR/agents/$name.md")
     destinations+=("$CLAUDE_DIR/agents/$name.md")
 done
+for name in "${PI_SKILLS[@]}"; do
+    sources+=("$DEVFLOW_DIR/skills/$name")
+    destinations+=("$PI_DIR/skills/$name")
+done
+for name in "${PI_PROMPTS[@]}"; do
+    sources+=("$DEVFLOW_DIR/pi/prompts/$name.md")
+    destinations+=("$PI_DIR/prompts/$name.md")
+done
 sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
 destinations+=("$BIN_DIR/devflow")
 sources+=("$DEVFLOW_DIR/bin/lcurl")
 destinations+=("$BIN_DIR/lcurl")
+sources+=("$DEVFLOW_DIR/bin/devflow-pi")
+destinations+=("$BIN_DIR/devflow-pi")
 for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
     sources+=("$src")
     destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")
@@ -57,6 +81,11 @@ for i in "${!sources[@]}"; do
         echo "MISS $dst"; issues=1
     fi
 done
+if [ "$mode" != remove ]; then
+    for entry in "${PI_SKIPPED[@]}"; do
+        echo "skip pi ${entry%%:*}:${entry#*:}"
+    done
+fi
 
 if [ "$mode" = check ]; then
     PYTHON="$DEVFLOW_DIR/.venv/bin/python"
@@ -108,7 +137,7 @@ if [ "$mode" = install ]; then
         "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
     fi
     "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
-    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$BIN_DIR" "$INTEGRATIONS_DIR"
+    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$PI_DIR/skills" "$PI_DIR/prompts" "$BIN_DIR" "$INTEGRATIONS_DIR"
     for i in "${!sources[@]}"; do
         src="${sources[$i]}" dst="${destinations[$i]}"
         if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then

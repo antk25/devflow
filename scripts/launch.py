@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Validate the selection before updating active, then start the Claude driver."""
+"""Validate the selection before updating active, then start the Claude driver or pi."""
 import argparse
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-from devflow.documents import WorkflowError, context
+from devflow import pi
+from devflow.cli import active
+from devflow.documents import WorkflowError, context, handoff_latest
 from devflow.project import registry_path
 from devflow.registry import load, select
 from devflow.storage import connect
@@ -20,6 +23,8 @@ def main():
     p = argparse.ArgumentParser(description='Choose a project and launch DevFlow')
     p.add_argument('project', nargs='?')
     p.add_argument('--current', '-c', action='store_true')
+    p.add_argument('--agent', choices=['claude', 'pi'], default='claude')
+    p.add_argument('--model', help='claude: overrides DEVFLOW_MODEL; pi: provider/id[:thinking]')
     args = p.parse_args()
     if args.current and args.project:
         p.error('Use a project name or --current, not both')
@@ -49,24 +54,28 @@ def main():
     path = Path(data['projects'][selected]['path'])
     if not path.is_dir():
         raise WorkflowError(f'Project directory is missing: {path}')
-    executable = shutil.which('claude')
-    if not executable:
-        raise WorkflowError('Claude CLI is missing from PATH')
-    if not (path / 'AGENTS.md').exists():
-        print(f'{path} has no AGENTS.md. Run /project init {path} inside Claude Code, '
-              f'or: devflow project init {path}')
-        if input('Launch without DevFlow project context? [y/N] ').lower() not in ('y', 'yes'):
-            return 0
+    if args.agent == 'pi':
+        executable, argv = pi_command(path, args.model)
     else:
-        ctx = context(path)
-        connect(ctx, create=True).close()
+        executable = shutil.which('claude')
+        if not executable:
+            raise WorkflowError('Claude CLI is missing from PATH')
+        if not (path / 'AGENTS.md').exists():
+            print(f'{path} has no AGENTS.md. Run /project init {path} inside Claude Code, '
+                  f'or: devflow project init {path}')
+            if input('Launch without DevFlow project context? [y/N] ').lower() not in ('y', 'yes'):
+                return 0
+        else:
+            ctx = context(path)
+            connect(ctx, create=True).close()
+        model = args.model or os.environ.get('DEVFLOW_MODEL', 'claude-fable-5-1')
+        argv = [executable, '--model', model]
     previous = data.get('active')
     os.chdir(path)
     select(registry, selected)
-    model = os.environ.get('DEVFLOW_MODEL', 'claude-fable-5-1')
-    print(f'Launching Claude Code ({model}) for {selected}: {path}', flush=True)
+    print(f'Launching {args.agent} for {selected}: {path}', flush=True)
     try:
-        os.execv(executable, [executable, '--model', model])
+        os.execv(executable, argv)
     except OSError:
         # exec failed before the process was replaced; restore this launcher's selection.
         from devflow.storage import atomic_write
@@ -75,6 +84,38 @@ def main():
             latest['active'] = previous
             atomic_write(registry, json.dumps(latest, ensure_ascii=False, indent=2) + '\n')
         raise
+
+
+def pi_command(path, model):
+    """pi in the project directory with the DevFlow context appended; writes nothing into the project."""
+    executable = shutil.which('pi')
+    if not executable:
+        raise WorkflowError('pi CLI is missing from PATH')
+    model = pi.model_arg(os.environ, model)
+    if pi.warns_claude_bridge(model):
+        print('WARNING: pi would run on claude-bridge (Claude); pass --model provider/id or set '
+              'PI_PROVIDER/PI_MODEL', file=sys.stderr)
+    argv = [executable] + (['--model', model] if model else [])
+    if model:
+        os.environ.update(pi.model_env(model))
+    if not (path / 'AGENTS.md').exists():
+        print(f'WARNING: {path} has no AGENTS.md; launching pi without DevFlow context', file=sys.stderr)
+        return executable, argv
+    ctx = context(path)
+    db = None
+    if (path / '.devflow/project.json').exists():
+        db = connect(ctx)
+    try:
+        items = active(ctx, db)
+    finally:
+        if db:
+            db.close()
+    key = pi.task_key(items)
+    handoff = handoff_latest(ctx['vault'], key) if key else None
+    # One file per project, overwritten on every launch: execv leaves nobody to delete a fresh temp file.
+    preamble = Path(tempfile.gettempdir()) / f"devflow-pi-{ctx['project']}.md"
+    preamble.write_text(pi.preamble(ctx, items, handoff), encoding='utf-8')
+    return executable, argv + ['--append-system-prompt', str(preamble)]
 
 
 if __name__ == '__main__':

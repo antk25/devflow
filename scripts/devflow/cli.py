@@ -7,8 +7,8 @@ from pathlib import Path
 
 import yaml
 
-from . import project
-from .documents import WorkflowError, artifact, context, document, plan_steps, resolve_slug
+from . import pi, project
+from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
 from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start
 
@@ -54,6 +54,10 @@ def parser():
     project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
+    handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
+    a = handoff_commands.add_parser('latest'); a.add_argument('--task')
+    phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
+    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model')
     return p
 
 
@@ -66,6 +70,12 @@ def execute(args):
     ctx = context(args.cwd)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
+    if args.command == 'handoff':
+        doc = handoff_latest(ctx['vault'], args.task)
+        if doc is None:
+            return {'path': None}
+        return {'path': doc['path'], 'created': str(doc['meta'].get('created', '')),
+                'task': doc['meta'].get('task'), 'title': title(doc)}
     if args.command == 'active' and args.limit < 1:
         raise WorkflowError('--limit must be positive')
     db = None
@@ -94,6 +104,8 @@ def execute(args):
             return start(ctx, db, args.slug, args.step, args.revision)
         if args.command == 'finish':
             return finish(ctx, db, args.run_id, args.status, args.changelog, args.reason)
+        if args.command == 'phase':
+            return pi.run_phase(ctx, db, args.slug, args.phase, step=args.step, note=args.note, model=args.model)
         if args.command == 'check':
             return check(ctx, db, args.slug, args.run, args.all, args.plan)
         if args.command == 'interrupt':
@@ -138,6 +150,8 @@ def main():
     try:
         result = execute(parser().parse_args())
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        if isinstance(result, dict) and result.get('exit_code'):
+            return 1
     except (WorkflowError, OSError, ValueError, KeyError, sqlite3.Error, yaml.YAMLError) as exc:
         print(json.dumps({'state': 'invalid', 'error': str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1

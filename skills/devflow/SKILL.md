@@ -10,13 +10,30 @@ arguments:
 
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)
 
-Interactive orchestrator. Spawns the `research` / `plan` / `implement` phase agents (each with its
-session model via `model: inherit`, effort low), shows you each artifact, and **waits for your
-explicit approval at each gate** before the next phase. Git follows the global rule:
-the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's; `implement` commits each step.
+Interactive orchestrator. Runs the `research` / `plan` / `implement` phases as separate autonomous
+agents (on the session model, effort low), shows you each artifact, and **waits for your explicit
+approval at each gate** before the next phase. Git follows the global rule: the assistant creates
+branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base
+branch; pushes to the base/production branch and merges are the user's; `implement` commits each step.
 
 Keep this thin: the driver only routes, shows artifacts, holds gates, and relays answers. **All
-phase logic lives in the agent bodies** — don't re-implement a phase here.
+phase logic lives in the agent bodies** (`agents/<phase>.md`) — don't re-implement a phase here.
+
+## Launch layer
+The driver is agent-neutral; only how a phase is launched differs. Detect the host by the presence
+of the `Agent` tool, then use one column for the whole session:
+
+| | Claude Code (`Agent` tool present) | pi (no `Agent` tool) |
+|---|---|---|
+| Launch a phase | `Agent(subagent_type=<phase>)` with cwd, slug, revision (and run data for implement) | `devflow phase run <slug> <phase> [--step <id>] [--note <text>]` — the CLI runs the phase body in a separate `pi` process on the session model |
+| Relay a remark at the gate | `SendMessage` to the same agent | repeat `devflow phase run <slug> <phase> --note "<remark>"` |
+| `start` before implement | the driver runs `df start`, passes `run_id` to the agent | `phase run … implement` calls `start` itself and returns `run_id` |
+| Result | the agent's hand-off | JSON: `exit_code`, `report`, `route`, `run_id`, `warning` — show `report`, act on `route` |
+
+pi rules: never call `claude` in any form (`claude`, `claude -p`, `claude --bg`, `claude --agent`,
+`claude-bridge`) — without the `Agent` tool a phase is launched only through `phase run`. The first
+action on `/devflow <slug>` is `df route <slug>` — not `ls`, `find`, `--help` or reading the CLI
+source. Without `AskUserQuestion`, ask the gate question as plain text and wait for the reply.
 
 ## Inputs
 - `/devflow` — start from the Jira standup.
@@ -24,7 +41,7 @@ phase logic lives in the agent bodies** — don't re-implement a phase here.
   old per-phase `/research` `/plan` `/implement` entry points).
 
 ## Step 0: Project context
-Read `AGENTS.md` from cwd. The shared CLI is `~/.claude/skills/devflow/devflow` (called `df` below
+Read `AGENTS.md` from cwd. The shared CLI is `devflow` (called `df` below
 for brevity; invoke the full path, not an assumed shell alias). Commands return JSON.
 Run `df context`. A new project needs `df init` once; the launcher does this automatically.
 A missing database for an existing identity is an error: restore it, never silently reset progress.
@@ -48,7 +65,7 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `approval_required` | Show the named artifact and hold its phase gate |
 | `ready` | Name step `n` of `total`, start that step as below |
 | `completed` | Show changelog; stop |
-| `running` | Show the run ID; inspect whether its agent is still working. Never start a duplicate |
+| `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
 | `blocked` | Show reason; stop. Resume only after the user decides how to proceed |
 | `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
 | `migration_required` / `migration_pending` | Follow the migration flow below |
@@ -58,12 +75,12 @@ Tag token attribution best-effort with `python3 ~/.claude/skills/tokens/token-st
 Failure to tag does not block work.
 
 ## Step 3: Run phase, gate, repeat
-Spawn `research` or `plan` via Agent (`subagent_type` matches the phase), passing cwd, stable slug,
-and the current input revision. Agent bodies hold the phase logic.
+Launch `research` or `plan` through the launch layer, passing cwd, stable slug and the current input
+revision. Agent bodies hold the phase logic.
 
 After research/plan returns, run `df route <slug>`, read and show the artifact, and retain the returned
-`revision`. Relay questions/edits to the same agent via SendMessage. Show each updated version.
-**Only after explicit user approval**, run:
+`revision`. Relay questions/edits through the launch layer (SendMessage / `phase run --note`). Show
+each updated version. **Only after explicit user approval in this session**, run:
 ```
 df approve <slug> <research|plan> --revision <hash-that-was-shown>
 ```
@@ -73,22 +90,27 @@ Then route again. Existing files with no recorded approval go through the same g
 At the plan gate, show the plan agent's Jev остаток (требование, источник, `noul`) ordered
 неразобранные → Отложено → учтено; a `skipped` check is one line.
 
-For `ready`, run `df start <slug> --step <id> --revision <plan-hash>`. Pass its `run_id`, step ID,
-number, revision and cwd to a **fresh** implement agent. Never spawn implementation before start
+For `ready`, in Claude Code run `df start <slug> --step <id> --revision <plan-hash>` and pass its
+`run_id`, step ID, number, revision and cwd to a **fresh** implement agent; in pi run
+`df phase run <slug> implement` (it calls `start` itself). Never launch implementation before start
 succeeds. Each run covers one step. On return, route again: continue only on `ready`; stop on
 `blocked`, `running`, errors or `completed`. The implement agent records its result with `df finish`.
-A prose claim of success without a recorded result does not close a step.
+A prose claim of success (or a `phase run` exit 0 with `warning`) without a recorded result does not
+close a step.
 
-On `completed`, spawn **one** `crossreview` agent with cwd, slug and the base branch from `AGENTS.md`.
+On `completed`, in Claude Code spawn **one** `crossreview` agent with cwd, slug and the base branch from `AGENTS.md`.
 It reviews the whole branch itself, gets a second opinion from Codex, verifies every finding in the
 code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repository. Show its
 summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
 finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
+In pi there is no `crossreview` launch yet: show the changelog and stop.
 
 ## Recovery and replanning
-- For an abandoned `running` attempt, inspect code/changelog first. If the result is recoverable,
-  finish the same run with its existing evidence. Otherwise, after the user chooses to stop it,
-  use `df interrupt <run-id> --reason <reason>`.
+- `running` means the step broke off (limit, closed session) or is still in flight. In both hosts
+  inspect first: `git status`, diff, the step's section in `changelog/<date>-<slug>.md`, tests. Then,
+  by the user's decision: `df finish <run-id> --status done|partial --changelog <path>` with the
+  evidence already there, `df resume`, or `df interrupt <run-id> --reason <reason>`. Never relaunch
+  the same step (`Agent implement` / `phase run … implement`) — state is recovered, not replayed.
 - After the user resolves a blocked/partial attempt: `df resume <slug> --reason <decision>`;
   re-route before spawning anything. A partial attempt's changes must be inspected before retry.
 - Use `df history <slug>` and `df artifact <slug> <phase> --revision <hash>` to compare saved versions.
@@ -110,3 +132,4 @@ Plans without step statuses or with ambiguous history require manual reconciliat
 - Git: the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's.
 - One task at a time. A blocked step is not permission to skip to another one.
 - No direct SQL, no replacement state files, no independent routing algorithm in the prompt.
+- Without the `Agent` tool: phases only via `devflow phase run`; `claude` is never called.

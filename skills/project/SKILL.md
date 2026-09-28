@@ -13,7 +13,7 @@ arguments:
 
 # /project — Project onboarding and registry
 
-Thin wrapper over the shared CLI `~/.claude/skills/devflow/devflow project …`. The CLI owns what
+Thin wrapper over the shared CLI `devflow project …`. The CLI owns what
 a project consists of (vault directories, `AGENTS.md`, `.devflow/project.json`, database, registry
 entry) and reports as JSON `{project, path, items: [{item, status, detail}]}`. This skill only runs
 the dialogue: gathers facts, shows drafts and reports, asks before writing.
@@ -56,7 +56,8 @@ To switch projects: exit Claude Code and run `./start.sh [name]`.
 1. `ls <path>` — stop if the directory does not exist. Name defaults to the basename.
 2. **`<path>/AGENTS.md` exists** → skip discovery, go to step 6 without `--agents-draft`
    (the CLI keeps the file and takes the name from its frontmatter).
-3. **No `AGENTS.md`** → spawn the built-in `Explore` subagent (read-only, session model) with:
+3. **No `AGENTS.md`** → read the files yourself (in Claude Code this can be delegated to a read-only
+   exploration subagent on the session model), following:
 
    > Только чтение, ничего не менять. Каталог `<path>` — общий каталог проекта, внутри могут быть
    > несколько репозиториев. Прочитай `AGENTS.md`/`CLAUDE.md`/`README*` в корне и в подкаталогах

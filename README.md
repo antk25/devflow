@@ -143,7 +143,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally.
+DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
 ```bash
 git clone <repo> ~/projects/devflow
@@ -161,7 +161,7 @@ links; it preserves the registry, environment and workflow state.
 
 After install, skills and agents are available in any Claude Code session. The shared CLI is
 `~/.claude/skills/devflow/devflow`, or `./scripts/devflow-cli.sh` from this checkout.
-`DEVFLOW_CLAUDE_DIR` overrides the symlink destination for isolated installation checks.
+`DEVFLOW_CLAUDE_DIR` and `DEVFLOW_PI_DIR` override the symlink destinations for isolated installation checks.
 
 ---
 
@@ -181,6 +181,33 @@ environment. A project without `AGENTS.md` is not launched blind: the launcher p
 `/project init <path>` and asks before continuing without context. A cancelled launch or failed
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
+
+### Launching pi instead of Claude Code
+
+```bash
+devflow-pi <name>                                   # pi in the project directory, DevFlow context appended
+devflow-pi <name> --model openai-codex/gpt-6-astra  # explicit model; otherwise PI_PROVIDER/PI_MODEL[:PI_REASONING_LEVEL] or pi's default
+```
+
+`devflow-pi` (`bin/devflow-pi`, linked into `~/.local/bin` by `install.sh`) runs the same launcher as
+`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared. pi has no
+SessionStart hook, so the launcher writes what the hook would print — `PROJECT_RESTORE`,
+`OBSIDIAN_CONTEXT`, the latest `/cut` hand-off of the active task (`devflow handoff latest --task <key>`)
+and a short block of pi rules (state moves only through `devflow`, never call `claude`, `approve` only
+on the user's word, on `running` inspect before `finish`/`resume`/`interrupt`) — to a temp file and
+starts `pi --append-system-prompt <file>`. Nothing is written into the project: no state database is
+created, a project without `AGENTS.md` gets a warning and a bare pi. If the model would resolve to
+`claude-bridge`, a warning goes to stderr before launch.
+
+`/devflow <slug>` in pi is the same driver skill as in Claude Code; only the launch layer differs.
+Where Claude Code spawns a phase through the `Agent` tool, pi runs
+`devflow phase run <slug> <research|plan|implement> [--step <id>] [--note <text>]`: the CLI starts a
+separate `pi -p` process on the session model with the phase body (`agents/<phase>.md`) appended to
+the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`). Gate
+remarks go back as a repeated `phase run --note`. For `implement` the CLI calls `devflow start`
+itself before the process; if the step ends without `devflow finish`, `route` stays `running` and the
+result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through
+`finish`/`resume`/`interrupt`, never by relaunching the step. `claude` is never called from pi.
 
 ### Model per phase
 

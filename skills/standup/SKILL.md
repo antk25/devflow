@@ -44,7 +44,7 @@ If the picked key is `SE-*`, run `~/.claude/skills/timesheet/timesheet mirror <K
 or creates the GS mirror for the employer's timesheet. Show its line; an error does not block routing.
 
 ## Step 4: Route with the shared CLI
-Run `~/.claude/skills/devflow/devflow route <key-or-slug>` in the current project.
+Run `devflow route <key-or-slug>` in the current project.
 Use its JSON result; never infer approval or completion from files yourself.
 
 - `research`, `plan`, `plan_outdated`: recommend that phase; research `source: tz` starts from the TZ.
