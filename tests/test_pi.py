@@ -289,3 +289,45 @@ def test_implement_finished_by_pi_has_no_warning_and_routes_to_next_step(proj, f
     assert 'warning' not in out
     assert out['route']['state'] == 'ready' and out['route']['step'] == 'two' and out['route']['done'] == ['one']
     assert runs(proj)[0]['status'] == 'done'
+
+
+def test_model_env_round_trips_model_arg():
+    assert pi.model_env('openai-codex/gpt-6-astra:low') == {'PI_PROVIDER': 'openai-codex', 'PI_MODEL': 'gpt-6-astra',
+                                                            'PI_REASONING_LEVEL': 'low'}
+    assert pi.model_env('openrouter/openai/gpt-6-astra') == {'PI_PROVIDER': 'openrouter', 'PI_MODEL': 'openai/gpt-6-astra'}
+    assert pi.model_env('gpt-6-astra') == {}
+    assert pi.model_arg(pi.model_env('a/b:c')) == 'a/b:c'
+
+
+def test_run_phase_accepts_own_gate_for_note(proj, fake_pi):
+    (proj['vault'] / 'research/x.md').write_text('# r\n')
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', note='точнее', env=fake_pi['env'])
+    assert out['exit_code'] == 0 and 'Замечание пользователя:' in fake_pi['log'].read_text()
+    with pytest.raises(WorkflowError, match='state approval_required'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=fake_pi['env'])
+    rev = approve_research(proj)
+    (proj['vault'] / 'plans/x.md').write_text(PLAN.format(rev=rev))
+    fake_pi['log'].unlink()
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', note='ещё', env=fake_pi['env'])
+    assert out['exit_code'] == 0 and 'ещё' in fake_pi['log'].read_text()
+
+
+def test_implement_without_pi_in_path_does_not_start_a_run(proj, fake_pi):
+    approve_plan(proj)
+    env = dict(fake_pi['env'], PATH='/nonexistent')
+    with pytest.raises(WorkflowError, match='pi CLI is missing'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=env)
+    assert runs(proj) == []
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'ready'
+
+
+def test_implement_launch_failure_interrupts_the_run(proj, fake_pi, monkeypatch):
+    approve_plan(proj)
+
+    def boom(*a, **k):
+        raise OSError('exec failed')
+    monkeypatch.setattr(pi.subprocess, 'run', boom)
+    with pytest.raises(WorkflowError, match='failed to launch'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
+    assert [r['status'] for r in runs(proj)] == ['blocked']
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'blocked'

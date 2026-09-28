@@ -96,6 +96,8 @@ def pi_command(path, model):
         print('WARNING: pi would run on claude-bridge (Claude); pass --model provider/id or set '
               'PI_PROVIDER/PI_MODEL', file=sys.stderr)
     argv = [executable] + (['--model', model] if model else [])
+    if model:
+        os.environ.update(pi.model_env(model))
     if not (path / 'AGENTS.md').exists():
         print(f'WARNING: {path} has no AGENTS.md; launching pi without DevFlow context', file=sys.stderr)
         return executable, argv
@@ -110,10 +112,10 @@ def pi_command(path, model):
             db.close()
     key = pi.task_key(items)
     handoff = handoff_latest(ctx['vault'], key) if key else None
-    with tempfile.NamedTemporaryFile('w', prefix='devflow-pi-', suffix='.md', delete=False,
-                                     dir=tempfile.gettempdir(), encoding='utf-8') as f:
-        f.write(pi.preamble(ctx, items, handoff))
-    return executable, argv + ['--append-system-prompt', f.name]
+    # One file per project, overwritten on every launch: execv leaves nobody to delete a fresh temp file.
+    preamble = Path(tempfile.gettempdir()) / f"devflow-pi-{ctx['project']}.md"
+    preamble.write_text(pi.preamble(ctx, items, handoff), encoding='utf-8')
+    return executable, argv + ['--append-system-prompt', str(preamble)]
 
 
 if __name__ == '__main__':

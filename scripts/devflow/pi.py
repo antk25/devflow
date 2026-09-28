@@ -2,13 +2,14 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from .documents import WorkflowError, artifact, document
-from .workflow import route, start
+from .workflow import interrupt, route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
 AGENTS = Path(__file__).resolve().parents[2] / 'agents'
@@ -67,6 +68,18 @@ def model_arg(env, override=None):
     return f'{provider}/{model}' + (f':{level}' if level else '')
 
 
+def model_env(model):
+    """PI_* variables for `provider/id[:level]`, so phase processes inherit the session's model."""
+    provider, _, rest = model.partition('/')
+    if not provider or not rest:
+        return {}
+    model_id, _, level = rest.partition(':')
+    env = {'PI_PROVIDER': provider, 'PI_MODEL': model_id}
+    if level:
+        env['PI_REASONING_LEVEL'] = level
+    return env
+
+
 def warns_claude_bridge(model_arg, settings_path=PI_SETTINGS):
     if model_arg:
         return model_arg.startswith('claude-bridge/')
@@ -114,8 +127,12 @@ def build_command(body_file, tools, model_arg, message):
 def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     env = dict(os.environ if env is None else env)
     current = route(ctx, db, slug)
-    if current['state'] not in PRECONDITIONS.get(phase, ()):
+    at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
+    if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate:
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
+    body, tools = agent_body(phase)
+    if not shutil.which('pi', path=env.get('PATH')):
+        raise WorkflowError('pi CLI is missing from PATH')
     run = None
     if phase == 'implement':
         step = step or current['step']
@@ -124,7 +141,6 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
         run = start(ctx, db, current['slug'], step, current['revision'])
         if step != current['step']:
             current = dict(current, n=None)
-    body, tools = agent_body(phase)
     chosen = model_arg(env, model)
     if warns_claude_bridge(chosen, PI_SETTINGS):
         print(BRIDGE_WARNING, file=sys.stderr)
@@ -135,6 +151,10 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     try:
         proc = subprocess.run(build_command(body_file, tools, chosen, task_message(phase, ctx, current, step, run, note)),
                               stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+    except OSError as exc:
+        if run:
+            interrupt(db, run['run_id'], f'pi failed to launch: {exc}')
+        raise WorkflowError(f'pi failed to launch: {exc}')
     finally:
         body_file.unlink(missing_ok=True)
     after = route(ctx, db, current['slug'])
