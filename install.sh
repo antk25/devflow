@@ -8,11 +8,11 @@ BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
 SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut)
 PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
-PI_SKILLS=(note jira project cut)
-PI_PROMPTS=(note jira project cut)
+PI_SKILLS=(note jira project cut devflow)
+PI_PROMPTS=(note jira project cut devflow)
 # Skills not linked into pi: name → reason (needs Claude Code subagents, or not verified there).
+# devflow is linked: in pi it launches phases through `devflow phase run` instead of Agent.
 PI_SKIPPED=(
-    "devflow: uses Agent/SendMessage"
     "review: uses Agent/SendMessage"
     "tokens: uses Agent"
     "standup: not verified for pi"

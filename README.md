@@ -143,7 +143,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally. The subagent-free skills (`note`, `jira`, `project`, `cut`) are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` works in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
+DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
 ```bash
 git clone <repo> ~/projects/devflow
@@ -198,6 +198,16 @@ on the user's word, on `running` inspect before `finish`/`resume`/`interrupt`) �
 starts `pi --append-system-prompt <file>`. Nothing is written into the project: no state database is
 created, a project without `AGENTS.md` gets a warning and a bare pi. If the model would resolve to
 `claude-bridge`, a warning goes to stderr before launch.
+
+`/devflow <slug>` in pi is the same driver skill as in Claude Code; only the launch layer differs.
+Where Claude Code spawns a phase through the `Agent` tool, pi runs
+`devflow phase run <slug> <research|plan|implement> [--step <id>] [--note <text>]`: the CLI starts a
+separate `pi -p` process on the session model with the phase body (`agents/<phase>.md`) appended to
+the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`). Gate
+remarks go back as a repeated `phase run --note`. For `implement` the CLI calls `devflow start`
+itself before the process; if the step ends without `devflow finish`, `route` stays `running` and the
+result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through
+`finish`/`resume`/`interrupt`, never by relaunching the step. `claude` is never called from pi.
 
 ### Model per phase
 
