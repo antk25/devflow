@@ -34,11 +34,38 @@ def pending_path(ctx, slug):
     return ctx['cwd'] / '.devflow' / 'migrations' / (slug + '.json')
 
 
+COMPLEXITY = ('high', 'medium', 'low')
+GATES = ('research', 'plan')
+
+
 def route(ctx, db, query):
     result = _route(ctx, db, query)
+    result['complexity'] = user_complexity(db, result['slug'])
     if result.get('phase'):
-        result.update(policy.launch(result['phase']))
+        value = result['complexity']['value'] if result['complexity'] else None
+        result.update(policy.launch(result['phase'], value))
     return result
+
+
+def user_complexity(db, slug):
+    """Last `complexity` event set by the user: {value, gate, at} or None."""
+    for row in db.execute("SELECT at, data FROM events WHERE slug=? AND action='complexity' ORDER BY id DESC", (slug,)):
+        data = json.loads(row['data'])
+        if data.get('source') == 'user':
+            return {'value': data['value'], 'gate': data.get('gate'), 'at': row['at']}
+    return None
+
+
+def complexity(ctx, db, query, value=None, gate=None):
+    slug = resolve_slug(ctx['vault'], query)
+    if value:
+        if value not in COMPLEXITY:
+            raise WorkflowError('Complexity must be one of: ' + ', '.join(COMPLEXITY))
+        if gate not in GATES:
+            raise WorkflowError('--gate must be one of: ' + ', '.join(GATES))
+        with transaction(db):
+            event(db, 'complexity', slug, value=value, gate=gate, source='user', applied=True)
+    return {'slug': slug, 'user': user_complexity(db, slug), 'jev': None}
 
 
 def _route(ctx, db, query):

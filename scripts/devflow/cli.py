@@ -10,7 +10,7 @@ import yaml
 from . import pi, project
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
-from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start
+from .workflow import approve, check, complexity, finish, interrupt, migrate, reopen, resume, route, start
 
 
 def active(ctx, db, limit=5):
@@ -42,6 +42,7 @@ def parser():
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
     a = commands.add_parser('approve'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan']); a.add_argument('--revision', required=True)
+    a = commands.add_parser('complexity'); a.add_argument('slug'); a.add_argument('--set', dest='value', choices=['high', 'medium', 'low']); a.add_argument('--gate', choices=['research', 'plan'])
     a = commands.add_parser('start'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True)
     a = commands.add_parser('finish'); a.add_argument('run_id'); a.add_argument('--status', choices=['done', 'blocked', 'partial'], required=True); a.add_argument('--changelog', required=True); a.add_argument('--reason')
     a = commands.add_parser('check'); a.add_argument('slug'); g = a.add_mutually_exclusive_group(required=True); g.add_argument('--run'); g.add_argument('--all', action='store_true'); g.add_argument('--plan', action='store_true')
@@ -100,6 +101,10 @@ def execute(args):
             return {'slug': slug, 'revision': plan['revision'], 'steps': [{k: v for k, v in st.items() if k != 'text'} for st in plan_steps(plan)]}
         if args.command == 'approve':
             return approve(ctx, db, args.slug, args.phase, args.revision)
+        if args.command == 'complexity':
+            if args.value and not args.gate:
+                raise WorkflowError('--set requires --gate')
+            return complexity(ctx, db, args.slug, args.value, args.gate)
         if args.command == 'start':
             return start(ctx, db, args.slug, args.step, args.revision)
         if args.command == 'finish':

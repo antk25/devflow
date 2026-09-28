@@ -84,9 +84,13 @@ each updated version. **Only after explicit user approval in this session**, run
 ```
 df approve <slug> <research|plan> --revision <hash-that-was-shown>
 ```
+At the research gate, before `df approve`, ask the complexity by the research criterion — unclear TZ
+and/or many changes that risk breaking behaviour → `high`, otherwise `medium` / `low` — and record it:
+`df complexity <slug> --set <high|medium|low> --gate research`. Only then approve.
 If the CLI rejects a stale revision, show the changed artifact and ask again. This command records
 the user's decision; its availability is never permission for the agent to approve its own work.
-Then route again. Existing files with no recorded approval go through the same gate.
+Then route again. When `route` returns `launch`, launch `launch.claude.agent` in Claude Code (the
+phase name until generated agents exist); pi gets the model from `launch.pi.model`. Existing files with no recorded approval go through the same gate.
 At the plan gate, show the plan agent's Jev остаток (требование, источник, `noul`) ordered
 неразобранные → Отложено → учтено; a `skipped` check is one line.
 
