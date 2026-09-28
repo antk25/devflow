@@ -6,6 +6,7 @@ DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${DEVFLOW_CLAUDE_DIR:-$HOME/.claude}"
 BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
+POLICY_FILE="${DEVFLOW_MODEL_POLICY:-$CLAUDE_DIR/devflow/model-policy.json}"
 SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut)
 PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
 PI_SKILLS=(note jira project cut devflow)
@@ -106,6 +107,7 @@ if [ "$mode" = check ]; then
             echo "RETIRE $dst"; issues=1
         fi
     done
+    [ -e "$POLICY_FILE" ] || { echo "MISS model policy $POLICY_FILE"; issues=1; }
     if [ -x "$PYTHON" ]; then
         drift="$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1])
 from devflow.project import guard_probe, settings_drift
@@ -147,6 +149,11 @@ if [ "$mode" = install ]; then
         ln -sT -- "$src" "$dst"
         echo "link $dst"
     done
+    if [ ! -e "$POLICY_FILE" ]; then
+        mkdir -p "$(dirname "$POLICY_FILE")"
+        cp -- "$DEVFLOW_DIR/model-policy.example.json" "$POLICY_FILE"
+        echo "copy $POLICY_FILE"
+    fi
 fi
 for name in "${RETIRED_SKILLS[@]}"; do
     dst="$CLAUDE_DIR/skills/$name"

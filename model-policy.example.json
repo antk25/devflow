@@ -1,0 +1,30 @@
+{
+  "claude": {
+    "research": {
+      "high": {"model": "claude-opus-5-5", "effort": "high"},
+      "default": {"model": "claude-opus-5-5", "effort": "medium"}
+    },
+    "plan": {
+      "high": {"model": "claude-opus-5-5", "effort": "high"},
+      "default": {"model": "claude-opus-5-5", "effort": "medium"}
+    },
+    "implement": {
+      "default": {"model": "claude-fable-5-1", "effort": "low"},
+      "fallback": {"model": "claude-opus-5-5", "effort": "low"}
+    }
+  },
+  "pi": {
+    "research": {
+      "high": {"model": "openai-codex/gpt-6-astra", "effort": "high"},
+      "default": {"model": "openai-codex/gpt-6-astra", "effort": "medium"}
+    },
+    "plan": {
+      "high": {"model": "openai-codex/gpt-6-astra", "effort": "high"},
+      "default": {"model": "openai-codex/gpt-6-astra", "effort": "medium"}
+    },
+    "implement": {
+      "default": {"model": "openai-codex/gpt-6-astra", "effort": "low"}
+    }
+  },
+  "limits": {"threshold": 95, "max_age_min": 10}
+}

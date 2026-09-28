@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import jev
+from . import jev, policy
 from .documents import (WorkflowError, artifact, digest, document, headings, overall_criteria, plan_steps,
                         requirement, resolve_slug, section_items, step_criteria)
 from .storage import approved, atomic_write, event, now, remember, transaction
@@ -35,6 +35,13 @@ def pending_path(ctx, slug):
 
 
 def route(ctx, db, query):
+    result = _route(ctx, db, query)
+    if result.get('phase'):
+        result.update(policy.launch(result['phase']))
+    return result
+
+
+def _route(ctx, db, query):
     slug, research, plan = task_docs(ctx, query)
     result = {'slug': slug, 'state': 'research', 'phase': 'research',
               'research_revision': research['revision'] if research else None,
