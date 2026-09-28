@@ -88,6 +88,8 @@ def test_check_reports_stale_after_policy_edit(home):
     assert r.returncode == 1
     assert 'STALE agent implement' in r.stdout
     assert 'STALE agent plan' not in r.stdout
+    assert 'ok ' + str(agents(home) / 'plan.md') in r.stdout and 'ok ' + str(agents(home) / 'implement.md') not in r.stdout
+    assert 'ok ' + str(p) in r.stdout
     r = install(home)
     assert r.returncode == 0 and 'generate ' + str(agents(home) / 'implement.md') in r.stdout
     r = install(home, '--check')

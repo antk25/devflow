@@ -132,7 +132,11 @@ if [ "$mode" = check ]; then
     if [ ! -e "$POLICY_FILE" ]; then
         echo "MISS model policy $POLICY_FILE"; issues=1
     elif [ -x "$PYTHON" ]; then
+        echo "ok $POLICY_FILE"
         stale="$(DEVFLOW_MODEL_POLICY="$POLICY_FILE" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy stale "$CLAUDE_DIR/agents")" || issues=1
+        for name in $(DEVFLOW_MODEL_POLICY="$POLICY_FILE" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy names); do
+            case "$stale" in *"STALE agent $name"*) ;; *) echo "ok $CLAUDE_DIR/agents/$name.md" ;; esac
+        done
         if [ -n "$stale" ]; then
             echo "$stale"; issues=1
         fi
