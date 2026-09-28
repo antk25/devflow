@@ -92,7 +92,8 @@ def test_route_adds_launch_from_policy(proj, monkeypatch):
     out = workflow.route(proj['ctx'], proj['db'], 'x')
     assert out['state'] == 'plan'
     assert out['policy'] == str(EXAMPLE)
-    assert out['launch']['claude'] == {'id': 'claude-opus-5-5', 'effort': 'medium', 'model': None}
+    assert out['launch']['claude'] == {'id': 'claude-opus-5-5', 'effort': 'medium', 'model': None, 'agent': 'plan'}
+    assert isinstance(out['policy_stale'], list)
     assert out['launch']['pi'] == {'model': 'openai-codex/gpt-6-astra:medium'}
 
 
@@ -108,3 +109,65 @@ def test_route_resolves_for_phase_of_state(proj, monkeypatch):
     out = workflow.route(proj['ctx'], proj['db'], 'x')
     assert out['state'] == 'approval_required' and out['phase'] == 'research'
     assert 'launch' in out
+
+
+def test_route_high_complexity_picks_high_agent(proj, monkeypatch):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    workflow.complexity(proj['ctx'], proj['db'], 'x', value='high', gate='research', shadow=False)
+    out = workflow.route(proj['ctx'], proj['db'], 'x')
+    assert out['state'] == 'plan'
+    assert out['launch']['claude']['agent'] == 'plan-high'
+    assert out['launch']['claude']['effort'] == 'high'
+
+
+def test_route_reports_stale_agents(proj, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('DEVFLOW_CLAUDE_DIR', str(tmp_path / 'claude'))
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['policy_stale'] == policy.agent_names(policy.load(EXAMPLE))
+    list(policy.write_agents(policy.load(EXAMPLE), tmp_path / 'claude/agents'))
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['policy_stale'] == []
+
+
+def test_agent_names_skip_high_equal_to_default(example):
+    assert policy.agent_names(example) == ['research', 'research-high', 'plan', 'plan-high', 'implement']
+    example['claude']['plan']['high'] = dict(example['claude']['plan']['default'])
+    assert policy.agent_names(example) == ['research', 'research-high', 'plan', 'implement']
+
+
+def test_render_agent_replaces_frontmatter_and_keeps_body(example):
+    source = (policy.SOURCE_DIR / 'research.md').read_text()
+    body = source.split('---\n', 2)[2]
+    out = policy.render_agent(example, 'research-high')
+    front, rendered_body = out.split('---\n', 2)[1:]
+    assert 'name: research-high\n' in front
+    assert 'model: claude-opus-5-5\n' in front
+    assert 'effort: high\n' in front
+    assert 'model: inherit' not in front
+    assert 'description:' in front and 'tools:' in front
+    assert rendered_body == policy.MARKER.format(phase='research') + '\n' + body
+
+
+def test_render_agent_default_column(example):
+    out = policy.render_agent(example, 'implement')
+    assert 'name: implement\n' in out and 'model: claude-fable-5-1\n' in out and 'effort: low\n' in out
+
+
+def test_installed_stale_missing_and_effort_drift(example, tmp_path):
+    d = tmp_path / 'agents'
+    assert policy.installed_stale(example, d) == policy.agent_names(example)
+    list(policy.write_agents(example, d))
+    assert policy.installed_stale(example, d) == []
+    example['claude']['implement']['default']['effort'] = 'medium'
+    assert policy.installed_stale(example, d) == ['implement']
+    (d / 'plan.md').write_text((d / 'plan.md').read_text() + '\nextra body line\n')
+    assert policy.installed_stale(example, d) == ['plan', 'implement']
+
+
+def test_write_agents_is_atomic_and_replaces_symlink(example, tmp_path):
+    d = tmp_path / 'agents'
+    d.mkdir()
+    (d / 'research.md').symlink_to(policy.SOURCE_DIR / 'research.md')
+    actions = dict(policy.write_agents(example, d))
+    assert actions['research'] == 'generate' and not (d / 'research.md').is_symlink()
+    assert not list(d.glob('*.tmp'))
+    assert dict(policy.write_agents(example, d)) == {n: 'ok' for n in policy.agent_names(example)}

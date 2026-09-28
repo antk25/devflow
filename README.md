@@ -143,7 +143,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` and its phase agents into `~/.claude/agents/` as symlinks, so they are available globally. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
+DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
 ```bash
 git clone <repo> ~/projects/devflow
