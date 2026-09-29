@@ -17,18 +17,21 @@ done
 OUT="$1"; shift
 mkdir -p "$OUT"
 
-if [ ! -x "$VENV/bin/python" ]; then
-    uv venv -q --python 3.11 "$VENV"
+if ! "$VENV/bin/python" -c "import faster_whisper" 2>/dev/null; then
+    [ -x "$VENV/bin/python" ] || uv venv -q --python 3.11 "$VENV"
     VIRTUAL_ENV="$VENV" uv pip install -q faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12
 fi
 # ctranslate2 does not ship the CUDA runtime: without this the first encode() fails on libcublas.so.12.
-SP="$VENV/lib/python3.11/site-packages"
+SP="$("$VENV/bin/python" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")"
 export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib:$SP/nvidia/cuda_nvrtc/lib:${LD_LIBRARY_PATH:-}"
 
 WAVS=()
+i=0
 for video in "$@"; do
+    i=$((i + 1))
     name="$(basename "${video%.*}")"
-    wav="$OUT/.$name.wav"
+    # The index keeps same-named recordings from different folders apart.
+    wav="$OUT/.$i.$name.wav"
     ffmpeg -nostdin -v error -i "$video" -vn -ac 1 -ar 16000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -c:a pcm_s16le "$wav" -y
     WAVS+=("$wav")
 done
@@ -39,8 +42,12 @@ import os, sys
 from faster_whisper import WhisperModel
 lang, prompt, out, wavs = sys.argv[1], sys.argv[2] or None, sys.argv[3], sys.argv[4:]
 model = WhisperModel("large-v3", device="cuda", compute_type="float16")
+seen = set()
 for wav in wavs:
-    name = os.path.basename(wav)[1:-4]
+    index, name = os.path.basename(wav)[1:-4].split(".", 1)
+    if name in seen:
+        name = f"{name}-{index}"
+    seen.add(name)
     segments, _ = model.transcribe(wav, language=lang, beam_size=5, vad_filter=True,
                                    condition_on_previous_text=False, initial_prompt=prompt)
     path = os.path.join(out, name + ".txt")
