@@ -43,7 +43,7 @@ def test_install_generates_phase_agents_and_links_the_rest(home):
     generated = sorted(p.name for p in agents(home).iterdir() if p.is_file() and not p.is_symlink())
     assert generated == ['implement.md', 'plan-high.md', 'plan.md', 'research-high.md', 'research.md']
     linked = sorted(p.name for p in agents(home).iterdir() if p.is_symlink())
-    assert linked == ['crossreview.md', 'review-conformance.md', 'review-standards.md']
+    assert linked == ['crossreview.md', 'reader.md', 'review-conformance.md', 'review-standards.md']
     text = (agents(home) / 'research-high.md').read_text()
     assert 'name: research-high\n' in text and 'model: claude-opus-5-5\n' in text and 'effort: high\n' in text
     assert text.split('---\n', 2)[2].startswith('<!-- ' + MARKER)
