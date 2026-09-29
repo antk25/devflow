@@ -21,7 +21,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
 | `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
 | `/transcribe [files]` | Local call transcription (faster-whisper large-v3 on the GPU) into `notes/<date>-calls-transcripts/` | transcript notes |
-| `/jira <key>` | Read a Jira issue, its comments and attachments through the read-only shell scripts | issue text |
+| `/jira <key>` | Digest of a Jira issue (description, comments, attachments) read by the `reader` subagent (Sonnet, effort low) through the read-only shell scripts | issue digest |
 
 The driver spawns three **phase agents** (`~/.claude/agents/`), each with its model pinned in frontmatter, each writing one artifact:
 
@@ -144,7 +144,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
+DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. pi has no subagents, so `jira` runs there in the main context (its `context: fork` / `agent: reader` frontmatter only applies in Claude Code). Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
 
 `./install.sh` also links `~/.local/bin/devflow-rate-limits`; the statusline hook-up is described under [Model per phase](#model-per-phase).
 
