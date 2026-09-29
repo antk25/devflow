@@ -1,7 +1,7 @@
 ---
 name: research
 description: DevFlow Phase 1 — autonomously gather context for a task and write a research doc to the project's obsidian vault. Spawned by the /devflow driver. Read-only on code; parks unknowns in Open questions.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash, Write, Skill
 model: inherit
 effort: low
 ---
@@ -25,10 +25,14 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 - **Read the TZ** if present: `<vault>/tz/<slug>.md`, or scan `<vault>/tz/` for a matching spec.
   What it settles is settled — don't re-open its decisions in Open questions.
 - **Read the Jira ticket.** Key = slug prefix up to the second hyphen, upper-cased (`SE-2039`).
-  Read it with `bash ~/.config/devflow/integrations/jira-issue.sh <KEY>` (account by key); no key
-  in the slug or the ticket is not found (internal tasks such as `DF-*`) → skip. Read the
-  description and comments written before this research by every author except the user (git
-  `user.name`). Attachments and screenshots are not read.
+  Read it through the `jira` skill (`Skill` tool, argument `<KEY>`) — it runs in the `reader`
+  subagent and returns a digest with verbatim requirements, each with author and date. Without the
+  `Skill` tool (pi) read it with `bash ~/.config/devflow/integrations/jira-issue.sh <KEY>` (account
+  by key). No key in the slug or the ticket is not found (internal tasks such as `DF-*`) → skip. Use
+  the description and comments written before this research by every author except the user (git
+  `user.name`) — drop the user's comments by the author in the digest. Source them as `(Jira: описание)`
+  / `(Jira: комментарий <автор>, <дата>)`. Attachments and screenshots are not read: do not open the
+  attachment paths from the digest.
 - **Look for what already exists — by the domain concept, not by the ticket's wording.** Name the
   thing the task is about in the domain's own words (скидка, получатель вознаграждения, импорт
   прайса), then grep that concept and its synonyms — Russian and English, singular and plural, the
