@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Local call transcription: faster-whisper large-v3 on the GPU. Nothing leaves the machine.
+# Usage: transcribe [--prompt "terms"] [--lang ru] <out-dir> <video>...
+set -euo pipefail
+
+VENV="${DEVFLOW_WHISPER_VENV:-$HOME/.cache/devflow/whisper}"
+LANG_CODE=ru
+PROMPT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --prompt) PROMPT="$2"; shift 2 ;;
+        --lang) LANG_CODE="$2"; shift 2 ;;
+        *) break ;;
+    esac
+done
+[ $# -ge 2 ] || { echo "usage: transcribe [--prompt terms] [--lang ru] <out-dir> <video>..." >&2; exit 2; }
+OUT="$1"; shift
+mkdir -p "$OUT"
+
+if [ ! -x "$VENV/bin/python" ]; then
+    uv venv -q --python 3.11 "$VENV"
+    VIRTUAL_ENV="$VENV" uv pip install -q faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12
+fi
+# ctranslate2 does not ship the CUDA runtime: without this the first encode() fails on libcublas.so.12.
+SP="$VENV/lib/python3.11/site-packages"
+export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib:$SP/nvidia/cuda_nvrtc/lib:${LD_LIBRARY_PATH:-}"
+
+WAVS=()
+for video in "$@"; do
+    name="$(basename "${video%.*}")"
+    wav="$OUT/.$name.wav"
+    ffmpeg -nostdin -v error -i "$video" -vn -ac 1 -ar 16000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -c:a pcm_s16le "$wav" -y
+    WAVS+=("$wav")
+done
+
+# One process for all files: large-v3 takes ~3.9 GB of a 4 GB card.
+"$VENV/bin/python" - "$LANG_CODE" "$PROMPT" "$OUT" "${WAVS[@]}" <<'EOF'
+import os, sys
+from faster_whisper import WhisperModel
+lang, prompt, out, wavs = sys.argv[1], sys.argv[2] or None, sys.argv[3], sys.argv[4:]
+model = WhisperModel("large-v3", device="cuda", compute_type="float16")
+for wav in wavs:
+    name = os.path.basename(wav)[1:-4]
+    segments, _ = model.transcribe(wav, language=lang, beam_size=5, vad_filter=True,
+                                   condition_on_previous_text=False, initial_prompt=prompt)
+    path = os.path.join(out, name + ".txt")
+    with open(path, "w") as f:
+        for s in segments:
+            f.write(f"[{int(s.start // 60):02d}:{int(s.start % 60):02d}] {s.text.strip()}\n")
+    os.remove(wav)
+    print(path)
+EOF
