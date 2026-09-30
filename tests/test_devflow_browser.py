@@ -247,3 +247,28 @@ def test_start_with_bad_task_refused(browser, args):
     assert result.returncode == 2
     assert "--task" in result.stderr
     assert browser.calls() == []
+
+
+def test_self_referencing_env_value_substituted_once(browser):
+    browser.env_file.write_text("LOOP=a@env:LOOP\n")
+    sid = browser.start()
+    result = subprocess.run(
+        [str(WRAPPER), sid, "type_text", "1", "@env:LOOP"],
+        env={**os.environ, "PATH": f"{browser.argv_log.parent}:{os.environ['PATH']}",
+             "DEVFLOW_SMOKE_DIR": str(browser.smoke_dir), "DEVFLOW_BROWSER_ENV": str(browser.env_file)},
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    assert browser.calls() == [["type_text", "1", "a@env:LOOP", "--sessionId", sid]]
+
+
+def test_failed_stop_keeps_marker(browser):
+    sid = browser.start()
+    result = browser(sid, "stop", rc=1)
+    assert result.returncode == 1
+    assert (browser.smoke_dir / ".sessions" / sid).exists()
+    browser.argv_log.unlink()
+    again = browser(sid, "stop")
+    assert again.returncode == 0
+    assert browser.calls() == [["stop", "--sessionId", sid]]
+    assert not (browser.smoke_dir / ".sessions" / sid).exists()

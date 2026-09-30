@@ -38,9 +38,10 @@ other Acceptance checks, before the changelog — through the `browser` subagent
 Lines run one at a time, strictly in order. `browser:` items of `## Acceptance (overall)` are
 checks after deploy — not yours; the driver lists them on `completed`.
 
-- Argument line: all `browser:` items of the step become **one** line `slug: <task slug>; [env:
-  <name>;] <checks>` — the `env:` segment of the first item, then the `Дано/Когда/Тогда` parts of
-  every item joined with `; ` — and go in one call. A `/smoke <arguments>` item is its own line:
+- Argument line: `browser:` items of the step are grouped by their `env:` segment (no segment —
+  its own group, the default environment); each group becomes **one** line `slug: <task slug>;
+  [env: <name>;] <checks>` — the `Дано/Когда/Тогда` parts of its items joined with `; ` — and goes
+  in one call. Groups run in the order of their first item. A `/smoke <arguments>` item is its own line:
   `<arguments>`, with `slug: <task slug>;` prepended when it has no `slug:` segment. The line never
   starts with `--`.
 - Protocol for one line:

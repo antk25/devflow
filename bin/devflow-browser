@@ -33,14 +33,16 @@ load_env() {
 }
 
 substitute() {
-  local arg=$1 name
-  while [[ "$arg" =~ @env:([A-Z_][A-Z0-9_]*) ]]; do
+  local rest=$1 out="" name
+  # один проход слева направо: подставленное значение повторно не разбирается
+  while [[ "$rest" =~ @env:([A-Z_][A-Z0-9_]*) ]]; do
     name=${BASH_REMATCH[1]}
     [[ -f "$ENV_FILE" ]] || refuse "@env:$name requested but $ENV_FILE does not exist." 4
     [[ -v SECRETS[$name] ]] || refuse "@env:$name is not defined in $ENV_FILE." 4
-    arg=${arg//"@env:$name"/"${SECRETS[$name]}"}
+    out+=${rest%%"@env:$name"*}${SECRETS[$name]}
+    rest=${rest#*"@env:$name"}
   done
-  printf '%s' "$arg"
+  printf '%s' "$out$rest"
 }
 
 mask() {
@@ -103,7 +105,8 @@ if [[ "$1" == stop ]]; then
   touch_activity
   rc=0
   run_cli stop --sessionId "$id" || rc=$?
-  rm -f "$SESSIONS_DIR/$id"
+  # при неудачной остановке метку оставить: иначе живой Chrome уже не закрыть через обёртку
+  (( rc == 0 )) && rm -f "$SESSIONS_DIR/$id"
   exit $rc
 fi
 
