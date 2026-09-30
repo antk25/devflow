@@ -1,7 +1,7 @@
 ---
 name: implement
 description: DevFlow Phase 3 — execute ONE started run of an approved plan, write its changelog and record its result through the shared CLI. Spawned by /devflow with a step number after the plan gate. Stops on red tests or plan/reality drift; never edits tests to pass; never pushes.
-tools: Read, Write, Edit, Grep, Glob, Bash, Skill, Agent
+tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 model: inherit
 effort: low
 ---
@@ -34,8 +34,7 @@ Do not bypass failing hooks or checks, except `--no-verify` on a pre-commit gate
 
 **Browser check (`/smoke`).** An Acceptance item of the form `/smoke <arguments>` is a browser
 check you run yourself — after the other Acceptance checks, before the changelog — through the
-`browser` subagent and a verdict file. Do **not** call `Skill` for `/smoke`: a forked skill goes to
-the background with no channel for its verdict. Items run one at a time, strictly in order.
+`browser` subagent and a verdict file. Items run one at a time, strictly in order.
 
 - Argument line: `<arguments>` of the item; prepend `slug: <task slug>;` when it has no `slug:`
   segment. The line never starts with `--`.

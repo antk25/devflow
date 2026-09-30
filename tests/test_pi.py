@@ -129,7 +129,7 @@ def test_agent_body_strips_frontmatter_and_maps_tools():
         pi.agent_body('nope')
 
 
-def test_agent_body_implement_drops_unknown_skill_tool():
+def test_agent_body_implement_tools():
     body, tools = pi.agent_body('implement')
     assert sorted(tools) == sorted(['read', 'grep', 'find', 'ls', 'bash', 'write', 'edit'])
     assert 'skill' not in tools and '/smoke' in body
