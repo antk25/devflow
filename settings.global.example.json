@@ -40,7 +40,8 @@
       "Bash(gh release view:*)",
       "Bash(git push:*)",
       "Bash(lcurl:*)",
-      "Bash(devflow-browser:*)"
+      "Bash(devflow-browser:*)",
+      "Bash(devflow-smoke-wait:*)"
     ],
     "ask": [
       "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)",
