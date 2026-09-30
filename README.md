@@ -65,7 +65,12 @@ Approvals persist across sessions and apply to the exact document revision that 
 /note tz <slug>                read a TZ and check it against the contract shape
 /note tz new <slug>            scaffold a TZ from the template
 /project init|sync|list|info|remove  onboard projects, manage the registry
+/smoke [--env <name>] [--slug <slug>] [--save] <scenario>  browser check in the `browser` subagent
 ```
+
+Repeat a saved browser scenario without a subagent or MCP: `bash <vault>/notes/smoke-<slug>.sh` —
+written by `/smoke --slug <slug> --save …`, one `✅`/`❌` line per check, exit 0 only when all pass;
+secrets stay `@env:NAME` and are substituted by `devflow-browser` at run time.
 
 **Review** — two axes, separately, never merged into one list:
 

@@ -71,9 +71,30 @@ devflow-browser $S stop
 продолжить; `stop` в конце в любом случае.
 
 ## 5. Закрепление (`--save`)
-Появится на шаге `smoke-script`: скрипт `<vault>/notes/smoke-<slug>.sh` из фактически
-сработавших вызовов обёртки. Пока `--save` получен — написать в «Не хватает»: «закрепление ещё не
-реализовано», прогон при этом выполнить.
+После прогона записать `<vault>/notes/smoke-<slug>.sh` (vault — из frontmatter `AGENTS.md`; файл
+перезаписывается целиком) и назвать путь в разделе «Скрипт» ответа. Скрипт — только фактически
+сработавшие вызовы обёртки, секреты — `@env:ИМЯ`, без `npx` и `mcp__`, вход — теми же командами
+перед проверками. Каркас:
+```bash
+#!/usr/bin/env bash
+# smoke-<slug> · env <имя> · <адрес> · <дата>
+set -uo pipefail
+S=$(devflow-browser start [--insecure] 2>/dev/null) || { echo "❌ start — devflow-browser не запустился"; exit 1; }
+trap 'devflow-browser "$S" stop >/dev/null 2>&1' EXIT
+fail=0
+b() { devflow-browser "$S" "$@" 2>/dev/null; }
+check() { if [[ "$2" == 1 ]]; then echo "✅ $1 — $3"; else echo "❌ $1 — $3"; fail=1; fi; }
+
+b new_page "<адрес>" >/dev/null
+n=$(b list_network_requests 2 --resourceTypes fetch --resourceTypes xhr | grep '/api/search/' | grep -c '\[200\]')
+check "/api/search/* 200" "$(( n > 0 ))" "$n запросов [200]"
+exit $fail
+```
+Каждое «Тогда» — одно `check`: значение из `evaluate_script … | tail -1` или счётчик `grep -c`,
+условие — арифметика `$(( … ))` или `[[ … ]] && echo 1 || echo 0`. Действия «Когда» — через
+`evaluate_script '() => document.querySelector("<sel>").click()'`, не по `uid` снимка (он
+меняется между прогонами). Вывод навигации и `stderr` подавлены: на экране только строки
+`✅ …`/`❌ …`, код выхода 0, если все ✅, иначе 1. Без `--slug` скрипт не пишется — «не хватает slug».
 
 ## Заметки
 - Каждый вызов обёртки ≈2 с (`npx`); сценарий на 20 действий — около минуты. Не дробить проверки
