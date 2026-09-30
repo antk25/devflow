@@ -61,3 +61,9 @@ def test_handoff_latest_skips_broken_frontmatter_and_other_types(tmp_path):
 def test_handoff_latest_none_when_empty(tmp_path):
     (tmp_path / 'notes').mkdir()
     assert documents.handoff_latest(tmp_path) is None
+
+
+def test_step_criteria_keeps_browser_item_verbatim():
+    item = 'browser: env: staging; Дано товар в корзине; Когда открыть /cart; Тогда виден итог'
+    section = f'### s: Шаг\n- **Acceptance:**\n  - pytest зелёный\n  - {item}\n- **Files:** a\n'
+    assert documents.step_criteria(section) == ['pytest зелёный', item]

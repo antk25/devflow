@@ -384,6 +384,9 @@ steps:
 The body has `## Steps`, with matching `### add-contract: Contract` and
 `### connect-handler: Handler` sections. IDs are permanent; `n` controls ordering only.
 No execution statuses belong in the plan. Keep completed definitions; use new steps for follow-ups.
+An Acceptance item `browser: env: <name>; Дано …; Когда …; Тогда …` is a browser check: in a step it is
+run by the implement agent itself (env reachable before deploy, usually `local`); in
+`## Acceptance (overall)` it is a check after deploy that the driver lists on `completed`.
 The parser rejects duplicate YAML keys, unknown dependencies, cycles and mismatched headings.
 
 The CLI emits JSON; errors go to stderr with a nonzero exit. From the project root:

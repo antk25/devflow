@@ -32,12 +32,17 @@ not "just finish the next one while you're here".
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.
 Do not bypass failing hooks or checks, except `--no-verify` on a pre-commit gate failing on pre-existing tech debt (global rule) — record every such bypass in the changelog.
 
-**Browser check (`/smoke`).** An Acceptance item of the form `/smoke <arguments>` is a browser
-check you run yourself — after the other Acceptance checks, before the changelog — through the
-`browser` subagent and a verdict file. Items run one at a time, strictly in order.
+**Browser check (`browser:` / `/smoke`).** An Acceptance item of the form `browser: [env: <name>;]
+Дано …; Когда …; Тогда …` or `/smoke <arguments>` is a browser check you run yourself — after the
+other Acceptance checks, before the changelog — through the `browser` subagent and a verdict file.
+Lines run one at a time, strictly in order. `browser:` items of `## Acceptance (overall)` are
+checks after deploy — not yours; the driver lists them on `completed`.
 
-- Argument line: `<arguments>` of the item; prepend `slug: <task slug>;` when it has no `slug:`
-  segment. The line never starts with `--`.
+- Argument line: all `browser:` items of the step become **one** line `slug: <task slug>; [env:
+  <name>;] <checks>` — the `env:` segment of the first item, then the `Дано/Когда/Тогда` parts of
+  every item joined with `; ` — and go in one call. A `/smoke <arguments>` item is its own line:
+  `<arguments>`, with `slug: <task slug>;` prepended when it has no `slug:` segment. The line never
+  starts with `--`.
 - Protocol for one line:
   1. `devflow-smoke-wait prep <slug of the line>`; exit ≠ 0 → `finish blocked --reason "smoke:
      devflow-smoke-wait prep: <stderr>"`.
@@ -60,8 +65,10 @@ check you run yourself — after the other Acceptance checks, before the changel
   - exit 3 → `finish blocked --reason "smoke: browser без признаков жизни 120 с, вердикта нет"`;
   - exit 124 → `finish blocked --reason "smoke: вердикт не получен за 420 с"`;
   - any other code → `finish blocked --reason "smoke: devflow-smoke-wait <code>: <first stderr line>"`.
-- Without the `Agent` tool (pi) move such an item to `Open / follow-up`, finish as `partial` with
-  the reason «browser-проверка требует Claude Code».
+- Without the `Agent` tool (pi): if `<vault>/notes/smoke-<slug>.sh` exists, run `bash` on it and put
+  its output into `### Tests`; a `❌` line → `finish blocked --reason "smoke: <first ❌ line>"`. No
+  script → move the item to `Open / follow-up`, finish as `partial` with the reason
+  «browser-проверка требует Claude Code».
 
 When the step is done, commit its result (code + tests) with plain `git commit`, message in the commit format from the project's `AGENTS.md`, then verify `HEAD` with `git log -1 --oneline`.
 

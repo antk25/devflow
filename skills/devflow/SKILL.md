@@ -111,6 +111,10 @@ code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repos
 summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
 finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
 In pi there is no `crossreview` launch yet: show the changelog and stop.
+On `completed` in both hosts also list the `browser:` items of the plan's `## Acceptance (overall)`
+as checks after deploy, each as a ready line `/smoke env: staging; slug: <slug>; save; <Дано …;
+Когда …; Тогда …>` — the user types it in the main session once the deploy is done; the driver
+never runs them.
 
 ## Recovery and replanning
 - `running` means the step broke off (limit, closed session) or is still in flight. In both hosts

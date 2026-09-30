@@ -97,6 +97,7 @@ a feature spans layers.>
 - **Acceptance:**
   - <one verifiable criterion per line: a command and its expected result>
   - <another criterion>
+  - browser: env: local; Дано <состояние>; Когда <действие>; Тогда <что видно в браузере>
 
 ### connect-handler: <Step name>
 - **Goal:** <one line>
@@ -110,10 +111,18 @@ a feature spans layers.>
 
 ## Acceptance (overall)
 - [ ] <user-visible criterion — one per item; wrapped lines are indented two spaces>
+- [ ] browser: env: staging; Дано <состояние после деплоя>; Когда <действие>; Тогда <что видно>
 
 ## Risks / unknowns
 - <thing that might bite; any question the driver should raise with the user at the gate>
 ```
+
+A `browser:` item is a browser check in the contract form `browser: env: <name>; Дано …; Когда …;
+Тогда …`. Put one into a step's Acceptance when the step's change is visible in a browser; `env`
+comes from the project's «Browser» section in `AGENTS.md` and must be reachable before deploy
+(usually `local`) — the implement agent runs it itself. Checks that need a deploy (staging after the
+user deploys) go into `## Acceptance (overall)` as `browser: env: staging; …`; implement does not
+run those, the driver lists them on `completed`. The line never starts with `--`.
 
 On a re-run, preserve each surviving step's ID. Numbers only order the display; dependencies use
 IDs. Do not add status fields: execution state lives in SQLite. Keep completed step definitions
