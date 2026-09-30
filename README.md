@@ -73,6 +73,9 @@ written by `/smoke slug: <slug>; save; …`, one `✅`/`❌` line per check, exi
 secrets stay `@env:NAME` and are substituted by `devflow-browser` at run time.
 Arguments of `/smoke` are `key: value;` segments, not `--flags`: the harness drops fork-skill arguments
 that start with `--`, so no documented form of the call begins with one.
+Browser items of an implement step are run by the implement agent itself: the `browser` subagent in
+the background, the verdict as the file `/tmp/devflow-smoke/<slug>/verdict.md`, waiting via
+`devflow-smoke-wait`.
 
 **Review** — two axes, separately, never merged into one list:
 

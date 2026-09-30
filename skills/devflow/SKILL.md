@@ -103,7 +103,7 @@ For `ready`, in Claude Code run `df start <slug> --step <id> --revision <plan-ha
 succeeds. Each run covers one step. On return, route again: continue only on `ready`; stop on
 `blocked`, `running`, errors or `completed`. The implement agent records its result with `df finish`.
 A prose claim of success (or a `phase run` exit 0 with `warning`) without a recorded result does not
-close a step.
+close a step. If the implement reply contains a `Browser:` block, show it to the user verbatim, then `route`.
 
 On `completed`, in Claude Code spawn **one** `crossreview` agent with cwd, slug and the base branch from `AGENTS.md`.
 It reviews the whole branch itself, gets a second opinion from Codex, verifies every finding in the

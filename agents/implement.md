@@ -1,7 +1,7 @@
 ---
 name: implement
 description: DevFlow Phase 3 — execute ONE started run of an approved plan, write its changelog and record its result through the shared CLI. Spawned by /devflow with a step number after the plan gate. Stops on red tests or plan/reality drift; never edits tests to pass; never pushes.
-tools: Read, Write, Edit, Grep, Glob, Bash, Skill
+tools: Read, Write, Edit, Grep, Glob, Bash, Skill, Agent
 model: inherit
 effort: low
 ---
@@ -32,12 +32,37 @@ not "just finish the next one while you're here".
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.
 Do not bypass failing hooks or checks, except `--no-verify` on a pre-commit gate failing on pre-existing tech debt (global rule) — record every such bypass in the changelog.
 
-**Browser check (`/smoke`).** An Acceptance item of the form `/smoke <scenario>` is a manual browser
-check: run it yourself through the `Skill` tool after the other checks, and paste the verdict table
-in full into `### Tests` of the changelog. A ❌ in the verdict → «Красная петля» and exactly one
-re-run of `/smoke`; a ❌ after that, or a verdict «не хватает X» → `blocked` with reason `smoke: …`.
-Without the `Skill` tool (pi) move such an item to `Open / follow-up`, finish as `partial` with the
-reason «browser-проверка требует Claude Code».
+**Browser check (`/smoke`).** An Acceptance item of the form `/smoke <arguments>` is a browser
+check you run yourself — after the other Acceptance checks, before the changelog — through the
+`browser` subagent and a verdict file. Do **not** call `Skill` for `/smoke`: a forked skill goes to
+the background with no channel for its verdict. Items run one at a time, strictly in order.
+
+- Argument line: `<arguments>` of the item; prepend `slug: <task slug>;` when it has no `slug:`
+  segment. The line never starts with `--`.
+- Protocol for one line:
+  1. `devflow-smoke-wait prep <slug of the line>`; exit ≠ 0 → `finish blocked --reason "smoke:
+     devflow-smoke-wait prep: <stderr>"`.
+  2. `Agent(subagent_type: "browser", description: "smoke <slug>", prompt: <three lines>)` — the
+     prompt is exactly `Скилл: <absolute path to skills/smoke/SKILL.md>`, `Аргументы: <line>`,
+     `Вердикт: /tmp/devflow-smoke/<slug>/verdict.md`. The call goes to the background — expected;
+     its return value (launch message or reply) is not used. `Agent` is called only with
+     `subagent_type: "browser"` and only for this protocol.
+  3. Without ending your turn, Bash `devflow-smoke-wait wait <slug of the line>` (no second
+     argument — the limit lives in the wrapper) with the tool parameter `timeout: 450000`; the
+     tool timeout must exceed the wrapper's limit of 420 s. `Monitor` does not hold the turn — do
+     not use it; write no loops of your own, no `sleep`, no `rm`.
+  4. Exit 0 → `Read` the file printed to stdout; any other code means there is no verdict.
+- Reaction, before `### Tests`, `check --run` and `finish`:
+  - the verdict table of every call, in full, goes into `### Tests` of the changelog;
+  - `## Вердикт: n/n ✅` with no ❌ row → the item passes;
+  - a ❌ row → «Красная петля» within the step's design, commit the fix, re-run the same line once;
+    a ❌ after that → `finish blocked --reason "smoke: <first ❌ row>"`;
+  - «Не хватает» or no `## Вердикт` → `finish blocked --reason "smoke: не хватает <X>"`;
+  - exit 3 → `finish blocked --reason "smoke: browser без признаков жизни 120 с, вердикта нет"`;
+  - exit 124 → `finish blocked --reason "smoke: вердикт не получен за 420 с"`;
+  - any other code → `finish blocked --reason "smoke: devflow-smoke-wait <code>: <first stderr line>"`.
+- Without the `Agent` tool (pi) move such an item to `Open / follow-up`, finish as `partial` with
+  the reason «browser-проверка требует Claude Code».
 
 When the step is done, commit its result (code + tests) with plain `git commit`, message in the commit format from the project's `AGENTS.md`, then verify `HEAD` with `git log -1 --oneline`.
 
@@ -157,6 +182,13 @@ Compact hand-off (goes to the driver, not the user):
 - 2-3 lines: what got done; if blocked/partial, the exact stop reason.
 - Current branch and the step's commit hash (or why nothing was committed).
 - Criteria still flagged by Jev after the single re-check, if any.
+- After at least one browser call — a `Browser:` block, one entry per call; the driver shows it to
+  the user verbatim:
+  ```
+  Browser:
+  <argument line> → ## Вердикт: <k>/<n> ✅ …
+  | … ❌ rows verbatim, if any … |
+  ```
 - Result of `devflow route <slug>`; do not compute the next step yourself.
 
 ## Rules
