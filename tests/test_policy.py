@@ -153,6 +153,16 @@ def test_render_agent_default_column(example):
     assert 'name: implement\n' in out and 'model: claude-fable-5-1\n' in out and 'effort: low\n' in out
 
 
+def test_render_agent_implement_tools(example):
+    for name in policy.agent_names(example):
+        if not name.startswith('implement'):
+            continue
+        front = policy.render_agent(example, name).split('---\n', 2)[1]
+        tools = next(line for line in front.splitlines() if line.startswith('tools:'))
+        assert 'Agent' in tools, name
+        assert 'Skill' not in tools, name
+
+
 def test_installed_stale_missing_and_effort_drift(example, tmp_path):
     d = tmp_path / 'agents'
     assert policy.installed_stale(example, d) == policy.agent_names(example)

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-21: браузерные проверки в отдельном подагенте
+- **`devflow-browser`** (`scripts/browser.sh`, ссылка в `~/.local/bin`) — обёртка над изолированным headless Chrome: `start --task <slug>` с меткой активности `/tmp/devflow-smoke/<slug>/.activity`, секреты как `@env:NAME`, без MCP.
+- **Скилл `/smoke` и агент `browser`** — сценарий `[env: <name>;] [slug: <slug>;] [save;] <сценарий>` гоняется в подагенте, наружу — таблица вердиктов ✅/❌ до ~40 строк; `save;` пишет `<vault>/notes/smoke-<slug>.sh` для повтора без подагента. Аргументы — сегменты `key: value;`, а не `--flags`: харнес теряет аргументы форк-скилла с ведущими `--`.
+- **`devflow-smoke-wait prep|wait <slug>`** — ожидание файла вердикта `/tmp/devflow-smoke/<slug>/verdict.md` с исходами 0/3/124.
+- **implement сам получает вердикт** — `Agent(browser)` в фоне, ожидание через `devflow-smoke-wait`, таблица в `### Tests` changelog, блок `Browser:` в ответе драйверу; ❌ не даёт закрыть шаг. Инструмент `Skill` у implement убран.
+- **Пометка `browser:` в плане** — пункт `browser: env: <name>; Дано …; Когда …; Тогда …` в Acceptance шага implement прогоняет сам (в pi — готовый `smoke-<slug>.sh` или `partial`); такие же пункты в `## Acceptance (overall)` — проверки после деплоя, драйвер перечисляет их на `completed`.
+
 ### Added — DF-19: модель и effort фазовых агентов по правилу
 - **`~/.claude/devflow/model-policy.json`** (эталон `model-policy.example.json`, `scripts/devflow/policy.py`) — правило хост × фаза × сложность → модель + effort: research/plan — Opus 5.5 medium, `high` — Opus 5.5 high; implement — Fable 5.1 low с колонкой `fallback` Opus 5.5 low; pi — `openai-codex/gpt-6-astra` high/medium/low. `install.sh` копирует эталон, если файла нет; `--check` печатает `MISS model policy`. `devflow route` с фазой отдаёт `policy` и `launch` для обоих хостов.
 - **`devflow complexity <slug> [--set high|medium|low] [--gate research|backfill] [--no-shadow]`** — событие сложности в SQLite (`source=user`); при `--set` рядом пишется теневая оценка Jev (`source=jev`, `applied=false`, `noul`, `choice`, `confidence`). Драйвер спрашивает сложность на гейте research до `df approve`. Вывод содержит `facts` (шаги плана, прогоны и статусы, ревизии) для калибровки.

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# devflow-smoke-wait — implement waits for the browser agent's verdict file without loops of its own.
+#   devflow-smoke-wait prep <slug>            → removes an old verdict, refreshes <slug>/.activity
+#   devflow-smoke-wait wait <slug> [seconds]  → 0 verdict written (path on stdout)
+#                                              3 browser shows no sign of life for STALE_SECONDS
+#                                              124 limit reached
+set -euo pipefail
+
+LIMIT_SECONDS=420
+STALE_SECONDS=120
+POLL_SECONDS=3
+SMOKE_DIR="${DEVFLOW_SMOKE_DIR:-/tmp/devflow-smoke}"
+SESSIONS_DIR="$SMOKE_DIR/.sessions"
+
+refuse() {
+  echo "devflow-smoke-wait: $1" >&2
+  exit "$2"
+}
+
+check_slug() {
+  [[ "${1:-}" =~ ^[a-z0-9-]+$ ]] || refuse "expects a slug [a-z0-9-]+, got '${1:-}'." 2
+}
+
+# A live devflow-browser call in a session tagged with the slug.
+browser_alive() {
+  local marker id
+  for marker in "$SESSIONS_DIR"/*; do
+    [[ -f "$marker" ]] || continue
+    [[ "$(cat "$marker")" == "$slug" ]] || continue
+    id=$(basename "$marker")
+    pgrep -f "devflow-browser $id" >/dev/null && return 0
+  done
+  return 1
+}
+
+(( $# >= 1 )) || refuse "usage: devflow-smoke-wait prep <slug> | devflow-smoke-wait wait <slug> [seconds]" 2
+
+case "$1" in
+  prep)
+    check_slug "${2:-}"
+    dir="$SMOKE_DIR/$2"
+    mkdir -p "$dir"
+    rm -f "$dir/verdict.md"
+    touch "$dir/.activity"
+    exit 0
+    ;;
+  wait)
+    check_slug "${2:-}"
+    slug=$2
+    limit=${3:-$LIMIT_SECONDS}
+    [[ "$limit" =~ ^[0-9]+$ && "$limit" -gt 0 ]] || refuse "limit must be a positive integer, got '$limit'." 2
+    dir="$SMOKE_DIR/$slug"
+    verdict="$dir/verdict.md"
+    started=$(date +%s)
+    while true; do
+      if [[ -s "$verdict" ]]; then
+        echo "$verdict"
+        exit 0
+      fi
+      now=$(date +%s)
+      activity=$(stat -c %Y "$dir/.activity" 2>/dev/null || echo "$started")
+      if (( now - activity >= STALE_SECONDS )) && ! browser_alive; then
+        refuse "browser shows no sign of life for ${STALE_SECONDS}s, no verdict at $verdict." 3
+      fi
+      (( now - started < limit )) || refuse "no verdict at $verdict after ${limit}s." 124
+      sleep "$POLL_SECONDS"
+    done
+    ;;
+  *)
+    refuse "unknown subcommand '$1' — use prep or wait." 2
+    ;;
+esac

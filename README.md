@@ -22,6 +22,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
 | `/transcribe [files]` | Local call transcription (faster-whisper large-v3 on the GPU) into `notes/<date>-calls-transcripts/` | transcript notes |
 | `/jira <key>` | Digest of a Jira issue (description, comments, attachments) read by the `reader` subagent (Sonnet, effort low) through the read-only shell scripts | issue digest |
+| `/smoke [env: <name>;] [slug: <slug>;] [save;] <scenario>` | Browser check of a scenario in the `browser` subagent (Sonnet, effort low) through `devflow-browser` — isolated headless Chrome, secrets as `@env:NAME`, no MCP | verdict table ✅/❌ ≤40 lines, screenshot paths on ❌ |
 
 The driver spawns three **phase agents** (`~/.claude/agents/`), each with its model pinned in frontmatter, each writing one artifact:
 
@@ -64,7 +65,17 @@ Approvals persist across sessions and apply to the exact document revision that 
 /note tz <slug>                read a TZ and check it against the contract shape
 /note tz new <slug>            scaffold a TZ from the template
 /project init|sync|list|info|remove  onboard projects, manage the registry
+/smoke [env: <name>;] [slug: <slug>;] [save;] <scenario>  browser check in the `browser` subagent
 ```
+
+Repeat a saved browser scenario without a subagent or MCP: `bash <vault>/notes/smoke-<slug>.sh` —
+written by `/smoke slug: <slug>; save; …`, one `✅`/`❌` line per check, exit 0 only when all pass;
+secrets stay `@env:NAME` and are substituted by `devflow-browser` at run time.
+Arguments of `/smoke` are `key: value;` segments, not `--flags`: the harness drops fork-skill arguments
+that start with `--`, so no documented form of the call begins with one.
+Browser items of an implement step are run by the implement agent itself: the `browser` subagent in
+the background, the verdict as the file `/tmp/devflow-smoke/<slug>/verdict.md`, waiting via
+`devflow-smoke-wait`.
 
 **Review** — two axes, separately, never merged into one list:
 
@@ -144,7 +155,7 @@ The obsidian vault for each project follows this structure:
 
 ## Install
 
-DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. pi has no subagents, so `jira` runs there in the main context (its `context: fork` / `agent: reader` frontmatter only applies in Claude Code). Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`.
+DevFlow installs its skills into `~/.claude/skills/` as symlinks, so they are available globally. The phase agents `research`, `research-high`, `plan`, `plan-high`, `implement` in `~/.claude/agents/` are **generated**: body from `agents/<phase>.md`, `model`/`effort` from `~/.claude/devflow/model-policy.json` (a `-high` twin exists only where the `high` column differs). Edit the policy → rerun `./install.sh`; `--check` prints `STALE agent <name>` until then, and `route` returns the same names in `policy_stale`. Review agents stay symlinks. The subagent-free skills (`note`, `jira`, `project`, `cut`) and the `devflow` driver are also linked into pi — `~/.pi/agent/skills/<name>` plus a one-line prompt template `~/.pi/agent/prompts/<name>.md` so that `/note list` and `/devflow <slug>` work in pi literally. pi has no subagents, so `jira` runs there in the main context (its `context: fork` / `agent: reader` frontmatter only applies in Claude Code). Skills that need Claude Code subagents (or are not verified for pi) are listed as `skip pi <name>: <reason>` by `./install.sh` and `--check`; `smoke` is one of them — in pi `implement` runs the saved `<vault>/notes/smoke-<slug>.sh` instead.
 
 `./install.sh` also links `~/.local/bin/devflow-rate-limits`; the statusline hook-up is described under [Model per phase](#model-per-phase).
 
@@ -294,7 +305,10 @@ unknown ones marked explicitly — shows it, and only after confirmation calls t
 `.devflow/project.json` → database → registry entry. Every item is reported as `created | skipped |
 attention`; re-running is idempotent. `sync` brings already registered projects up to the same
 layout but never generates `AGENTS.md` or edits the registry — those cases come back as
-`attention`. `/project sync` in a session always shows the `--dry-run` table first.
+`attention`. Both reports also carry an informational `browser` item: the `### ` environments of the
+`## Browser` section in `AGENTS.md` (what `/smoke` accepts as `env:`), or a hint that the section is
+missing — the template ships a `local` placeholder; neither command ever edits an existing
+`AGENTS.md`. `/project sync` in a session always shows the `--dry-run` table first.
 
 The SessionStart hook and the publication permissions live in the **global**
 `~/.claude/settings.json`: merge `settings.global.example.json` into it by hand and replace
@@ -373,6 +387,9 @@ steps:
 The body has `## Steps`, with matching `### add-contract: Contract` and
 `### connect-handler: Handler` sections. IDs are permanent; `n` controls ordering only.
 No execution statuses belong in the plan. Keep completed definitions; use new steps for follow-ups.
+An Acceptance item `browser: env: <name>; Дано …; Когда …; Тогда …` is a browser check: in a step it is
+run by the implement agent itself (env reachable before deploy, usually `local`); in
+`## Acceptance (overall)` it is a check after deploy that the driver lists on `completed`.
 The parser rejects duplicate YAML keys, unknown dependencies, cycles and mismatched headings.
 
 The CLI emits JSON; errors go to stderr with a nonzero exit. From the project root:
