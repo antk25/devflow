@@ -44,7 +44,8 @@ argument-hint: "[env: <имя>;] [slug: <slug>;] [save;] <адрес, вход, 
 ## 4. Прогон
 ```bash
 mkdir -p /tmp/devflow-smoke/<slug>
-S=$(devflow-browser start [--insecure])          # один раз; в конце обязательно stop
+S=$(devflow-browser start [--insecure] --task <slug>)   # один раз; в конце обязательно stop;
+                                                  # --task ведёт метку активности: вызвавший видит, что прогон жив
 devflow-browser $S new_page "<адрес>"            # открывает вкладку 2
 … проверки …
 devflow-browser $S stop

@@ -187,3 +187,63 @@ def test_no_arguments_refused(browser):
     result = browser()
     assert result.returncode == 2
     assert browser.calls() == []
+
+
+def activity(browser, slug="demo"):
+    return browser.smoke_dir / slug / ".activity"
+
+
+def age(path, minutes):
+    stamp = path.stat().st_mtime - minutes * 60
+    os.utime(path, (stamp, stamp))
+
+
+def test_start_with_task_writes_slug_and_activity(browser):
+    result = browser("start", "--task", "demo")
+    assert result.returncode == 0, result.stderr
+    sid = result.stdout.strip()
+    assert (browser.smoke_dir / ".sessions" / sid).read_text() == "demo"
+    assert activity(browser).is_file()
+    assert browser.calls() == [["start", "--isolated", "--headless", "--redactNetworkHeaders", "--sessionId", sid]]
+
+
+def test_tool_call_refreshes_activity(browser):
+    sid = browser("start", "--task", "demo").stdout.strip()
+    age(activity(browser), 5)
+    before = activity(browser).stat().st_mtime
+    result = browser(sid, "list_pages", stdout="pages")
+    assert result.returncode == 0
+    assert activity(browser).stat().st_mtime > before
+
+
+def test_failed_tool_call_still_refreshes_activity_and_passes_code(browser):
+    sid = browser("start", "--task", "demo").stdout.strip()
+    age(activity(browser), 5)
+    before = activity(browser).stat().st_mtime
+    result = browser(sid, "click", "1", "9_9", rc=7, stderr="Error: element not found")
+    assert result.returncode == 7
+    assert result.stderr == "Error: element not found\n"
+    assert activity(browser).stat().st_mtime > before
+
+
+def test_stop_refreshes_activity(browser):
+    sid = browser("start", "--task", "demo").stdout.strip()
+    age(activity(browser), 5)
+    before = activity(browser).stat().st_mtime
+    assert browser(sid, "stop").returncode == 0
+    assert activity(browser).stat().st_mtime > before
+
+
+def test_start_without_task_keeps_marker_empty(browser):
+    sid = browser.start()
+    assert (browser.smoke_dir / ".sessions" / sid).read_text() == ""
+    browser(sid, "list_pages")
+    assert not any(p.name == ".activity" for p in browser.smoke_dir.rglob(".activity"))
+
+
+@pytest.mark.parametrize("args", [["--task", "Bad_Slug"], ["--task"]])
+def test_start_with_bad_task_refused(browser, args):
+    result = browser("start", *args)
+    assert result.returncode == 2
+    assert "--task" in result.stderr
+    assert browser.calls() == []

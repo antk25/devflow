@@ -2,7 +2,8 @@
 # devflow-browser — chrome-devtools CLI (chrome-devtools-mcp) in an isolated, headless, per-run session.
 # Secrets are referenced as @env:NAME, substituted here from browser.env and masked in the output,
 # so neither the calling agent nor a saved script ever sees a value.
-#   devflow-browser start [--insecure]      → prints the session id
+#   devflow-browser start [--insecure] [--task <slug>]  → prints the session id; with --task every
+#                                             later call touches $SMOKE_DIR/<slug>/.activity
 #   devflow-browser <id> <tool> [args…]     → chrome-devtools <tool> args… --sessionId <id>
 #   devflow-browser <id> stop
 set -euo pipefail
@@ -50,6 +51,13 @@ mask() {
   printf '%s' "$text"
 }
 
+touch_activity() {
+  local slug
+  slug=$(cat "$SESSIONS_DIR/$id" 2>/dev/null) || return 0
+  [[ -n "$slug" ]] || return 0
+  mkdir -p "$SMOKE_DIR/$slug" && touch "$SMOKE_DIR/$slug/.activity"
+}
+
 run_cli() {
   local out err rc=0
   out=$(mktemp) err=$(mktemp)
@@ -62,21 +70,26 @@ run_cli() {
 
 load_env
 
-(( $# >= 1 )) || refuse "usage: devflow-browser start [--insecure] | devflow-browser <id> <tool> [args…] | devflow-browser <id> stop" 2
+(( $# >= 1 )) || refuse "usage: devflow-browser start [--insecure] [--task <slug>] | devflow-browser <id> <tool> [args…] | devflow-browser <id> stop" 2
 
 if [[ "$1" == start ]]; then
   shift
-  extra=()
-  for arg in "$@"; do
-    case "$arg" in
+  extra=() task=""
+  while (( $# )); do
+    case "$1" in
       --insecure) extra+=(--acceptInsecureCerts) ;;
-      *) refuse "start accepts only --insecure, got '$arg'." 2 ;;
+      --task)
+        [[ "${2:-}" =~ ^[a-z0-9-]+$ ]] || refuse "--task expects a slug [a-z0-9-]+, got '${2:-}'." 2
+        task=$2; shift ;;
+      *) refuse "start accepts only --insecure and --task <slug>, got '$1'." 2 ;;
     esac
+    shift
   done
   id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
   mkdir -p "$SESSIONS_DIR"
   run_cli start --isolated --headless --redactNetworkHeaders "${extra[@]}" --sessionId "$id" >&2
-  : > "$SESSIONS_DIR/$id"
+  printf '%s' "$task" > "$SESSIONS_DIR/$id"
+  touch_activity
   echo "$id"
   exit 0
 fi
@@ -87,6 +100,7 @@ id=$1; shift
 
 if [[ "$1" == stop ]]; then
   [[ -f "$SESSIONS_DIR/$id" ]] || exit 0
+  touch_activity
   rc=0
   run_cli stop --sessionId "$id" || rc=$?
   rm -f "$SESSIONS_DIR/$id"
@@ -102,4 +116,8 @@ for arg in "$@"; do
   args+=("$(substitute "$arg")")
 done
 
-run_cli "${args[@]}" --sessionId "$id"
+touch_activity
+rc=0
+run_cli "${args[@]}" --sessionId "$id" || rc=$?
+touch_activity
+exit $rc
