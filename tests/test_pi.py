@@ -129,6 +129,12 @@ def test_agent_body_strips_frontmatter_and_maps_tools():
         pi.agent_body('nope')
 
 
+def test_agent_body_implement_drops_unknown_skill_tool():
+    body, tools = pi.agent_body('implement')
+    assert sorted(tools) == sorted(['read', 'grep', 'find', 'ls', 'bash', 'write', 'edit'])
+    assert 'skill' not in tools and '/smoke' in body
+
+
 def test_build_command_without_model_and_without_claude():
     cmd = pi.build_command('/tmp/body.md', ['read', 'bash'], None, 'задание')
     assert cmd == ['pi', '-p', '--no-session', '--append-system-prompt', '/tmp/body.md', '--tools', 'read,bash', 'задание']

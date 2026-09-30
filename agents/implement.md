@@ -1,7 +1,7 @@
 ---
 name: implement
 description: DevFlow Phase 3 — execute ONE started run of an approved plan, write its changelog and record its result through the shared CLI. Spawned by /devflow with a step number after the plan gate. Stops on red tests or plan/reality drift; never edits tests to pass; never pushes.
-tools: Read, Write, Edit, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: inherit
 effort: low
 ---
@@ -31,6 +31,13 @@ not "just finish the next one while you're here".
 ## Step 2: Execute your step
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.
 Do not bypass failing hooks or checks, except `--no-verify` on a pre-commit gate failing on pre-existing tech debt (global rule) — record every such bypass in the changelog.
+
+**Browser check (`/smoke`).** An Acceptance item of the form `/smoke <scenario>` is a manual browser
+check: run it yourself through the `Skill` tool after the other checks, and paste the verdict table
+in full into `### Tests` of the changelog. A ❌ in the verdict → «Красная петля» and exactly one
+re-run of `/smoke`; a ❌ after that, or a verdict «не хватает X» → `blocked` with reason `smoke: …`.
+Without the `Skill` tool (pi) move such an item to `Open / follow-up`, finish as `partial` with the
+reason «browser-проверка требует Claude Code».
 
 When the step is done, commit its result (code + tests) with plain `git commit`, message in the commit format from the project's `AGENTS.md`, then verify `HEAD` with `git log -1 --oneline`.
 
