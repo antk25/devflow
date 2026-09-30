@@ -305,7 +305,10 @@ unknown ones marked explicitly — shows it, and only after confirmation calls t
 `.devflow/project.json` → database → registry entry. Every item is reported as `created | skipped |
 attention`; re-running is idempotent. `sync` brings already registered projects up to the same
 layout but never generates `AGENTS.md` or edits the registry — those cases come back as
-`attention`. `/project sync` in a session always shows the `--dry-run` table first.
+`attention`. Both reports also carry an informational `browser` item: the `### ` environments of the
+`## Browser` section in `AGENTS.md` (what `/smoke` accepts as `env:`), or a hint that the section is
+missing — the template ships a `local` placeholder; neither command ever edits an existing
+`AGENTS.md`. `/project sync` in a session always shows the `--dry-run` table first.
 
 The SessionStart hook and the publication permissions live in the **global**
 `~/.claude/settings.json`: merge `settings.global.example.json` into it by hand and replace

@@ -138,6 +138,20 @@ def _vault_path(cwd, value):
     return vault.resolve()
 
 
+def browser_item(text):
+    """Informational only: sync never edits AGENTS.md, it just says whether /smoke has environments."""
+    envs = []
+    inside = False
+    for line in text.splitlines():
+        if line.startswith('## '):
+            inside = line.strip() == '## Browser'
+        elif inside and line.startswith('### '):
+            envs.append(line[4:].strip())
+    if envs:
+        return _item('browser', 'skipped', 'окружения: ' + ', '.join(envs))
+    return _item('browser', 'skipped', 'нет раздела Browser: /smoke попросит адрес и вход; образец — AGENTS.md.template')
+
+
 def plan_items(path, name, root=ROOT, draft=None, create_agents=True):
     """Ordered checklist of the project layer; reads only, actions are closures."""
     cwd = Path(path).resolve()
@@ -172,6 +186,7 @@ def plan_items(path, name, root=ROOT, draft=None, create_agents=True):
         else:
             items.append(_item(f'vault:{folder}', 'create', str(target), lambda t=target: t.mkdir(parents=True, exist_ok=True)))
     items.append(agents_item)
+    items.append(browser_item(text))
     ctx = {'project': name, 'cwd': cwd, 'vault': vault}
     if (cwd / '.devflow/project.json').exists():
         items.append(_item('identity', 'skipped', str(cwd / '.devflow/project.json')))

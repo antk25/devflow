@@ -48,6 +48,16 @@ force pushes, merges and releases are denied globally — publication to product
 
 Vault layout: `tz/` `research/` `plans/` `changelog/` `notes/`
 
+## Browser
+Окружения для `/smoke` (`env: <имя>`, по умолчанию `local`). Секретов здесь нет — только имена
+переменных из `~/.config/devflow/browser.env`.
+
+### local
+- Адрес: `<https://app.localhost>`
+- Вход: `<нет | как войти: форма, поля, @env:ИМЯ_ПЕРЕМЕННОЙ>`
+- Флаги: `<--insecure | нет>`
+- Ограничения: `<что нельзя трогать>`
+
 ## Notes
 Use `/note save <title>` during work to persist patterns/rules to `notes/`.
 Use `/note search <query>` to search the vault.

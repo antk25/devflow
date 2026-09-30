@@ -26,7 +26,12 @@ def agents_only(tmp_path, name):
 
 
 def by_project(reports):
-    return {r['project']: {i['item']: i['status'] for i in r['items']} for r in reports}
+    return {r['project']: {i['item']: i['status'] for i in r['items'] if i['item'] != 'browser'} for r in reports}
+
+
+def browser_detail(reports, name):
+    report = next(r for r in reports if r['project'] == name)
+    return next(i['detail'] for i in report['items'] if i['item'] == 'browser')
 
 
 @pytest.fixture
@@ -99,6 +104,17 @@ def test_broken_frontmatter_and_name_mismatch_are_attention(root, tmp_path):
     assert got['broken'] == {'agents_md': 'attention'}
     assert got['alias'] == {'agents_md': 'attention'}
     assert not (other / '.devflow').exists()
+
+
+def test_browser_section_is_reported_but_never_written(root, three, tmp_path):
+    envs = agents_only(tmp_path, 'envs')
+    (envs / 'AGENTS.md').write_text((envs / 'AGENTS.md').read_text() + '\n## Browser\nТекст.\n\n### local\n- Адрес: `<x>`\n\n### staging\n- Адрес: `https://s`\n\n## Notes\n### not-an-env\n')
+    register(root, 'envs', envs)
+    before = [(envs / 'AGENTS.md').read_text(), (three['bare'] / 'AGENTS.md').read_text()]
+    reports = sync(['bare', 'envs'], root=root)
+    assert browser_detail(reports, 'bare') == 'нет раздела Browser: /smoke попросит адрес и вход; образец — AGENTS.md.template'
+    assert browser_detail(reports, 'envs') == 'окружения: local, staging'
+    assert [(envs / 'AGENTS.md').read_text(), (three['bare'] / 'AGENTS.md').read_text()] == before
 
 
 def test_names_are_required_and_must_be_registered(root, three):

@@ -40,7 +40,11 @@ def draft_for(tmp_path, name):
 
 
 def statuses(report):
-    return {item['item']: item['status'] for item in report['items']}
+    return {item['item']: item['status'] for item in report['items'] if item['item'] != 'browser'}
+
+
+def detail(report, name):
+    return next(item['detail'] for item in report['items'] if item['item'] == name)
 
 
 def checksums(*roots):
@@ -97,6 +101,7 @@ def test_dry_run_writes_nothing(root, project, tmp_path):
 def test_template_without_draft_substitutes_name(root, project, tmp_path):
     report = init(project, 'proj', root, dry_run=True)
     assert statuses(report)['agents_md'] == 'create'
+    assert detail(report, 'browser') == 'окружения: local'
     init(project, 'proj', root)
     text = (project / 'AGENTS.md').read_text()
     assert 'project: proj\n' in text and '<project-name>' not in text and '<ProjectName>' not in text
