@@ -73,6 +73,7 @@
       "Bash(git push --delete:*)",
       "Bash(git push * main)",
       "Bash(git push * master)",
+      "Bash(git push * production)",
       "Bash(rm -rf /)",
       "Bash(curl:*)",
       "Bash(wget:*)"
