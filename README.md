@@ -314,10 +314,14 @@ The SessionStart hook and the publication permissions live in the **global**
 `~/.claude/settings.json`: merge `settings.global.example.json` into it by hand and replace
 `__DEVFLOW_ROOT__` with the **DevFlow checkout** path, not the target project's path. Quote the
 command's script path if it contains spaces. `./install.sh --check` reports what is still missing
-(`MISS global hook|allow|deny`) and which old blanket denies (`Bash(gh:*)`, `Bash(git push:*)`)
+(`MISS global hook|allow|deny|setting`) and which old blanket denies (`Bash(gh:*)`, `Bash(git push:*)`)
 would override the new rules (`STALE global deny`); it never writes the file. The hook prints the
 project context once per session (a marker under `$XDG_RUNTIME_DIR`, 10 s window), so `compact`
-and `resume` restore it again. A new environment setting goes to the global layer first; it becomes
+and `resume` restore it again; after `clear` it also prints `HANDOFF <path>` when the latest `/cut`
+hand-off is under 30 minutes old. The UserPromptSubmit hook `context-guard.sh` tells the model the
+context size it can't see in the status line: `CONTEXT_WARN` from 120K, `CONTEXT_CUT` from 180K, so
+it offers `/cut` at a step boundary; `autoCompactWindow: 500000` keeps auto-compaction as a last
+resort only. A new environment setting goes to the global layer first; it becomes
 per-project only when added to both `project init` and `project sync`.
 
 ---
@@ -356,6 +360,7 @@ devflow/
 │   └── obsidian-active.sh     — delegates to the shared CLI
 └── .claude/
     ├── hooks/project-restore.sh
+    ├── hooks/context-guard.sh
     ├── data/projects.json     — local registry (gitignored)
     └── settings.json          — local settings (gitignored)
 ```

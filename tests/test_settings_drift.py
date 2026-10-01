@@ -12,7 +12,9 @@ def test_missing_actual_reports_everything(tmp_path):
     assert drift['hooks'] == [
         'PreToolUse ' + wanted['hooks']['PreToolUse'][0]['hooks'][0]['command'],
         'SessionStart ' + wanted['hooks']['SessionStart'][0]['hooks'][0]['command'],
+        'UserPromptSubmit ' + wanted['hooks']['UserPromptSubmit'][0]['hooks'][0]['command'],
     ]
+    assert drift['keys'] == ['autoCompactWindow=500000']
     assert drift['allow'] == wanted['permissions']['allow']
     assert drift['ask'] == wanted['permissions']['ask']
     assert drift['deny'] == wanted['permissions']['deny']
@@ -29,7 +31,7 @@ def test_empty_file_reports_everything(tmp_path):
 def test_copy_of_example_has_no_drift(tmp_path):
     actual = tmp_path / 'settings.json'
     shutil.copy(EXAMPLE, actual)
-    assert settings_drift(actual, EXAMPLE) == {'hooks': [], 'allow': [], 'ask': [], 'deny': [], 'extra_deny': []}
+    assert settings_drift(actual, EXAMPLE) == {'hooks': [], 'allow': [], 'ask': [], 'deny': [], 'extra_deny': [], 'keys': []}
 
 
 def test_hook_matched_by_script_name_with_real_root(tmp_path):

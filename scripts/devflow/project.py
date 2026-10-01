@@ -51,7 +51,8 @@ def settings_drift(actual, example):
     ask = [p for p in _permissions(wanted, 'ask') if p not in _permissions(have, 'ask')]
     deny = [p for p in _permissions(wanted, 'deny') if p not in _permissions(have, 'deny')]
     extra_deny = [p for p in _permissions(have, 'deny') if p in STALE_DENY]
-    return {'hooks': hooks, 'allow': allow, 'ask': ask, 'deny': deny, 'extra_deny': extra_deny}
+    keys = [f'{k}={v}' for k, v in wanted.items() if not isinstance(v, (dict, list)) and have.get(k) != v]
+    return {'hooks': hooks, 'allow': allow, 'ask': ask, 'deny': deny, 'extra_deny': extra_deny, 'keys': keys}
 
 
 def _meta(text, source):
