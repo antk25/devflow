@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-22: разрез сессии вместо автосжатия
+- **Хук `context-guard.sh` (UserPromptSubmit)** — берёт размер контекста из usage последнего ответа в транскрипте и сообщает порог модели: `CONTEXT_WARN` с 120K (предложить `/cut` после шага), `CONTEXT_CUT` с 180K (предложить `/cut` первым делом). Раньше порог видел только пользователь в статусной строке.
+- **`HANDOFF <путь>` после `/clear`** — `project-restore.sh` на `source=clear` выдаёт передачу из `devflow handoff latest`, если она моложе 30 минут; строку продолжения вставлять не нужно.
+- **`autoCompactWindow: 500000`** в `settings.global.example.json` (было 300K только локально) — автосжатие остаётся сеткой и почти не срабатывает; `install.sh --check` сверяет скалярные ключи эталона и печатает `MISS global setting`.
+
 ### Added — DF-21: браузерные проверки в отдельном подагенте
 - **`devflow-browser`** (`scripts/browser.sh`, ссылка в `~/.local/bin`) — обёртка над изолированным headless Chrome: `start --task <slug>` с меткой активности `/tmp/devflow-smoke/<slug>/.activity`, секреты как `@env:NAME`, без MCP.
 - **Скилл `/smoke` и агент `browser`** — сценарий `[env: <name>;] [slug: <slug>;] [save;] <сценарий>` гоняется в подагенте, наружу — таблица вердиктов ✅/❌ до ~40 строк; `save;` пишет `<vault>/notes/smoke-<slug>.sh` для повтора без подагента. Аргументы — сегменты `key: value;`, а не `--flags`: харнес теряет аргументы форк-скилла с ведущими `--`.

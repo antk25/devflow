@@ -160,7 +160,8 @@ for c in d["hooks"]: print("MISS global hook", c)
 for p in d["allow"]: print("MISS global allow", p)
 for p in d["ask"]: print("MISS global ask", p)
 for p in d["deny"]: print("MISS global deny", p)
-for p in d["extra_deny"]: print("STALE global deny", p)' \
+for p in d["extra_deny"]: print("STALE global deny", p)
+for k in d["keys"]: print("MISS global setting", k)' \
             "$DEVFLOW_DIR/scripts" "$CLAUDE_DIR/settings.json" "$DEVFLOW_DIR/settings.global.example.json")" || issues=1
         if [ -n "$drift" ]; then
             echo "$drift"; issues=1
