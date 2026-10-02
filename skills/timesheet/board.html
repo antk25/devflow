@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Задачи</title>
+<link rel="icon" href="data:,">
+<style>
+/*TOKENS*/
+
+:root{
+  --wait-soft:#F4E6C6; --done-soft:#D8EDDD; --bad:#B3261E;
+  --focus:#2F6FB0;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root{--wait-soft:#3A2E14; --done-soft:#1C3325; --bad:#F07167; --focus:#6FA8E0}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+button,a{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-3)}
+
+.top{position:sticky;top:0;z-index:30;background:var(--surface);border-bottom:1px solid var(--rule)}
+.top-in{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;min-height:3.5rem;padding:.55rem 1.25rem}
+.brand{font-weight:600;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.brand a{color:inherit;text-decoration:none}
+.brand a:hover{color:var(--ink)}
+.grow{flex:1}
+.stamp{font-size:.82rem;color:var(--ink-3)}
+.btn{display:inline-flex;align-items:center;gap:.4rem;height:2.1rem;padding:0 .8rem;border-radius:var(--r);
+  border:1px solid var(--rule-strong);background:var(--surface);cursor:pointer;white-space:nowrap;font-weight:500}
+.btn:hover:not(:disabled){background:var(--surface-2)}
+.btn:disabled{opacity:.55;cursor:default}
+.spin{width:.9rem;height:.9rem;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+
+.main{padding:1rem 1.25rem 4rem}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--rule);border-radius:var(--r)}
+th,td{padding:.45rem .7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--rule)}
+th{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);font-weight:600;background:var(--surface-2)}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--surface-2)}
+tr.row.open td{border-bottom:0}
+td.key{white-space:nowrap;width:7rem}
+td.proj{white-space:nowrap;color:var(--ink-2);width:9rem}
+td.stage{white-space:nowrap;width:14rem}
+.pill{display:inline-block;padding:.1rem .5rem;border-radius:999px;background:var(--surface-2);font-size:.86rem}
+.pill.wait{background:var(--wait-soft)}
+.pill.done{background:var(--done-soft)}
+tr.detail td{padding:.2rem .7rem .7rem 2rem;color:var(--ink-2);font-size:.9rem}
+tr.detail a{margin-right:1.2rem;color:var(--sig)}
+tr.sep td{background:var(--paper);border:0;padding:.9rem .7rem .25rem;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.errors{margin-top:1rem;color:var(--bad);font-size:.9rem}
+.empty{padding:2rem;text-align:center;color:var(--ink-3)}
+</style>
+<body>
+<div id="app"></div>
+<script type="module" src="/board.mjs"></script>
+</body>
+</html>

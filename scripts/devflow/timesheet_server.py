@@ -10,13 +10,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
+from devflow import board
 from devflow import timesheet as ts
 
 HOST = '127.0.0.1'
 SKILL_DIR = Path(__file__).resolve().parents[2] / 'skills'
 INDEX = SKILL_DIR / 'timesheet' / 'index.html'
+BOARD = INDEX.parent / 'board.html'
 TOKENS = SKILL_DIR / 'page' / 'references' / 'tokens.css'
-STATIC = {'/app.mjs': INDEX.parent / 'app.mjs', '/vendor/preact-htm.mjs': INDEX.parent / 'vendor' / 'preact-htm.mjs'}
+STATIC = {'/app.mjs': INDEX.parent / 'app.mjs', '/board.mjs': INDEX.parent / 'board.mjs',
+          '/vendor/preact-htm.mjs': INDEX.parent / 'vendor' / 'preact-htm.mjs'}
 MANUAL_FIELDS = ('sheet', 'day', 'key', 'seconds', 'comment')
 MIRROR_FLAGS = ('no-mirror', 'ambiguous-mirror', 'create-mirror', 'mirror-unavailable')
 ROUTE = re.compile(r'^/api/week/((?:\d{4}-)?W\d{1,2})(?:/(recompute|draft|manual|plan|apply|sent)(?:/(\d+))?)?$', re.I)
@@ -348,9 +351,9 @@ class App:
             out.append(json.dumps(r, ensure_ascii=False))
         path.write_text(''.join(line + '\n' for line in out))
 
-    def index(self) -> bytes:
+    def index(self, page: Path = INDEX) -> bytes:
         theme = TOKENS.read_text().split('/* ---------- каркас')[0]
-        html = INDEX.read_text().replace('/*TOKENS*/', theme).replace('__WEEK__', ts.current_week())
+        html = page.read_text().replace('/*TOKENS*/', theme).replace('__WEEK__', ts.current_week())
         return html.encode()
 
 
@@ -401,7 +404,7 @@ def merge_edits(lines: list, old: dict | None) -> list:
     return sorted(fresh + kept, key=lambda ln: (ln.day, ln.sheet))
 
 
-def make_handler(app: App):
+def make_handler(app: App, board_dir: Path | None = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -442,10 +445,27 @@ def make_handler(app: App):
                 return False
             return True
 
+        def _board(self, method: str, path: str) -> bool:
+            if board_dir is None or not path.startswith('/api/board'):
+                return False
+            if method == 'GET' and path == '/api/board':
+                self._json(200, board.load(board_dir) or board.build(board_dir))
+            elif method == 'POST' and path == '/api/board/refresh':
+                self._json(200, board.build(board_dir))
+            else:
+                self._json(404, {'error': 'нет такого адреса'})
+            return True
+
         def _route(self, method: str):
             if method != 'GET' and self._refused(True):
                 return
-            m = ROUTE.match(self.path.split('?')[0])
+            path = self.path.split('?')[0]
+            try:
+                if self._board(method, path):
+                    return
+            except Exception as e:
+                return self._json(500, {'error': str(e)})
+            m = ROUTE.match(path)
             if m is None:
                 return self._json(404, {'error': 'нет такого адреса'})
             action, idx = (m.group(2) or '').lower(), m.group(3)
@@ -480,6 +500,8 @@ def make_handler(app: App):
             path = self.path.split('?')[0]
             if path in ('/', '/index.html'):
                 return self._send(200, app.index(), 'text/html; charset=utf-8')
+            if path == '/board' and board_dir is not None:
+                return self._send(200, app.index(BOARD), 'text/html; charset=utf-8')
             if path in STATIC:
                 return self._send(200, STATIC[path].read_bytes(), 'text/javascript; charset=utf-8')
             self._route('GET')
@@ -496,5 +518,5 @@ def make_handler(app: App):
     return Handler
 
 
-def make_server(app: App, port: int) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((HOST, port), make_handler(app))
+def make_server(app: App, port: int, board: Path | None = None) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((HOST, port), make_handler(app, board))

@@ -929,9 +929,11 @@ def run_apply(rules: Rules, week: str, sheets, yes: bool, days=None) -> int:
 
 
 def run_serve(rules: Rules, port: int) -> int:
+    from devflow import board
     from devflow.timesheet_server import App, make_server
-    server = make_server(App(rules), port)
-    print(f'timesheet: http://127.0.0.1:{server.server_address[1]}/  (Ctrl+C — остановить)', flush=True)
+    server = make_server(App(rules), port, board=board.STATE_DIR)
+    host = f'http://127.0.0.1:{server.server_address[1]}'
+    print(f'timesheet: {host}/  ·  задачи: {host}/board  (Ctrl+C — остановить)', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

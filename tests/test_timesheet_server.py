@@ -467,3 +467,49 @@ def test_manual_entry_added_during_recompute_over_norm_flags_day_overflow(tmp_pa
     lines = {(ln['key'], ln['source']): ln['flags'] for ln in data['draft']['lines']}
     assert lines == {('SE-1', 'activity'): ['overflow'], ('SE-188', 'manual'): []}
     assert data['pending']['client']['count'] == 1 and data['pending']['client']['skipped'] == 1
+
+
+def board_server(tmp_path, calls):
+    server = make_server(App(rules(), tmp_path, calls.fetch_fn, calls.compute_fn), 0, board=tmp_path / 'board')
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_board_api_serves_snapshot_without_collecting(tmp_path, monkeypatch):
+    built = []
+    monkeypatch.setattr('devflow.board.build', lambda state, *a, **k: built.append(state) or {'tasks': []})
+    (tmp_path / 'board').mkdir()
+    (tmp_path / 'board/snapshot.json').write_text('{"generated": "2026-10-02T10:00:00+00:00", "tasks": [{"slug": "x"}], "errors": []}')
+    calls = Calls()
+    server = board_server(tmp_path, calls)
+    try:
+        data = call(server, '/api/board')
+        assert data['tasks'] == [{'slug': 'x'}]
+        assert built == []
+        assert call(server, '/api/board/refresh', 'POST') == {'tasks': []}
+        assert built == [tmp_path / 'board']
+        page = urllib.request.urlopen(f'http://127.0.0.1:{server.server_address[1]}/board').read().decode()
+        assert '<title>Задачи</title>' in page and '/*TOKENS*/' not in page and '--paper' in page
+        assert b'preact-htm' in urllib.request.urlopen(f'http://127.0.0.1:{server.server_address[1]}/board.mjs').read()
+        assert call(server, '/api/week/W38')['week'] == WEEK
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_board_refresh_rejects_foreign_origin(tmp_path, monkeypatch):
+    monkeypatch.setattr('devflow.board.build', lambda *a, **k: pytest.fail('сбор не должен запускаться'))
+    server = board_server(tmp_path, Calls())
+    try:
+        with pytest.raises(urllib.error.HTTPError) as e:
+            call(server, '/api/board/refresh', 'POST', headers={'Origin': 'http://evil.example'})
+        assert e.value.code == 403
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_board_routes_absent_without_board_dir(served):
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call(served[0], '/api/board')
+    assert e.value.code == 404
