@@ -40,6 +40,16 @@ case "${1:-}" in
     *) echo "Usage: $0 [--check|--remove]" >&2; exit 1 ;;
 esac
 [ "$#" -le 1 ] || { echo 'Too many arguments' >&2; exit 1; }
+# The venv lives in DEVFLOW_DIR, so creating it before preflight writes nothing into the user's directories.
+if [ "$mode" = install ]; then
+    python3 -c 'import sys; assert sys.version_info >= (3, 10), "Python 3.10+ required"'
+    if [ ! -x "$PYTHON" ]; then
+        python3 -m venv --system-site-packages "$DEVFLOW_DIR/.venv"
+    fi
+    if ! "$PYTHON" -c 'import yaml' 2>/dev/null; then
+        "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
+    fi
+fi
 
 sources=() destinations=()
 for name in "${SKILLS[@]}"; do
@@ -89,20 +99,26 @@ for i in "${!sources[@]}"; do
         echo "MISS $dst"; issues=1
     fi
 done
-# Phase agents (research/plan/implement[-high]) are generated, not linked: an old symlink to our source or a marked file may be replaced; anything else is foreign.
-generated_agent() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qF -- "$AGENT_MARKER" "$1"; }
-phase_agent_source() { local phase="${1%%-*}"; echo "$DEVFLOW_DIR/agents/$phase.md"; }
-for dst in "$CLAUDE_DIR"/agents/*.md; do
-    [ -e "$dst" ] || [ -L "$dst" ] || continue
-    name="$(basename "$dst" .md)"
-    case "$name" in research|research-high|plan|plan-high|implement|implement-high) ;; *) continue ;; esac
-    if ! generated_agent "$dst" && ! links_to "$dst" "$(phase_agent_source "$name")"; then
-        [ "$mode" = remove ] || { echo "CONFLICT (not replacing): $dst" >&2; issues=1; }
-    elif [ "$mode" = remove ]; then
-        rm -- "$dst"
-        echo "remove $dst"
-    fi
-done
+# Phase agents are generated, not linked: the policy decides which names exist and which files are ours
+# (marker or an old symlink to agents/<phase>.md); anything else under those names is foreign.
+if [ "$mode" = remove ]; then
+    generated_agent() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qF -- "$AGENT_MARKER" "$1"; }
+    for dst in "$CLAUDE_DIR"/agents/*.md; do
+        [ -e "$dst" ] || [ -L "$dst" ] || continue
+        name="$(basename "$dst" .md)"
+        if generated_agent "$dst" || links_to "$dst" "$DEVFLOW_DIR/agents/${name%%-*}.md"; then
+            rm -- "$dst"
+            echo "remove $dst"
+        fi
+    done
+elif [ -x "$PYTHON" ]; then
+    preflight_policy="$POLICY_FILE"
+    [ -e "$preflight_policy" ] || preflight_policy="$DEVFLOW_DIR/model-policy.example.json"
+    conflicts="$(DEVFLOW_MODEL_POLICY="$preflight_policy" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy conflicts "$CLAUDE_DIR/agents")" || issues=1
+    for dst in $conflicts; do
+        echo "CONFLICT (not replacing): $dst" >&2; issues=1
+    done
+fi
 if [ "$mode" != remove ]; then
     for entry in "${PI_SKIPPED[@]}"; do
         echo "skip pi ${entry%%:*}:${entry#*:}"
@@ -132,7 +148,7 @@ if [ "$mode" = check ]; then
         echo "ok $POLICY_FILE"
         stale="$(DEVFLOW_MODEL_POLICY="$POLICY_FILE" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy stale "$CLAUDE_DIR/agents")" || issues=1
         for name in $(DEVFLOW_MODEL_POLICY="$POLICY_FILE" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy names); do
-            case "$stale" in *"STALE agent $name"*) ;; *) echo "ok $CLAUDE_DIR/agents/$name.md" ;; esac
+            grep -qxF -- "STALE agent $name" <<<"$stale" || echo "ok $CLAUDE_DIR/agents/$name.md"
         done
         if [ -n "$stale" ]; then
             echo "$stale"; issues=1
@@ -165,13 +181,6 @@ fi
 [ "$issues" -eq 0 ] || exit 1
 
 if [ "$mode" = install ]; then
-    python3 -c 'import sys; assert sys.version_info >= (3, 10), "Python 3.10+ required"'
-    if [ ! -x "$PYTHON" ]; then
-        python3 -m venv --system-site-packages "$DEVFLOW_DIR/.venv"
-    fi
-    if ! "$PYTHON" -c 'import yaml' 2>/dev/null; then
-        "$PYTHON" -m pip install -r "$DEVFLOW_DIR/requirements.txt"
-    fi
     "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
     mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$PI_DIR/skills" "$PI_DIR/prompts" "$BIN_DIR" "$INTEGRATIONS_DIR"
     for i in "${!sources[@]}"; do

@@ -147,6 +147,20 @@ def is_generated(path):
     return path.is_file() and not path.is_symlink() and MARKER_KEY in path.read_text()
 
 
+def conflicts(policy, directory, source_dir=SOURCE_DIR):
+    """Names from `agent_names` whose file in `directory` is neither ours (marked) nor an old symlink to `agents/<phase>.md`."""
+    directory = Path(directory)
+    found = []
+    for name in agent_names(policy):
+        dst = directory / f'{name}.md'
+        if not dst.exists() and not dst.is_symlink():
+            continue
+        ours = dst.is_symlink() and os.readlink(dst) == str(source_dir / f"{name.partition('-')[0]}.md")
+        if not ours and not is_generated(dst):
+            found.append(name)
+    return found
+
+
 def write_agents(policy, directory, source_dir=SOURCE_DIR):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -193,6 +207,9 @@ def main(argv):
     elif command == 'stale':
         for name in installed_stale(policy, args[0]):
             print(f'STALE agent {name}')
+    elif command == 'conflicts':
+        for name in conflicts(policy, args[0]):
+            print(f'{Path(args[0]) / name}.md')
     else:
         sys.exit(f'Unknown policy command: {command}')
 

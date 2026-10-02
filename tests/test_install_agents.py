@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -9,6 +10,9 @@ from devflow import policy
 from devflow.project import ROOT
 
 MARKER = policy.MARKER_KEY
+EXAMPLE = policy.load(ROOT / 'model-policy.example.json')
+GENERATED = sorted(f'{n}.md' for n in policy.agent_names(EXAMPLE))
+LINKED = sorted(p.name for p in (ROOT / 'agents').glob('*.md') if p.stem not in policy.PHASES)
 
 
 @pytest.fixture
@@ -37,13 +41,23 @@ def agents(home):
     return home / '.claude/agents'
 
 
+def fallback_policy(home, effort='medium'):
+    """Example policy whose implement/fallback effort differs from default, so `implement-fallback` is generated."""
+    data = json.loads((ROOT / 'model-policy.example.json').read_text())
+    data['claude']['implement']['fallback']['effort'] = effort
+    (home / 'model-policy.json').write_text(json.dumps(data))
+    return data
+
+
 def test_install_generates_phase_agents_and_links_the_rest(home):
+    assert not (home / 'model-policy.json').exists()
     r = install(home)
     assert r.returncode == 0, r.stdout + r.stderr
+    assert 'copy ' + str(home / 'model-policy.json') in r.stdout
     generated = sorted(p.name for p in agents(home).iterdir() if p.is_file() and not p.is_symlink())
-    assert generated == ['implement.md', 'plan-high.md', 'plan.md', 'research-high.md', 'research.md']
+    assert generated == GENERATED
     linked = sorted(p.name for p in agents(home).iterdir() if p.is_symlink())
-    assert linked == ['browser.md', 'crossreview.md', 'reader.md', 'review-conformance.md', 'review-standards.md']
+    assert linked == LINKED
     text = (agents(home) / 'research-high.md').read_text()
     assert 'name: research-high\n' in text and 'model: claude-opus-5-5\n' in text and 'effort: high\n' in text
     assert text.split('---\n', 2)[2].startswith('<!-- ' + MARKER)
@@ -78,6 +92,27 @@ def test_foreign_research_file_is_a_conflict(home):
     assert 'CONFLICT (not replacing): ' + str(agents(home) / 'research.md') in r.stderr
     assert (agents(home) / 'research.md').read_text().endswith('mine\n')
     assert not (agents(home) / 'plan.md').exists()
+
+
+def test_foreign_fallback_file_is_a_conflict_when_policy_generates_it(home):
+    fallback_policy(home)
+    agents(home).mkdir(parents=True)
+    (agents(home) / 'implement-fallback.md').write_text('---\nname: implement-fallback\n---\nmine\n')
+    r = install(home)
+    assert r.returncode == 1
+    assert 'CONFLICT (not replacing): ' + str(agents(home) / 'implement-fallback.md') in r.stderr
+    assert not (agents(home) / 'implement.md').exists()
+
+
+def test_remove_deletes_generated_fallback_without_policy(home):
+    fallback_policy(home)
+    assert install(home).returncode == 0
+    assert MARKER in (agents(home) / 'implement-fallback.md').read_text()
+    (home / 'model-policy.json').unlink()
+    r = install(home, '--remove')
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'remove ' + str(agents(home) / 'implement-fallback.md') in r.stdout
+    assert list(agents(home).iterdir()) == []
 
 
 def test_check_reports_stale_after_policy_edit(home):

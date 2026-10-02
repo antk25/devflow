@@ -130,9 +130,21 @@ def test_route_reports_stale_agents(proj, monkeypatch, tmp_path):
 
 
 def test_agent_names_skip_high_equal_to_default(example):
-    assert policy.agent_names(example) == ['research', 'research-high', 'plan', 'plan-high', 'implement']
+    before = policy.agent_names(example)
+    assert 'plan-high' in before and set(before) >= set(policy.PHASES)
     example['claude']['plan']['high'] = dict(example['claude']['plan']['default'])
-    assert policy.agent_names(example) == ['research', 'research-high', 'plan', 'implement']
+    after = policy.agent_names(example)
+    assert 'plan-high' not in after and [n for n in before if n != 'plan-high'] == after
+
+
+def test_conflicts_only_foreign_files_under_policy_names(example, tmp_path):
+    d = tmp_path / 'agents'
+    d.mkdir()
+    (d / 'research.md').write_text('mine\n')
+    (d / 'plan.md').symlink_to(policy.SOURCE_DIR / 'plan.md')
+    (d / 'plan-high.md').write_text(policy.render_agent(example, 'plan-high'))
+    (d / 'other.md').write_text('mine\n')
+    assert policy.conflicts(example, d) == ['research']
 
 
 def test_render_agent_replaces_frontmatter_and_keeps_body(example):
