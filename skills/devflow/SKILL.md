@@ -1,5 +1,6 @@
 ---
 name: devflow
+pi: true
 description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase.
 user_invocable: true
 arguments:

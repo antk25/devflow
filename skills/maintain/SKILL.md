@@ -1,5 +1,6 @@
 ---
 name: maintain
+pi: "not verified for pi"
 description: Регламентный проход по проекту — неделя или месяц. Сводит уже существующие проверки (/review, /code-review, /simplify, /security-review, install.sh --check) в чеклист, где каждый пункт заканчивается PR, черновиком ТЗ, строкой «к тикету», «чисто» или «пропущено». Запускается вручную, расписания нет.
 user_invocable: true
 arguments:

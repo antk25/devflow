@@ -1,6 +1,7 @@
 ---
 name: smoke
-description: Браузерная проверка сценария в отдельном подагенте browser (Sonnet, effort low) через изолированный headless Chrome — devflow-browser, не MCP. Возвращает таблицу вердиктов ✅/❌ с доказательствами и путями скриншотов. Использовать для проверки страниц, форм, запросов /api/ и консоли на local/staging/prod/shopify; вызывается пользователем, моделью и implement для пунктов browser: в Acceptance шага.
+pi: "needs a Claude Code subagent; in pi run the saved script"
+description: "Браузерная проверка сценария в отдельном подагенте browser (Sonnet, effort low) через изолированный headless Chrome — devflow-browser, не MCP. Возвращает таблицу вердиктов ✅/❌ с доказательствами и путями скриншотов. Использовать для проверки страниц, форм, запросов /api/ и консоли на local/staging/prod/shopify; вызывается пользователем, моделью и implement для пунктов browser: в Acceptance шага."
 user_invocable: true
 context: fork
 agent: browser

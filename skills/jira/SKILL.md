@@ -1,5 +1,6 @@
 ---
 name: jira
+pi: true
 description: Read Jira issues, comments and attachments via the read-only shell scripts (never MCP). The account is picked by issue key from config.env. Use whenever you need the text of a Jira task, a specific comment, or an attached screenshot.
 user_invocable: true
 context: fork

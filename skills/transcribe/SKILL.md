@@ -1,5 +1,6 @@
 ---
 name: transcribe
+pi: "not verified for pi"
 description: Расшифровать записи созвонов локально (faster-whisper large-v3 на GPU) и сложить в vault. Использовать, когда пользователь просит посмотреть, послушать или разобрать созвон, встречу, запись .mp4 — ассистент не умеет читать видео напрямую.
 user_invocable: true
 arguments:

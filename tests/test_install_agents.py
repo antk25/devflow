@@ -199,3 +199,34 @@ def test_maintain_skill_is_linked_and_skipped_for_pi(home):
     r = install(home, '--check')
     assert r.returncode == 0 and 'skip pi maintain' in r.stdout, r.stdout
     assert not (home / 'pi/skills/maintain').exists()
+
+
+def pi_fields():
+    from devflow.documents import document
+    return {p.parent.name: document(p)['meta'].get('pi') for p in (ROOT / 'skills').glob('*/SKILL.md')}
+
+
+def test_every_skill_declares_pi_as_true_or_a_reason():
+    fields = pi_fields()
+    assert fields
+    for name, value in fields.items():
+        assert value is True or (isinstance(value, str) and value.strip()), f'{name}: pi={value!r}'
+
+
+def test_pi_prompts_match_skills_with_pi_true():
+    linked = {name for name, value in pi_fields().items() if value is True}
+    assert linked == {p.stem for p in (ROOT / 'pi/prompts').glob('*.md')}
+
+
+def test_install_links_into_pi_exactly_the_skills_with_pi_true(home):
+    assert install(home).returncode == 0
+    fields = pi_fields()
+    linked = {name for name, value in fields.items() if value is True}
+    assert {p.name for p in (home / 'pi/skills').iterdir()} == linked
+    assert {p.stem for p in (home / 'pi/prompts').iterdir()} == linked
+    r = install(home, '--check')
+    assert r.returncode == 0, r.stdout + r.stderr
+    for name, value in fields.items():
+        if value is not True:
+            assert f'skip pi {name}: {value}\n' in r.stdout, r.stdout
+    assert 'skip pi autoresearch: not verified for pi' in r.stdout
