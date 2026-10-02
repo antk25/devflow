@@ -1,11 +1,14 @@
 """Read-only task board: stages of every registry project in one JSON snapshot."""
 import argparse
 import json
+import os
 import re
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 import yaml
 
@@ -21,6 +24,9 @@ DONE_DAYS = timedelta(days=7)
 MOVE_DAYS = timedelta(days=14)
 HIDDEN_TZ = ('obsolete', 'done')
 ACTIVE_LIMIT = 50
+CACHE_TTL = timedelta(minutes=10)
+PR_KEY_RE = re.compile(r'\b[A-Z][A-Z0-9]+-\d+\b')
+PR_FIELDS = 'number,title,state,repository,url,updatedAt'
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
         'migration_required': '⏸ миграция плана', 'migration_pending': '⏸ миграция плана',
         'plan_outdated': '⏸ план устарел', 'legacy_review': '⏸ legacy'}
@@ -164,14 +170,115 @@ def fold(tasks: list[dict], now: datetime) -> tuple[list[dict], list[dict]]:
     return order(shown, now), order(folded, now)
 
 
+def cached(state: Path, name: str, ttl: timedelta, fetch: Callable[[], Any], now: datetime) -> dict:
+    """{'value', 'at', 'stale'}: cache younger than ttl, else fetch; a failed fetch keeps the old value with the error in 'stale'."""
+    path = Path(state) / f'{name}.json'
+    old = None
+    try:
+        old = json.loads(path.read_text(encoding='utf-8'))
+        if datetime.fromisoformat(old['at']) >= now - ttl:
+            return {'value': old['value'], 'at': old['at'], 'stale': None}
+    except (OSError, ValueError, KeyError, TypeError):
+        old = None
+    try:
+        value = fetch()
+    except Exception as exc:
+        if old is None:
+            raise
+        return {'value': old['value'], 'at': old['at'], 'stale': str(exc) or exc.__class__.__name__}
+    record = {'value': value, 'at': now.isoformat(timespec='seconds')}
+    atomic_write(path, json.dumps(record, ensure_ascii=False) + '\n')
+    return {**record, 'stale': None}
+
+
+def _gh(run, args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+    try:
+        proc = run(['gh', *args], capture_output=True, text=True, env=env)
+    except OSError as exc:
+        raise RuntimeError(f'gh: {exc}') from exc
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or '').strip().splitlines()
+        raise RuntimeError(f'gh {args[0]} {args[1]}: {err[0] if err else proc.returncode}')
+    return proc
+
+
+def gh_accounts(run=subprocess.run) -> list[str]:
+    try:
+        proc = run(['gh', 'auth', 'status'], capture_output=True, text=True)
+    except OSError as exc:
+        raise RuntimeError(f'gh: {exc}') from exc
+    text = (proc.stdout or '') + '\n' + (proc.stderr or '')
+    logins = re.findall(r'Logged in to github\.com account (\S+)', text)
+    if not logins:
+        raise RuntimeError('gh: нет залогиненных аккаунтов github.com')
+    return list(dict.fromkeys(logins))
+
+
+def pull_requests(run=subprocess.run) -> list[dict]:
+    found = {}
+    for login in gh_accounts(run):
+        token = _gh(run, ['auth', 'token', '--user', login]).stdout.strip()
+        env = {**os.environ, 'GH_TOKEN': token}
+        proc = _gh(run, ['search', 'prs', '--author=@me', '--limit', '100', '--json', PR_FIELDS], env=env)
+        for item in json.loads(proc.stdout or '[]'):
+            m = PR_KEY_RE.search(item.get('title') or '')
+            repo = item.get('repository') or {}
+            found.setdefault(item['url'], {
+                'key': m[0] if m else None, 'number': item['number'], 'title': item.get('title') or '',
+                'repo': repo.get('nameWithOwner') or repo.get('name') or '', 'url': item['url'],
+                'state': item.get('state') or '', 'updated': item.get('updatedAt') or ''})
+    return sorted(found.values(), key=lambda p: p['updated'], reverse=True)
+
+
+def merge_prs(tasks: list[dict], prs: list[dict]) -> list[dict]:
+    by_key: dict[str, list[dict]] = {}
+    for pr in prs:
+        if pr['key']:
+            by_key.setdefault(pr['key'], []).append(pr)
+    known = set()
+    for t in tasks:
+        own = by_key.get(t.get('key') or '', [])
+        t['prs'] = own
+        if not own:
+            continue
+        known.add(t['key'])
+        if any(p['state'] == 'open' for p in own):
+            t['open_pr'] = True
+        else:
+            merged = next((p for p in own if p['state'] == 'merged'), None)
+            if merged and t['stage']['group'] != 'done':
+                since = merged['updated'] and datetime.fromisoformat(merged['updated'].replace('Z', '+00:00'))
+                t['stage'] = {'label': 'готово', 'group': 'done',
+                              'since': since.isoformat(timespec='seconds') if since else None}
+    for key, own in by_key.items():
+        if key in known:
+            continue
+        opened = next((p for p in own if p['state'] == 'open'), None)
+        if opened:
+            tasks.append({'slug': key.lower(), 'key': key, 'project': opened['repo'].split('/')[-1],
+                          'title': opened['title'], 'stage': {'label': '—', 'group': 'work', 'since': None},
+                          'state': None, 'moved_at': None, 'open_pr': True, 'prs': own,
+                          'links': {'tz': None, 'research': None, 'plan': None}})
+    return tasks
+
+
+def _prs(state: Path, now: datetime, fetch: Callable[[], list[dict]]) -> tuple[list[dict], str | None]:
+    try:
+        got = cached(state, 'prs', CACHE_TTL, fetch, now)
+    except Exception as exc:
+        return [], str(exc) or exc.__class__.__name__
+    return got['value'], got['stale']
+
+
 def build(state: Path, now: datetime | None = None, sources: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     sources = sources or {}
     registry = sources.get('registry') or load_registry(registry_path(ROOT))
     collected = collect_tasks(registry, now)
-    shown, folded = fold(collected['tasks'], now)
+    prs, prs_error = _prs(state, now, sources.get('pull_requests') or pull_requests)
+    shown, folded = fold(merge_prs(collected['tasks'], prs), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
-                'errors': collected['errors']}
+                'errors': collected['errors'], 'prs_error': prs_error}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot
 

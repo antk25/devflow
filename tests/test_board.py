@@ -70,6 +70,7 @@ def make_project(root: Path, name: str, slug: str, approve_plan=True, done=()):
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv('DEVFLOW_STATE_DIR', str(tmp_path / 'state'))
+    monkeypatch.setattr(board, 'pull_requests', lambda run=None: [])  # no live gh in tests
     return tmp_path
 
 
@@ -253,3 +254,102 @@ def test_build_snapshot_has_folded_count_for_the_page(root):
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}})
     assert snap['tasks'] == []
     assert len(snap['folded']) == 1 and snap['folded'][0]['slug'] == 'ab-1-task'
+
+
+GH_STATUS = '''github.com
+  ✓ Logged in to github.com account antk25 (/home/x/hosts.yml)
+  - Active account: true
+  ✓ Logged in to github.com account antonResolventa (/home/x/hosts.yml)
+  - Active account: false
+'''
+
+
+class FakeRun:
+    def __init__(self, prs_by_login):
+        self.prs_by_login, self.calls = prs_by_login, []
+
+    def __call__(self, cmd, capture_output=True, text=True, env=None):
+        self.calls.append((cmd, env))
+        out = ''
+        if cmd[:3] == ['gh', 'auth', 'status']:
+            out = GH_STATUS
+        elif cmd[:3] == ['gh', 'auth', 'token']:
+            out = f'tok-{cmd[4]}\n'
+        elif cmd[:3] == ['gh', 'search', 'prs']:
+            login = env['GH_TOKEN'].removeprefix('tok-')
+            out = json.dumps(self.prs_by_login[login])
+        return type('P', (), {'returncode': 0, 'stdout': out, 'stderr': ''})()
+
+
+def pr(number, title, state, repo='MeshNordicAI/meshnordic-search', days=1):
+    return {'number': number, 'title': title, 'state': state, 'url': f'https://github.com/{repo}/pull/{number}',
+            'repository': {'name': repo.split('/')[-1], 'nameWithOwner': repo},
+            'updatedAt': (NOW - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')}
+
+
+def test_gh_accounts_parses_both_logins():
+    assert board.gh_accounts(FakeRun({})) == ['antk25', 'antonResolventa']
+
+
+def test_pull_requests_passes_token_per_account_and_keeps_merged_state():
+    run = FakeRun({'antk25': [pr(12, 'DF-20: reader', 'merged', 'antk25/devflow'), pr(1, 'Release', 'merged')],
+                   'antonResolventa': [pr(2111, 'SE-2148 Repoint variants', 'open'), pr(12, 'DF-20: reader', 'merged', 'antk25/devflow')]})
+    prs = board.pull_requests(run)
+    searches = [(cmd, env) for cmd, env in run.calls if cmd[1] == 'search']
+    assert [env['GH_TOKEN'] for _, env in searches] == ['tok-antk25', 'tok-antonResolventa']
+    assert {(p['key'], p['state']) for p in prs} == {('DF-20', 'merged'), (None, 'merged'), ('SE-2148', 'open')}
+    assert len([p for p in prs if p['number'] == 12]) == 1
+    assert next(p for p in prs if p['key'] == 'SE-2148')['repo'] == 'MeshNordicAI/meshnordic-search'
+
+
+def test_pull_requests_reports_gh_failure():
+    def failing(cmd, **kw):
+        return type('P', (), {'returncode': 1, 'stdout': '', 'stderr': 'You are not logged into any GitHub hosts\n'})()
+    with pytest.raises(RuntimeError, match='нет залогиненных'):
+        board.pull_requests(failing)
+
+
+def test_merge_prs_merged_pr_moves_waiting_task_to_done_and_release_adds_no_row():
+    tasks = [moving('df-20-reader', 'wait', since=NOW - timedelta(days=5)) | {'key': 'DF-20'},
+             moving('df-16-ts', 'work') | {'key': 'DF-16'}]
+    tasks[0]['stage']['label'] = '⏸ гейт research · 5 д'
+    prs = [{'key': None, 'number': 1, 'title': 'Release', 'state': 'merged', 'repo': 'o/r', 'url': 'u1', 'updated': stamp(timedelta(days=1))},
+           {'key': 'DF-20', 'number': 12, 'title': 'DF-20: reader', 'state': 'merged', 'repo': 'o/r', 'url': 'u2', 'updated': '2026-09-29T10:00:00Z'},
+           {'key': 'DF-16', 'number': 7, 'title': 'DF-16 ts', 'state': 'merged', 'repo': 'o/r', 'url': 'u3', 'updated': stamp(timedelta(days=5))},
+           {'key': 'DF-16', 'number': 6, 'title': 'DF-16 ts', 'state': 'closed', 'repo': 'o/r', 'url': 'u4', 'updated': stamp(timedelta(days=6))},
+           {'key': 'SE-9', 'number': 3, 'title': 'SE-9 new', 'state': 'open', 'repo': 'o/green', 'url': 'u5', 'updated': stamp(timedelta(days=1))}]
+    out = board.merge_prs(tasks, prs)
+    assert out[0]['stage'] == {'label': 'готово', 'group': 'done', 'since': '2026-09-29T10:00:00+00:00'}
+    assert out[1]['stage']['group'] == 'done' and [p['number'] for p in out[1]['prs']] == [7, 6]
+    assert [(t['key'], t['stage']['label'], t['project'], t['open_pr']) for t in out[2:]] == [('SE-9', '—', 'green', True)]
+
+
+def test_fold_after_merge_open_pr_shows_stale_task_closed_pr_does_not():
+    tasks = [moving('aa-1-x', 'work') | {'key': 'AA-1'}, moving('aa-2-y', 'work') | {'key': 'AA-2'}]
+    prs = [{'key': 'AA-1', 'number': 1, 'title': 'AA-1', 'state': 'open', 'repo': 'o/r', 'url': 'u1', 'updated': stamp(timedelta(days=1))},
+           {'key': 'AA-2', 'number': 2, 'title': 'AA-2', 'state': 'closed', 'repo': 'o/r', 'url': 'u2', 'updated': stamp(timedelta(days=1))}]
+    shown, folded = board.fold(board.merge_prs(tasks, prs), NOW)
+    assert [t['slug'] for t in shown] == ['aa-1-x'] and [t['slug'] for t in folded] == ['aa-2-y']
+
+
+def test_cached_skips_fetch_within_ttl_and_keeps_stale_value_on_error(root):
+    calls = []
+    fetch = lambda: calls.append(1) or ['pr']
+    assert board.cached(root, 'prs', timedelta(minutes=10), fetch, NOW)['value'] == ['pr']
+    later = board.cached(root, 'prs', timedelta(minutes=10), fetch, NOW + timedelta(minutes=9))
+    assert later['value'] == ['pr'] and later['stale'] is None and len(calls) == 1
+    def boom():
+        raise RuntimeError('gh: нет сети')
+    stale = board.cached(root, 'prs', timedelta(minutes=10), boom, NOW + timedelta(minutes=11))
+    assert stale == {'value': ['pr'], 'at': NOW.isoformat(timespec='seconds'), 'stale': 'gh: нет сети'}
+    with pytest.raises(RuntimeError):
+        board.cached(root, 'other', timedelta(minutes=10), boom, NOW)
+
+
+def test_build_puts_gh_error_in_snapshot_and_leaves_column_empty(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=1)))
+    def boom():
+        raise RuntimeError('gh: нет аккаунта')
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'pull_requests': boom})
+    assert snap['prs_error'] == 'gh: нет аккаунта' and snap['tasks'][0]['prs'] == []

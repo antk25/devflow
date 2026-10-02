@@ -10,6 +10,8 @@ const stamp = iso => {
   return `${pad(t.getDate())}.${pad(t.getMonth() + 1)} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
 };
 const obsidian = path => `obsidian://open?path=${encodeURIComponent(path)}`;
+const COLS = 5;
+const prs = t => (t.prs || []).map(p => html`<a class="pr" href=${p.url} target="_blank" title=${p.title}>#${p.number} ${p.state}</a>`);
 
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' } });
@@ -26,8 +28,9 @@ function Row({ t, open, toggle }) {
       <td class="proj">${t.project}</td>
       <td>${t.title}</td>
       <td class="stage"><span class=${'pill ' + t.stage.group}>${t.stage.label}</span></td>
+      <td class="prs">${prs(t)}</td>
     </tr>
-    ${open && html`<tr class="detail"><td colSpan="4">
+    ${open && html`<tr class="detail"><td colSpan=${COLS}>
       <span class="mono muted">${t.slug}</span><br/>
       ${links.length ? links.map(([k, name]) => html`<a href=${obsidian(t.links[k])}>${name}</a>`)
         : html`<span class="muted">артефактов нет</span>`}
@@ -65,12 +68,12 @@ function App() {
   for (const t of tasks) {
     if (t.stage.group !== group) {
       group = t.stage.group;
-      rows.push(html`<tr class="sep" key=${'g' + group}><td colSpan="4">${GROUPS[group] || group}</td></tr>`);
+      rows.push(html`<tr class="sep" key=${'g' + group}><td colSpan=${COLS}>${GROUPS[group] || group}</td></tr>`);
     }
     rows.push(row(t));
   }
   if (showFolded && folded.length) {
-    rows.push(html`<tr class="sep" key="gfolded"><td colSpan="4">без движения > 14 дн</td></tr>`);
+    rows.push(html`<tr class="sep" key="gfolded"><td colSpan=${COLS}>без движения > 14 дн</td></tr>`);
     folded.forEach(t => rows.push(row(t)));
   }
 
@@ -79,6 +82,7 @@ function App() {
       <span class="brand"><a href="/">Табель</a> · Задачи</span>
       <span class="grow"></span>
       ${error && html`<span class="stamp" style="color:var(--bad)">${error}</span>`}
+      ${data?.prs_error && html`<span class="stamp" style="color:var(--bad)">PR: ${data.prs_error}</span>`}
       <span class="stamp">${data ? `снимок ${stamp(data.generated)}` : ''}</span>
       <button class="btn" disabled=${busy} onClick=${() => load(true)}>
         ${busy ? html`<span class="spin"></span>` : '↻'} обновить
@@ -87,7 +91,7 @@ function App() {
     <main class="main">
       ${data && !rows.length ? html`<div class="empty">задач нет</div>` : html`
       <table>
-        <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th></tr></thead>
+        <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th><th>PR</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
       ${folded.length ? html`<button class="fold" onClick=${() => setShowFolded(!showFolded)}>
