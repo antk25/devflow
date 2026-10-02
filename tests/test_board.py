@@ -353,3 +353,67 @@ def test_build_puts_gh_error_in_snapshot_and_leaves_column_empty(root):
         raise RuntimeError('gh: нет аккаунта')
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'pull_requests': boom})
     assert snap['prs_error'] == 'gh: нет аккаунта' and snap['tasks'][0]['prs'] == []
+
+
+def issue(key, status, summary='x'):
+    return {'key': key, 'fields': {'status': {'name': status}, 'summary': summary}}
+
+
+class FakeJira:
+    def __init__(self, fail_batch=(), fail_keys=()):
+        self.calls, self.fail_batch, self.fail_keys = [], set(fail_batch), set(fail_keys)
+
+    def __call__(self, script, _opt, account, jql, fields):
+        self.calls.append((account, jql, fields))
+        keys = [k.strip() for k in jql.split('(')[1].rstrip(')').split(',')] if 'in (' in jql else [jql.split('=')[1].strip()]
+        if len(keys) > 1 and account in self.fail_batch:
+            raise board.ts.JiraError('400 jql')
+        if keys[0] in self.fail_keys:
+            raise board.ts.JiraError('404 ' + keys[0])
+        return [issue(k, 'In Progress') for k in keys]
+
+
+ACCOUNTS = {'productsearch': 'SE', 'resolventa': 'GS CAP'}
+
+
+def test_jira_statuses_one_call_per_account_and_skips_keys_without_account():
+    call = FakeJira()
+    out = board.jira_statuses({'SE-2039', 'SE-1', 'GS-7', 'DF-24'}, call, ACCOUNTS, lambda acc: f'https://{acc}.atlassian.net/')
+    assert {(acc, jql) for acc, jql, _ in call.calls} == {('productsearch', 'key in (SE-1, SE-2039)'), ('resolventa', 'key in (GS-7)')}
+    assert set(out) == {'SE-2039', 'SE-1', 'GS-7'}
+    assert out['SE-2039'] == {'status': 'In Progress', 'summary': 'x', 'url': 'https://productsearch.atlassian.net/browse/SE-2039'}
+
+
+def test_jira_statuses_without_known_prefixes_makes_no_call():
+    call = FakeJira()
+    assert board.jira_statuses({'DF-24', 'XX-1'}, call, ACCOUNTS, lambda acc: '') == {} and call.calls == []
+
+
+def test_jira_statuses_batch_error_retries_per_key_and_marks_failed_key():
+    call = FakeJira(fail_batch={'productsearch'}, fail_keys={'SE-2'})
+    out = board.jira_statuses({'SE-1', 'SE-2'}, call, ACCOUNTS, lambda acc: 'https://j')
+    assert [jql for _, jql, _ in call.calls] == ['key in (SE-1, SE-2)', 'key = SE-1', 'key = SE-2']
+    assert out['SE-1']['status'] == 'In Progress' and out['SE-2'] == {'status': '?', 'summary': '', 'url': 'https://j/browse/SE-2'}
+
+
+def test_build_jira_statuses_land_on_tasks_and_repeat_within_ten_minutes_uses_cache(root):
+    ctx = make_project(root, 'p', 'se-1-task')
+    set_events(ctx, 'se-1-task', stamp(timedelta(days=1)))
+    calls = []
+    def fetch(keys):
+        calls.append(keys)
+        return {'SE-1': {'status': 'Review', 'summary': 's', 'url': 'https://j/browse/SE-1'}}
+    sources = {'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'jira_statuses': fetch}
+    snap = board.build(root / 'board', NOW, sources=sources)
+    assert snap['tasks'][0]['jira']['status'] == 'Review' and snap['jira_error'] is None and calls == [{'SE-1'}]
+    again = board.build(root / 'board', NOW + timedelta(minutes=9), sources=sources)
+    assert again['tasks'][0]['jira']['status'] == 'Review' and len(calls) == 1
+
+
+def test_build_puts_jira_error_in_snapshot(root):
+    ctx = make_project(root, 'p', 'se-1-task')
+    set_events(ctx, 'se-1-task', stamp(timedelta(days=1)))
+    def boom(keys):
+        raise board.ts.JiraError('401 Unauthorized')
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'jira_statuses': boom})
+    assert snap['jira_error'] == '401 Unauthorized' and snap['tasks'][0]['jira'] is None

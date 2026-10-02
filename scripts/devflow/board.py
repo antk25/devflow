@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 import yaml
 
+from . import timesheet as ts
 from .documents import WorkflowError, artifact, context, plan_steps
 from .project import ROOT, registry_path
 from .registry import load as load_registry
@@ -262,12 +263,61 @@ def merge_prs(tasks: list[dict], prs: list[dict]) -> list[dict]:
     return tasks
 
 
-def _prs(state: Path, now: datetime, fetch: Callable[[], list[dict]]) -> tuple[list[dict], str | None]:
+def _external(state: Path, name: str, now: datetime, fetch: Callable[[], Any], empty: Any) -> tuple[Any, str | None]:
     try:
-        got = cached(state, 'prs', CACHE_TTL, fetch, now)
+        got = cached(state, name, CACHE_TTL, fetch, now)
     except Exception as exc:
-        return [], str(exc) or exc.__class__.__name__
+        return empty, str(exc) or exc.__class__.__name__
     return got['value'], got['stale']
+
+
+def jira_accounts() -> dict[str, str]:
+    """{account: 'SE GS …'} — the PROJECTS field of every configured Jira account."""
+    out = {}
+    for acc in sorted(ts.accounts_available()):
+        proc = subprocess.run(['bash', '-c', f'source "{ts.INTEGRATIONS}/jira-accounts.sh"; jira_accounts_load; '
+                               f'jira_account_field "$1" PROJECTS', '_', acc], capture_output=True, text=True)
+        out[acc] = proc.stdout.strip()
+    return out
+
+
+def _issue(issue: dict, url: str) -> dict:
+    fields = issue.get('fields') or {}
+    return {'status': (fields.get('status') or {}).get('name') or '?', 'summary': fields.get('summary') or '',
+            'url': f'{url}/browse/{issue["key"]}'}
+
+
+def jira_statuses(keys: set[str], call=ts.jira, accounts: dict[str, str] | None = None,
+                  base_url: Callable[[str], str] = ts.account_base_url) -> dict[str, dict]:
+    accounts = jira_accounts() if accounts is None else accounts
+    by_prefix = {prefix: acc for acc, projects in accounts.items() for prefix in projects.split()}
+    grouped: dict[str, list[str]] = {}
+    for key in sorted(keys):
+        acc = by_prefix.get(key.split('-')[0])
+        if acc:
+            grouped.setdefault(acc, []).append(key)
+    out = {}
+    for acc, own in grouped.items():
+        url = base_url(acc).rstrip('/')
+        try:
+            issues = call('jira-jql.sh', '--account', acc, f'key in ({", ".join(own)})', 'status,summary')
+        except ts.JiraError:
+            issues = []
+            for key in own:
+                try:
+                    issues += call('jira-jql.sh', '--account', acc, f'key = {key}', 'status,summary')
+                except ts.JiraError:
+                    out[key] = {'status': '?', 'summary': '', 'url': f'{url}/browse/{key}'}
+        for issue in issues:
+            if issue.get('key') in own:
+                out[issue['key']] = _issue(issue, url)
+    return out
+
+
+def merge_jira(tasks: list[dict], statuses: dict[str, dict]) -> list[dict]:
+    for t in tasks:
+        t['jira'] = statuses.get(t.get('key') or '')
+    return tasks
 
 
 def build(state: Path, now: datetime | None = None, sources: dict | None = None) -> dict:
@@ -275,10 +325,14 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     sources = sources or {}
     registry = sources.get('registry') or load_registry(registry_path(ROOT))
     collected = collect_tasks(registry, now)
-    prs, prs_error = _prs(state, now, sources.get('pull_requests') or pull_requests)
-    shown, folded = fold(merge_prs(collected['tasks'], prs), now)
+    prs, prs_error = _external(state, 'prs', now, sources.get('pull_requests') or pull_requests, [])
+    tasks = merge_prs(collected['tasks'], prs)
+    keys = {t['key'] for t in tasks if t.get('key')}
+    fetch_jira = sources.get('jira_statuses') or jira_statuses
+    statuses, jira_error = _external(state, 'jira', now, lambda: fetch_jira(keys), {})
+    shown, folded = fold(merge_jira(tasks, statuses), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
-                'errors': collected['errors'], 'prs_error': prs_error}
+                'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot
 
