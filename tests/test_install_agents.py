@@ -130,3 +130,12 @@ def test_retro_skill_is_linked_and_skipped_for_pi(home):
     r = install(home, '--check')
     assert r.returncode == 0 and 'skip pi retro' in r.stdout, r.stdout
     assert not (home / 'pi/skills/retro').exists()
+
+
+def test_maintain_skill_is_linked_and_skipped_for_pi(home):
+    assert install(home).returncode == 0
+    link = home / '.claude/skills/maintain'
+    assert link.is_symlink() and link.resolve() == (ROOT / 'skills/maintain').resolve()
+    r = install(home, '--check')
+    assert r.returncode == 0 and 'skip pi maintain' in r.stdout, r.stdout
+    assert not (home / 'pi/skills/maintain').exists()

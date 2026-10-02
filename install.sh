@@ -8,7 +8,7 @@ BIN_DIR="${DEVFLOW_BIN_DIR:-$HOME/.local/bin}"
 INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations}"
 POLICY_FILE="${DEVFLOW_MODEL_POLICY:-$CLAUDE_DIR/devflow/model-policy.json}"
 STATUSLINE="${DEVFLOW_STATUSLINE:-$CLAUDE_DIR/statusline.sh}"
-SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut transcribe smoke retro)
+SKILLS=(note project devflow standup tokens page review jira jira-create xreview timesheet cut transcribe smoke retro maintain)
 PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
 PI_SKILLS=(note jira project cut devflow)
 PI_PROMPTS=(note jira project cut devflow)
@@ -20,6 +20,7 @@ PI_SKIPPED=(
     "standup: not verified for pi"
     "xreview: not verified for pi"
     "retro: not verified for pi"
+    "maintain: not verified for pi"
     "jira-create: not verified for pi"
     "timesheet: not verified for pi"
     "page: not verified for pi"
