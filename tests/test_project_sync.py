@@ -5,16 +5,9 @@ import pytest
 
 from devflow.documents import WorkflowError
 from devflow.project import init, sync
-from devflow.registry import load
+from devflow.registry import load, register as add
 
 from test_project_init import checksums, draft_for, root  # noqa: F401
-
-
-def register(root, name, path):
-    registry = root / '.claude/data/projects.json'
-    data = load(registry)
-    data['projects'][name] = {'path': str(path), 'description': ''}
-    registry.write_text(json.dumps(data))
 
 
 def agents_only(tmp_path, name):
@@ -41,8 +34,8 @@ def three(root, tmp_path):
     draft, _ = draft_for(tmp_path, 'full')
     init(full, None, root, draft)
     bare = agents_only(tmp_path, 'bare')
-    register(root, 'bare', bare)
-    register(root, 'gone', tmp_path / 'gone')
+    add(root / '.claude/data/projects.json', 'bare', bare)
+    add(root / '.claude/data/projects.json', 'gone', tmp_path / 'gone')
     return {'full': full, 'bare': bare}
 
 
@@ -76,7 +69,7 @@ def test_apply_creates_only_what_was_reported(root, three, tmp_path):
 def test_missing_agents_md_is_attention_and_never_generated(root, tmp_path):
     path = tmp_path / 'empty'
     path.mkdir()
-    register(root, 'empty', path)
+    add(root / '.claude/data/projects.json', 'empty', path)
     reports = sync(['empty'], root=root)
     assert by_project(reports)['empty'] == {'agents_md': 'attention'}
     assert list(path.iterdir()) == []
@@ -84,7 +77,7 @@ def test_missing_agents_md_is_attention_and_never_generated(root, tmp_path):
 
 def test_identity_without_database_is_attention(root, tmp_path, monkeypatch):
     path = agents_only(tmp_path, 'orphan')
-    register(root, 'orphan', path)
+    add(root / '.claude/data/projects.json', 'orphan', path)
     (path / '.devflow').mkdir()
     (path / '.devflow/project.json').write_text(json.dumps({'id': 'deadbeef' * 4}))
     reports = sync(['orphan'], root=root)
@@ -97,9 +90,9 @@ def test_broken_frontmatter_and_name_mismatch_are_attention(root, tmp_path):
     broken = tmp_path / 'broken'
     broken.mkdir()
     (broken / 'AGENTS.md').write_text('# no frontmatter\n')
-    register(root, 'broken', broken)
+    add(root / '.claude/data/projects.json', 'broken', broken)
     other = agents_only(tmp_path, 'other')
-    register(root, 'alias', other)
+    add(root / '.claude/data/projects.json', 'alias', other)
     got = by_project(sync(['broken', 'alias'], root=root))
     assert got['broken'] == {'agents_md': 'attention'}
     assert got['alias'] == {'agents_md': 'attention'}
@@ -109,7 +102,7 @@ def test_broken_frontmatter_and_name_mismatch_are_attention(root, tmp_path):
 def test_browser_section_is_reported_but_never_written(root, three, tmp_path):
     envs = agents_only(tmp_path, 'envs')
     (envs / 'AGENTS.md').write_text((envs / 'AGENTS.md').read_text() + '\n## Browser\nТекст.\n\n### local\n- Адрес: `<x>`\n\n### staging\n- Адрес: `https://s`\n\n## Notes\n### not-an-env\n')
-    register(root, 'envs', envs)
+    add(root / '.claude/data/projects.json', 'envs', envs)
     before = [(envs / 'AGENTS.md').read_text(), (three['bare'] / 'AGENTS.md').read_text()]
     reports = sync(['bare', 'envs'], root=root)
     assert browser_detail(reports, 'bare') == 'нет раздела Browser: /smoke попросит адрес и вход; образец — AGENTS.md.template'

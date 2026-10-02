@@ -58,18 +58,11 @@ for name in "${PI_PROMPTS[@]}"; do
     sources+=("$DEVFLOW_DIR/pi/prompts/$name.md")
     destinations+=("$PI_DIR/prompts/$name.md")
 done
-sources+=("$DEVFLOW_DIR/scripts/devflow-cli.sh")
-destinations+=("$BIN_DIR/devflow")
-sources+=("$DEVFLOW_DIR/bin/lcurl")
-destinations+=("$BIN_DIR/lcurl")
-sources+=("$DEVFLOW_DIR/bin/devflow-browser")
-destinations+=("$BIN_DIR/devflow-browser")
-sources+=("$DEVFLOW_DIR/bin/devflow-smoke-wait")
-destinations+=("$BIN_DIR/devflow-smoke-wait")
-sources+=("$DEVFLOW_DIR/bin/devflow-pi")
-destinations+=("$BIN_DIR/devflow-pi")
-sources+=("$DEVFLOW_DIR/scripts/rate-limits.sh")
-destinations+=("$BIN_DIR/devflow-rate-limits")
+for entry in scripts/devflow-cli.sh:devflow bin/lcurl:lcurl bin/devflow-browser:devflow-browser \
+    bin/devflow-smoke-wait:devflow-smoke-wait bin/devflow-pi:devflow-pi scripts/rate-limits.sh:devflow-rate-limits; do
+    sources+=("$DEVFLOW_DIR/${entry%%:*}")
+    destinations+=("$BIN_DIR/${entry#*:}")
+done
 for src in "$DEVFLOW_DIR"/integrations/jira-*.sh; do
     sources+=("$src")
     destinations+=("$INTEGRATIONS_DIR/$(basename "$src")")
@@ -77,17 +70,18 @@ done
 sources+=("$DEVFLOW_DIR/integrations/config.env.template")
 destinations+=("$INTEGRATIONS_DIR/config.env.template")
 
+links_to() { [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; }
 issues=0
 for i in "${!sources[@]}"; do
     src="${sources[$i]}" dst="${destinations[$i]}"
     if [ "$mode" = remove ]; then
-        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+        if links_to "$dst" "$src"; then
             rm -- "$dst"
             echo "unlink $dst"
         fi
     elif [ ! -e "$src" ]; then
         echo "MISS source: $src" >&2; issues=1
-    elif [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+    elif links_to "$dst" "$src"; then
         echo "ok $dst"
     elif [ -e "$dst" ] || [ -L "$dst" ]; then
         echo "CONFLICT (not replacing): $dst" >&2; issues=1
@@ -102,15 +96,11 @@ for dst in "$CLAUDE_DIR"/agents/*.md; do
     [ -e "$dst" ] || [ -L "$dst" ] || continue
     name="$(basename "$dst" .md)"
     case "$name" in research|research-high|plan|plan-high|implement|implement-high) ;; *) continue ;; esac
-    if [ "$mode" = remove ]; then
-        if generated_agent "$dst" || { [ -L "$dst" ] && [ "$(readlink "$dst")" = "$(phase_agent_source "$name")" ]; }; then
-            rm -- "$dst"
-            echo "remove $dst"
-        fi
-    elif generated_agent "$dst" || { [ -L "$dst" ] && [ "$(readlink "$dst")" = "$(phase_agent_source "$name")" ]; }; then
-        :
-    else
-        echo "CONFLICT (not replacing): $dst" >&2; issues=1
+    if ! generated_agent "$dst" && ! links_to "$dst" "$(phase_agent_source "$name")"; then
+        [ "$mode" = remove ] || { echo "CONFLICT (not replacing): $dst" >&2; issues=1; }
+    elif [ "$mode" = remove ]; then
+        rm -- "$dst"
+        echo "remove $dst"
     fi
 done
 if [ "$mode" != remove ]; then
@@ -125,18 +115,17 @@ if [ "$mode" = check ]; then
     elif ! "$PYTHON" -c 'import sys, yaml; assert sys.version_info >= (3, 10)' 2>/dev/null; then
         echo 'MISS Python 3.10+ / PyYAML'; issues=1
     fi
+    for name in "${RETIRED_SKILLS[@]}"; do
+        if links_to "$CLAUDE_DIR/skills/$name" "$DEVFLOW_DIR/skills/$name"; then
+            echo "RETIRE $CLAUDE_DIR/skills/$name"; issues=1
+        fi
+    done
     if [ -x "$PYTHON" ]; then
         if ! "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.project import registry_path; from devflow.registry import load; p = registry_path(Path(sys.argv[1])); p.exists() or sys.exit("MISS project registry"); load(p)' \
             "$DEVFLOW_DIR"; then
             issues=1
         fi
     fi
-    for name in "${RETIRED_SKILLS[@]}"; do
-        dst="$CLAUDE_DIR/skills/$name"
-        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ]; then
-            echo "RETIRE $dst"; issues=1
-        fi
-    done
     if [ ! -e "$POLICY_FILE" ]; then
         echo "MISS model policy $POLICY_FILE"; issues=1
     elif [ -x "$PYTHON" ]; then
@@ -177,7 +166,7 @@ fi
 
 if [ "$mode" = install ]; then
     python3 -c 'import sys; assert sys.version_info >= (3, 10), "Python 3.10+ required"'
-    if [ ! -x "$DEVFLOW_DIR/.venv/bin/python" ]; then
+    if [ ! -x "$PYTHON" ]; then
         python3 -m venv --system-site-packages "$DEVFLOW_DIR/.venv"
     fi
     if ! "$PYTHON" -c 'import yaml' 2>/dev/null; then
@@ -187,7 +176,7 @@ if [ "$mode" = install ]; then
     mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$PI_DIR/skills" "$PI_DIR/prompts" "$BIN_DIR" "$INTEGRATIONS_DIR"
     for i in "${!sources[@]}"; do
         src="${sources[$i]}" dst="${destinations[$i]}"
-        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
+        if links_to "$dst" "$src"; then
             continue
         fi
         # No force: if a destination appeared after preflight, stop without replacing it.
@@ -204,7 +193,7 @@ if [ "$mode" = install ]; then
 fi
 for name in "${RETIRED_SKILLS[@]}"; do
     dst="$CLAUDE_DIR/skills/$name"
-    if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$DEVFLOW_DIR/skills/$name" ]; then
+    if links_to "$dst" "$DEVFLOW_DIR/skills/$name"; then
         rm -- "$dst"
         echo "retire $dst"
     fi
