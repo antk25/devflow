@@ -400,6 +400,12 @@ def test_jira_statuses_batch_error_retries_per_key_and_marks_failed_key():
     assert out['SE-1']['status'] == 'In Progress' and out['SE-2'] == {'status': '?', 'summary': '', 'url': 'https://j/browse/SE-2'}
 
 
+
+def test_jira_statuses_every_key_of_account_failing_raises():
+    call = FakeJira(fail_batch={'productsearch'}, fail_keys={'SE-1', 'SE-2'})
+    with pytest.raises(board.ts.JiraError):
+        board.jira_statuses({'SE-1', 'SE-2'}, call, ACCOUNTS, lambda acc: 'https://j')
+
 def test_build_jira_statuses_land_on_tasks_and_repeat_within_ten_minutes_uses_cache(root):
     ctx = make_project(root, 'p', 'se-1-task')
     set_events(ctx, 'se-1-task', stamp(timedelta(days=1)))
@@ -422,6 +428,37 @@ def test_build_puts_jira_error_in_snapshot(root):
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'jira_statuses': boom})
     assert snap['jira_error'] == '401 Unauthorized' and snap['tasks'][0]['jira'] is None
 
+
+
+def test_build_jira_new_key_within_ten_minutes_refetches(root):
+    p = make_project(root, 'p', 'se-1-task')
+    q = make_project(root, 'q', 'se-2-task')
+    for ctx, slug in ((p, 'se-1-task'), (q, 'se-2-task')):
+        set_events(ctx, slug, stamp(timedelta(days=1)))
+    calls = []
+    def fetch(keys):
+        calls.append(keys)
+        return {k: {'status': 'Review', 'summary': '', 'url': ''} for k in keys}
+    one = {'p': {'path': str(p['cwd'])}}
+    board.build(root / 'board', NOW, sources={'registry': {'projects': one}, 'jira_statuses': fetch})
+    both = {**one, 'q': {'path': str(q['cwd'])}}
+    snap = board.build(root / 'board', NOW + timedelta(minutes=5), sources={'registry': {'projects': both}, 'jira_statuses': fetch})
+    assert calls == [{'SE-1'}, {'SE-1', 'SE-2'}]
+    assert {t['key']: t['jira']['status'] for t in snap['tasks']} == {'SE-1': 'Review', 'SE-2': 'Review'}
+    board.build(root / 'board', NOW + timedelta(minutes=6), sources={'registry': {'projects': one}, 'jira_statuses': fetch})
+    assert len(calls) == 2
+
+
+def test_build_jira_failure_keeps_cached_statuses(root):
+    ctx = make_project(root, 'p', 'se-1-task')
+    set_events(ctx, 'se-1-task', stamp(timedelta(days=1)))
+    registry = {'projects': {'p': {'path': str(ctx['cwd'])}}}
+    board.build(root / 'board', NOW, sources={'registry': registry,
+                                              'jira_statuses': lambda keys: {'SE-1': {'status': 'Review', 'summary': '', 'url': ''}}})
+    def boom(keys):
+        raise board.ts.JiraError('503')
+    snap = board.build(root / 'board', NOW + timedelta(minutes=11), sources={'registry': registry, 'jira_statuses': boom})
+    assert snap['jira_error'] == '503' and snap['tasks'][0]['jira']['status'] == 'Review'
 
 def msg(delta, text, session='s1', cwd='/home/u/projects/green'):
     return Msg(NOW - delta, cwd, session, text)

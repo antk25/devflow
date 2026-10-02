@@ -182,13 +182,14 @@ def fold(tasks: list[dict], now: datetime) -> tuple[list[dict], list[dict]]:
     return order(shown, now), order(folded, now)
 
 
-def cached(state: Path, name: str, ttl: timedelta, fetch: Callable[[], Any], now: datetime) -> dict:
-    """{'value', 'at', 'stale'}: cache younger than ttl, else fetch; a failed fetch keeps the old value with the error in 'stale'."""
+def cached(state: Path, name: str, ttl: timedelta, fetch: Callable[[], Any], now: datetime,
+           fits: Callable[[Any], bool] = lambda value: True) -> dict:
+    """{'value', 'at', 'stale'}: cache younger than ttl that fits, else fetch; a failed fetch keeps the old value with the error in 'stale'."""
     path = Path(state) / f'{name}.json'
     old = None
     try:
         old = json.loads(path.read_text(encoding='utf-8'))
-        if datetime.fromisoformat(old['at']) >= now - ttl:
+        if datetime.fromisoformat(old['at']) >= now - ttl and fits(old['value']):
             return {'value': old['value'], 'at': old['at'], 'stale': None}
     except (OSError, ValueError, KeyError, TypeError):
         old = None
@@ -274,9 +275,10 @@ def merge_prs(tasks: list[dict], prs: list[dict]) -> list[dict]:
     return tasks
 
 
-def _external(state: Path, name: str, now: datetime, fetch: Callable[[], Any], empty: Any) -> tuple[Any, str | None]:
+def _external(state: Path, name: str, now: datetime, fetch: Callable[[], Any], empty: Any,
+              fits: Callable[[Any], bool] = lambda value: True) -> tuple[Any, str | None]:
     try:
-        got = cached(state, name, CACHE_TTL, fetch, now)
+        got = cached(state, name, CACHE_TTL, fetch, now, fits)
     except Exception as exc:
         return empty, str(exc) or exc.__class__.__name__
     return got['value'], got['stale']
@@ -313,11 +315,14 @@ def jira_statuses(keys: set[str], call=ts.jira, accounts: dict[str, str] | None 
         try:
             issues = call('jira-jql.sh', '--account', acc, f'key in ({", ".join(own)})', 'status,summary')
         except ts.JiraError:
-            issues = []
+            issues, failed = [], 0
             for key in own:
                 try:
                     issues += call('jira-jql.sh', '--account', acc, f'key = {key}', 'status,summary')
                 except ts.JiraError:
+                    failed += 1
+                    if failed == len(own):
+                        raise
                     out[key] = {'status': '?', 'summary': '', 'url': f'{url}/browse/{key}'}
         for issue in issues:
             if issue.get('key') in own:
@@ -502,7 +507,10 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     tasks = merge_prs(tasks, prs)
     keys = {t['key'] for t in tasks if t.get('key')}
     fetch_jira = sources.get('jira_statuses') or jira_statuses
-    statuses, jira_error = _external(state, 'jira', now, lambda: fetch_jira(keys), {})
+    # Keys are stored with the statuses: a key that appeared after the cache was written forces a new fetch.
+    got, jira_error = _external(state, 'jira', now, lambda: {'keys': sorted(keys), 'statuses': fetch_jira(keys)},
+                                {}, fits=lambda value: keys <= set(value.get('keys') or []))
+    statuses = got.get('statuses') or {}
     shown, folded = fold(merge_jira(tasks, statuses), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
                 'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error,
