@@ -489,7 +489,7 @@ def test_board_api_serves_snapshot_without_collecting(tmp_path, monkeypatch):
         assert call(server, '/api/board/refresh', 'POST') == {'tasks': []}
         assert built == [tmp_path / 'board']
         page = urllib.request.urlopen(f'http://127.0.0.1:{server.server_address[1]}/board').read().decode()
-        assert '<title>Задачи</title>' in page and '/*TOKENS*/' not in page and '--paper' in page
+        assert '<title>Доска задач</title>' in page and '/board.mjs' in page
         assert b'preact-htm' in urllib.request.urlopen(f'http://127.0.0.1:{server.server_address[1]}/board.mjs').read()
         assert call(server, '/api/week/W38')['week'] == WEEK
     finally:
