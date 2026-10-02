@@ -20,6 +20,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
 | `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
 | `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
+| `/retro [session\|slug]` | Post-mortem of one expensive session: `jq` probes over its transcript (repeated reads, tool errors, interruptions, corrections) → proposed rule edits, applied only on an explicit yes | `notes/retro-<id>.md` |
 | `/transcribe [files]` | Local call transcription (faster-whisper large-v3 on the GPU) into `notes/<date>-calls-transcripts/` | transcript notes |
 | `/jira <key>` | Digest of a Jira issue (description, comments, attachments) read by the `reader` subagent (Sonnet, effort low) through the read-only shell scripts | issue digest |
 | `/smoke [env: <name>;] [slug: <slug>;] [save;] <scenario>` | Browser check of a scenario in the `browser` subagent (Sonnet, effort low) through `devflow-browser` — isolated headless Chrome, secrets as `@env:NAME`, no MCP | verdict table ✅/❌ ≤40 lines, screenshot paths on ❌ |

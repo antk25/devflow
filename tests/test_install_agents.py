@@ -121,3 +121,12 @@ def test_check_flags_statusline_without_rate_limits_call(home):
     statusline.write_text('#!/usr/bin/env bash\ninput=$(cat)\necho "$input" | devflow-rate-limits\n')
     r = install(home, '--check')
     assert r.returncode == 0 and 'MISS statusline' not in r.stdout
+
+
+def test_retro_skill_is_linked_and_skipped_for_pi(home):
+    assert install(home).returncode == 0
+    link = home / '.claude/skills/retro'
+    assert link.is_symlink() and link.resolve() == (ROOT / 'skills/retro').resolve()
+    r = install(home, '--check')
+    assert r.returncode == 0 and 'skip pi retro' in r.stdout, r.stdout
+    assert not (home / 'pi/skills/retro').exists()
