@@ -3,7 +3,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, NamedTuple
+from typing import Callable, Iterator, NamedTuple
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
 PI_ROOT = Path.home() / ".pi" / "agent" / "sessions"
@@ -87,6 +87,25 @@ def assign_tasks(msgs, marks):
                 else:
                     break
         m["task"] = current
+
+
+def tag_messages(msgs, ledger: dict, since: datetime, key_re: re.Pattern,
+                 project_fn: Callable[[str], str | None]) -> list:
+    """(ts, project, key) по сообщениям с ts >= since; более ранние дают только метки задач."""
+    by_session = defaultdict(list)
+    for m in msgs:
+        by_session[m.session].append(m)
+    out = []
+    for sid, items in by_session.items():
+        marks = list(ledger.get(sid, []))
+        marks += [(m.ts, k.group(0).upper()) for m in items for k in key_re.finditer(m.text[:8000])]
+        rows = [{"ts": m.ts, "cwd": m.cwd} for m in items]
+        assign_tasks(rows, marks)
+        for r in rows:
+            project = project_fn(r["cwd"])
+            if project and r["ts"] >= since:
+                out.append((r["ts"], project, "" if r["task"] == NO_TASK else r["task"]))
+    return out
 
 
 def human_messages(root: Path, since: datetime, until: datetime) -> Iterator[Msg]:
