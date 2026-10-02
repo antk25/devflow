@@ -431,8 +431,16 @@ def test_task_time_sums_gaps_with_tail_and_drops_messages_without_key():
             msg(timedelta(hours=3), 'без ключа', session='s2')]
     time = board.task_time(board.tag_messages(msgs, {}, since, board.re.compile(r'\bAB-\d+\b', board.re.I),
                                               board.project_of), since)
-    assert time == {'AB-1': {'total': 600 + 450, 'days': {'2026-10-02': 1050},
+    assert time == {'AB-1': {'total': 600 + 450, 'recent': 1050, 'days': {'2026-10-02': 1050},
                              'last': stamp(timedelta(minutes=20))}}
+
+
+def test_task_time_recent_counts_only_seconds_after_recent_since():
+    since = NOW - timedelta(days=90)
+    msgs = [msg(timedelta(days=20), 'AB-1 старое'), msg(timedelta(days=2), 'AB-1 свежее', session='s2')]
+    tagged = board.tag_messages(msgs, {}, since, board.re.compile(r'\bAB-\d+\b', board.re.I), board.project_of)
+    time = board.task_time(tagged, since, NOW - board.MOVE_DAYS)
+    assert time['AB-1']['total'] == 900 and time['AB-1']['recent'] == 450
 
 
 def test_build_activity_by_key_moves_task_and_folds_old_activity(root):
@@ -459,8 +467,35 @@ def test_merge_time_shared_key_shows_sum_on_freshest_row_and_arrow_on_the_rest()
     assert out[1]['time'] == {'total': 900, 'days': {'2026-10-01': 900}}
 
 
-def test_merge_time_key_without_task_becomes_row_only_with_fresh_activity():
-    time = {'ZZ-1': {'total': 450, 'days': {}, 'last': stamp(timedelta(days=3))},
-            'ZZ-2': {'total': 450, 'days': {}, 'last': stamp(timedelta(days=30))}}
+def test_merge_time_key_without_task_becomes_row_only_from_thirty_minutes_in_fourteen_days():
+    time = {'ZZ-1': {'total': 3 * 3600, 'recent': 20 * 60, 'days': {}, 'last': stamp(timedelta(days=3))},
+            'ZZ-2': {'total': 40 * 60, 'recent': 40 * 60, 'days': {}, 'last': stamp(timedelta(days=3))}}
     out = board.merge_time([], time, NOW)
-    assert [t['key'] for t in out] == ['ZZ-1'] and out[0]['stage']['label'] == '—'
+    assert [t['key'] for t in out] == ['ZZ-2'] and out[0]['stage']['label'] == '—'
+
+
+def _key_only_messages(minutes):
+    return lambda since, until: ([msg(timedelta(days=3, minutes=minutes - i * 10), f'ZZ-7 шаг {i}')
+                                  for i in range(minutes // 10 + 1)], {})
+
+
+def test_build_key_without_task_needs_thirty_minutes_of_recent_activity(root):
+    ctx = make_project(root, 'p', 'zz-1-task')
+    reg = {'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}}
+    snap = board.build(root / 'board', NOW, sources={**reg, 'messages': _key_only_messages(20)})
+    assert 'ZZ-7' not in {t['key'] for t in snap['tasks'] + snap['folded']}
+    snap = board.build(root / 'board', NOW, sources={**reg, 'messages': _key_only_messages(40)})
+    row = next(t for t in snap['tasks'] if t['key'] == 'ZZ-7')
+    assert row['stage']['label'] == '—' and row['time']['total'] == 40 * 60 + 450
+
+
+def test_build_key_only_row_gets_merged_pr_and_jira_status(root):
+    ctx = make_project(root, 'p', 'zz-1-task')
+    prs = lambda: [{'key': 'ZZ-7', 'number': 4, 'title': 'ZZ-7 fix', 'state': 'merged', 'repo': 'o/r', 'url': 'u',
+                    'updated': '2026-10-01T10:00:00Z'}]
+    jira = lambda keys: {'ZZ-7': {'status': 'Done', 'summary': 's', 'url': 'https://j/browse/ZZ-7'}} if 'ZZ-7' in keys else {}
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}},
+                                                     'messages': _key_only_messages(40), 'pull_requests': prs, 'jira_statuses': jira})
+    row = next(t for t in snap['tasks'] if t['key'] == 'ZZ-7')
+    assert row['stage'] == {'label': 'готово', 'group': 'done', 'since': '2026-10-01T10:00:00+00:00'}
+    assert row['jira']['status'] == 'Done' and [p['number'] for p in row['prs']] == [4]

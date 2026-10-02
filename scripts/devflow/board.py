@@ -28,6 +28,7 @@ HIDDEN_TZ = ('obsolete', 'done')
 ACTIVE_LIMIT = 50
 CACHE_TTL = timedelta(minutes=10)
 HISTORY_DAYS = timedelta(days=90)
+ROW_MIN_SECONDS = 30 * 60
 PR_KEY_RE = re.compile(r'\b[A-Z][A-Z0-9]+-\d+\b')
 PR_FIELDS = 'number,title,state,repository,url,updatedAt'
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
@@ -260,7 +261,7 @@ def merge_prs(tasks: list[dict], prs: list[dict]) -> list[dict]:
         if opened:
             tasks.append({'slug': key.lower(), 'key': key, 'project': opened['repo'].split('/')[-1],
                           'title': opened['title'], 'stage': {'label': '—', 'group': 'work', 'since': None},
-                          'state': None, 'moved_at': None, 'open_pr': True, 'prs': own,
+                          'state': None, 'moved_at': None, 'open_pr': True, 'prs': own, 'time': None,
                           'links': {'tz': None, 'research': None, 'plan': None}})
     return tasks
 
@@ -327,15 +328,19 @@ def messages(since: datetime, until: datetime) -> tuple[list, dict]:
     return [*human_messages(PROJECTS_ROOT, since, until), *pi_messages(PI_ROOT, since, until)], load_ledger()
 
 
-def task_time(msgs: list, since: datetime) -> dict:
-    """{key: {total, days: {date: sec}, last}} по правилу интервалов табеля; день по МСК, без переноса выходных."""
+def task_time(msgs: list, since: datetime, recent_since: datetime | None = None) -> dict:
+    """{key: {total, recent, days: {date: sec}, last}} по правилу интервалов табеля; день по МСК, без переноса выходных.
+
+    recent — секунды с recent_since: по ним ключ без задачи в vault получает строку «—» или остаётся упоминанием."""
     out: dict[str, dict] = {}
     for when, _project, key, seconds in ts.spans([m for m in msgs if m[0] >= since]):
         if not key:
             continue
-        rec = out.setdefault(key, {'total': 0, 'days': {}, 'last': None})
+        rec = out.setdefault(key, {'total': 0, 'recent': 0, 'days': {}, 'last': None})
         day = when.astimezone(ts.MSK).date().isoformat()
         rec['total'] += seconds
+        if recent_since is None or when >= recent_since:
+            rec['recent'] += seconds
         rec['days'][day] = rec['days'].get(day, 0) + seconds
         rec['last'] = max(rec['last'] or '', when.isoformat(timespec='seconds'))
     return out
@@ -348,11 +353,13 @@ def collect_time(tasks: list[dict], now: datetime, fetch=messages) -> dict:
     key_re = re.compile(rf"\b(?:{'|'.join(prefixes)})-\d{{1,5}}\b", re.I)
     since = now - HISTORY_DAYS
     msgs, ledger = fetch(since, now)
-    return task_time(tag_messages(msgs, ledger, since, key_re, project_of), since)
+    return task_time(tag_messages(msgs, ledger, since, key_re, project_of), since, now - MOVE_DAYS)
 
 
 def merge_time(tasks: list[dict], time: dict, now: datetime) -> list[dict]:
-    """Сумма по ключу — у строки с самым свежим moved_at, у остальных строк ключа «↑» (shared)."""
+    """Сумма по ключу — у строки с самым свежим moved_at, у остальных строк ключа «↑» (shared).
+
+    Ключ без задачи в vault — строка «—», если за MOVE_DAYS по нему не меньше ROW_MIN_SECONDS; иначе это упоминание."""
     by_key: dict[str, list[dict]] = {}
     for t in tasks:
         t['time'] = None
@@ -361,7 +368,7 @@ def merge_time(tasks: list[dict], time: dict, now: datetime) -> list[dict]:
     for key, rec in time.items():
         own = by_key.get(key)
         if not own:
-            if datetime.fromisoformat(rec['last']) >= now - MOVE_DAYS:
+            if rec['recent'] >= ROW_MIN_SECONDS:
                 tasks.append({'slug': key.lower(), 'key': key, 'project': '—', 'title': key,
                               'stage': {'label': '—', 'group': 'work', 'since': None}, 'state': None,
                               'moved_at': rec['last'], 'open_pr': False, 'prs': [], 'jira': None,
@@ -380,17 +387,17 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     sources = sources or {}
     registry = sources.get('registry') or load_registry(registry_path(ROOT))
     collected = collect_tasks(registry, now)
+    try:
+        time, time_error = collect_time(collected['tasks'], now, sources.get('messages') or messages), None
+    except Exception as exc:
+        time, time_error = {}, str(exc) or exc.__class__.__name__
+    tasks = merge_time(collected['tasks'], time, now)
     prs, prs_error = _external(state, 'prs', now, sources.get('pull_requests') or pull_requests, [])
-    tasks = merge_prs(collected['tasks'], prs)
+    tasks = merge_prs(tasks, prs)
     keys = {t['key'] for t in tasks if t.get('key')}
     fetch_jira = sources.get('jira_statuses') or jira_statuses
     statuses, jira_error = _external(state, 'jira', now, lambda: fetch_jira(keys), {})
-    tasks = merge_jira(tasks, statuses)
-    try:
-        time, time_error = collect_time(tasks, now, sources.get('messages') or messages), None
-    except Exception as exc:
-        time, time_error = {}, str(exc) or exc.__class__.__name__
-    shown, folded = fold(merge_time(tasks, time, now), now)
+    shown, folded = fold(merge_jira(tasks, statuses), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
                 'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
