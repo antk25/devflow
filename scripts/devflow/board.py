@@ -17,6 +17,7 @@ from .documents import WorkflowError, artifact, context, plan_steps
 from .project import ROOT, registry_path
 from .registry import load as load_registry
 from .storage import atomic_write, connect
+from .transcripts import PI_ROOT, PROJECTS_ROOT, human_messages, load_ledger, pi_messages, project_of, tag_messages
 from .workflow import route
 
 STATE_DIR = Path.home() / '.claude' / 'devflow' / 'board'
@@ -26,6 +27,7 @@ MOVE_DAYS = timedelta(days=14)
 HIDDEN_TZ = ('obsolete', 'done')
 ACTIVE_LIMIT = 50
 CACHE_TTL = timedelta(minutes=10)
+HISTORY_DAYS = timedelta(days=90)
 PR_KEY_RE = re.compile(r'\b[A-Z][A-Z0-9]+-\d+\b')
 PR_FIELDS = 'number,title,state,repository,url,updatedAt'
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
@@ -320,6 +322,59 @@ def merge_jira(tasks: list[dict], statuses: dict[str, dict]) -> list[dict]:
     return tasks
 
 
+def messages(since: datetime, until: datetime) -> tuple[list, dict]:
+    """Все свои сообщения Claude Code и pi за период и журнал задач драйвера."""
+    return [*human_messages(PROJECTS_ROOT, since, until), *pi_messages(PI_ROOT, since, until)], load_ledger()
+
+
+def task_time(msgs: list, since: datetime) -> dict:
+    """{key: {total, days: {date: sec}, last}} по правилу интервалов табеля; день по МСК, без переноса выходных."""
+    out: dict[str, dict] = {}
+    for when, _project, key, seconds in ts.spans([m for m in msgs if m[0] >= since]):
+        if not key:
+            continue
+        rec = out.setdefault(key, {'total': 0, 'days': {}, 'last': None})
+        day = when.astimezone(ts.MSK).date().isoformat()
+        rec['total'] += seconds
+        rec['days'][day] = rec['days'].get(day, 0) + seconds
+        rec['last'] = max(rec['last'] or '', when.isoformat(timespec='seconds'))
+    return out
+
+
+def collect_time(tasks: list[dict], now: datetime, fetch=messages) -> dict:
+    prefixes = sorted({t['key'].split('-')[0] for t in tasks if t.get('key')})
+    if not prefixes:
+        return {}
+    key_re = re.compile(rf"\b(?:{'|'.join(prefixes)})-\d{{1,5}}\b", re.I)
+    since = now - HISTORY_DAYS
+    msgs, ledger = fetch(since, now)
+    return task_time(tag_messages(msgs, ledger, since, key_re, project_of), since)
+
+
+def merge_time(tasks: list[dict], time: dict, now: datetime) -> list[dict]:
+    """Сумма по ключу — у строки с самым свежим moved_at, у остальных строк ключа «↑» (shared)."""
+    by_key: dict[str, list[dict]] = {}
+    for t in tasks:
+        t['time'] = None
+        if t.get('key') in time:
+            by_key.setdefault(t['key'], []).append(t)
+    for key, rec in time.items():
+        own = by_key.get(key)
+        if not own:
+            if datetime.fromisoformat(rec['last']) >= now - MOVE_DAYS:
+                tasks.append({'slug': key.lower(), 'key': key, 'project': '—', 'title': key,
+                              'stage': {'label': '—', 'group': 'work', 'since': None}, 'state': None,
+                              'moved_at': rec['last'], 'open_pr': False, 'prs': [], 'jira': None,
+                              'time': {'total': rec['total'], 'days': rec['days']},
+                              'links': {'tz': None, 'research': None, 'plan': None}})
+            continue
+        owner = max(own, key=lambda t: t.get('moved_at') or '')
+        for t in own:
+            t['moved_at'] = max(t.get('moved_at') or '', rec['last'])
+            t['time'] = {'total': rec['total'], 'days': rec['days']} if t is owner else {'shared': True}
+    return tasks
+
+
 def build(state: Path, now: datetime | None = None, sources: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     sources = sources or {}
@@ -330,9 +385,14 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     keys = {t['key'] for t in tasks if t.get('key')}
     fetch_jira = sources.get('jira_statuses') or jira_statuses
     statuses, jira_error = _external(state, 'jira', now, lambda: fetch_jira(keys), {})
-    shown, folded = fold(merge_jira(tasks, statuses), now)
+    tasks = merge_jira(tasks, statuses)
+    try:
+        time, time_error = collect_time(tasks, now, sources.get('messages') or messages), None
+    except Exception as exc:
+        time, time_error = {}, str(exc) or exc.__class__.__name__
+    shown, folded = fold(merge_time(tasks, time, now), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
-                'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error}
+                'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot
 

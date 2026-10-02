@@ -377,37 +377,29 @@ def rule_project(rules: Rules, cwd: str) -> str | None:
 
 def tagged_messages(rules: Rules, msgs, ledger: dict, since: datetime) -> list:
     """(ts, project, key) по сообщениям с ts >= since; более ранние дают только метки задач."""
-    from devflow.transcripts import NO_TASK, assign_tasks
-    key_re = key_pattern(rules)
-    by_session = defaultdict(list)
-    for m in msgs:
-        by_session[m.session].append(m)
-    out = []
-    for sid, items in by_session.items():
-        marks = list(ledger.get(sid, []))
-        marks += [(m.ts, k.group(0).upper()) for m in items for k in key_re.finditer(m.text[:8000])]
-        rows = [{'ts': m.ts, 'cwd': m.cwd} for m in items]
-        assign_tasks(rows, marks)
-        for r in rows:
-            project = rule_project(rules, r['cwd'])
-            if project and r['ts'] >= since:
-                out.append((r['ts'], project, '' if r['task'] == NO_TASK else r['task']))
-    return out
+    from devflow.transcripts import tag_messages
+    return tag_messages(msgs, ledger, since, key_pattern(rules), lambda cwd: rule_project(rules, cwd))
+
+
+def spans(msgs: list):
+    """(ts, project, key, seconds): интервал до следующего сообщения, если он не длиннее BLOCK_GAP, иначе BLOCK_GAP/2."""
+    ordered = sorted(msgs, key=lambda m: m[0])
+    for i, (ts, project, key) in enumerate(ordered):
+        gap = ordered[i + 1][0] - ts if i + 1 < len(ordered) else None
+        spent = gap if gap is not None and gap <= BLOCK_GAP else BLOCK_GAP / 2
+        yield ts, project, key, int(spent.total_seconds())
 
 
 def activity(rules: Rules, msgs: list, week: str) -> dict:
     """msgs — (ts, project, key); сб и вс прошлой недели уходят в этот понедельник."""
     start, end = week_range(week)
     out = defaultdict(lambda: defaultdict(int))
-    ordered = sorted(msgs, key=lambda m: m[0])
-    for i, (ts, project, key) in enumerate(ordered):
-        gap = ordered[i + 1][0] - ts if i + 1 < len(ordered) else None
-        spent = gap if gap is not None and gap <= BLOCK_GAP else BLOCK_GAP / 2
+    for ts, project, key, seconds in spans(msgs):
         day = ts.astimezone(MSK).date()
         if day.weekday() >= 5:
             day += timedelta(days=7 - day.weekday())
         if start <= day <= end:
-            out[day][(project, key)] += int(spent.total_seconds())
+            out[day][(project, key)] += seconds
     return {d: dict(v) for d, v in out.items()}
 
 

@@ -10,7 +10,11 @@ const stamp = iso => {
   return `${pad(t.getDate())}.${pad(t.getMonth() + 1)} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
 };
 const obsidian = path => `obsidian://open?path=${encodeURIComponent(path)}`;
-const COLS = 6;
+const COLS = 7;
+const dur = sec => sec < 60 ? '<1м' : sec < 3600 ? `${Math.round(sec / 60)}м` : `${Math.floor(sec / 3600)}ч ${String(Math.round(sec % 3600 / 60)).padStart(2, '0')}м`;
+const time = t => !t.time ? '' : t.time.shared ? html`<span class="muted" title="время у другой строки этого ключа">↑</span>` : dur(t.time.total);
+const days = t => Object.entries(t.time?.days || {}).sort((a, b) => b[0].localeCompare(a[0]))
+  .map(([d, s]) => html`<span class="day mono">${d.slice(5)} ${dur(s)}</span>`);
 const prs = t => (t.prs || []).map(p => html`<a class="pr" href=${p.url} target="_blank" title=${p.title}>#${p.number} ${p.state}</a>`);
 
 async function api(path, method = 'GET') {
@@ -30,12 +34,14 @@ function Row({ t, open, toggle }) {
       <td class="stage"><span class=${'pill ' + t.stage.group}>${t.stage.label}</span></td>
       <td class="jira">${t.jira ? html`<a href=${t.jira.url} target="_blank" title=${t.jira.summary}>${t.jira.status}</a>` : ''}</td>
       <td class="prs">${prs(t)}</td>
+      <td class="time mono">${time(t)}</td>
     </tr>
     ${open && html`<tr class="detail"><td colSpan=${COLS}>
       <span class="mono muted">${t.slug}</span><br/>
       ${t.jira && html`<a href=${t.jira.url} target="_blank">${t.key} в Jira</a>`}
       ${links.length ? links.map(([k, name]) => html`<a href=${obsidian(t.links[k])}>${name}</a>`)
         : html`<span class="muted">артефактов нет</span>`}
+      ${t.time?.days && html`<div class="days">${days(t)}</div>`}
     </td></tr>`}`;
 }
 
@@ -86,6 +92,7 @@ function App() {
       ${error && html`<span class="stamp" style="color:var(--bad)">${error}</span>`}
       ${data?.prs_error && html`<span class="stamp" style="color:var(--bad)">PR: ${data.prs_error}</span>`}
       ${data?.jira_error && html`<span class="stamp" style="color:var(--bad)">Jira: ${data.jira_error}</span>`}
+      ${data?.time_error && html`<span class="stamp" style="color:var(--bad)">время: ${data.time_error}</span>`}
       <span class="stamp">${data ? `снимок ${stamp(data.generated)}` : ''}</span>
       <button class="btn" disabled=${busy} onClick=${() => load(true)}>
         ${busy ? html`<span class="spin"></span>` : '↻'} обновить
@@ -94,7 +101,7 @@ function App() {
     <main class="main">
       ${data && !rows.length ? html`<div class="empty">задач нет</div>` : html`
       <table>
-        <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th><th>Jira</th><th>PR</th></tr></thead>
+        <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th><th>Jira</th><th>PR</th><th>время</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
       ${folded.length ? html`<button class="fold" onClick=${() => setShowFolded(!showFolded)}>

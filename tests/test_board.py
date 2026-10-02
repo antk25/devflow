@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from devflow import board, documents
+from devflow.transcripts import Msg
 from devflow.documents import context
 from devflow.storage import connect, db_path, event
 
@@ -71,6 +72,7 @@ def make_project(root: Path, name: str, slug: str, approve_plan=True, done=()):
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv('DEVFLOW_STATE_DIR', str(tmp_path / 'state'))
     monkeypatch.setattr(board, 'pull_requests', lambda run=None: [])  # no live gh in tests
+    monkeypatch.setattr(board, 'messages', lambda since, until: ([], {}))  # no real transcripts in tests
     return tmp_path
 
 
@@ -417,3 +419,48 @@ def test_build_puts_jira_error_in_snapshot(root):
         raise board.ts.JiraError('401 Unauthorized')
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'jira_statuses': boom})
     assert snap['jira_error'] == '401 Unauthorized' and snap['tasks'][0]['jira'] is None
+
+
+def msg(delta, text, session='s1', cwd='/home/u/projects/green'):
+    return Msg(NOW - delta, cwd, session, text)
+
+
+def test_task_time_sums_gaps_with_tail_and_drops_messages_without_key():
+    since = NOW - timedelta(days=90)
+    msgs = [msg(timedelta(minutes=30), 'сделай AB-1'), msg(timedelta(minutes=20), 'дальше'),
+            msg(timedelta(hours=3), 'без ключа', session='s2')]
+    time = board.task_time(board.tag_messages(msgs, {}, since, board.re.compile(r'\bAB-\d+\b', board.re.I),
+                                              board.project_of), since)
+    assert time == {'AB-1': {'total': 600 + 450, 'days': {'2026-10-02': 1050},
+                             'last': stamp(timedelta(minutes=20))}}
+
+
+def test_build_activity_by_key_moves_task_and_folds_old_activity(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=20)))
+    reg = {'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}}
+    fresh = lambda since, until: ([msg(timedelta(days=2), 'продолжаем AB-1')], {})
+    snap = board.build(root / 'board', NOW, sources={**reg, 'messages': fresh})
+    assert [t['slug'] for t in snap['tasks']] == ['ab-1-task']
+    assert snap['tasks'][0]['time'] == {'total': 450, 'days': {'2026-09-30': 450}}
+    assert snap['tasks'][0]['moved_at'] == stamp(timedelta(days=2))
+    old = lambda since, until: ([msg(timedelta(days=20), 'продолжаем AB-1')], {})
+    snap = board.build(root / 'board', NOW, sources={**reg, 'messages': old})
+    assert snap['tasks'] == [] and [t['slug'] for t in snap['folded']] == ['ab-1-task']
+
+
+def test_merge_time_shared_key_shows_sum_on_freshest_row_and_arrow_on_the_rest():
+    tasks = [moving('se-2186-one', moved_at=stamp(timedelta(days=5))), moving('se-2186-two', moved_at=stamp(timedelta(days=1)))]
+    for t in tasks:
+        t['key'] = 'SE-2186'
+    time = {'SE-2186': {'total': 900, 'days': {'2026-10-01': 900}, 'last': stamp(timedelta(days=1))}}
+    out = board.merge_time(tasks, time, NOW)
+    assert out[0]['time'] == {'shared': True}
+    assert out[1]['time'] == {'total': 900, 'days': {'2026-10-01': 900}}
+
+
+def test_merge_time_key_without_task_becomes_row_only_with_fresh_activity():
+    time = {'ZZ-1': {'total': 450, 'days': {}, 'last': stamp(timedelta(days=3))},
+            'ZZ-2': {'total': 450, 'days': {}, 'last': stamp(timedelta(days=30))}}
+    out = board.merge_time([], time, NOW)
+    assert [t['key'] for t in out] == ['ZZ-1'] and out[0]['stage']['label'] == '—'
