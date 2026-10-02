@@ -419,14 +419,16 @@ def token_records(key_re: re.Pattern) -> list[dict]:
 
 
 def task_tokens(records: list[dict], since_day: str) -> dict:
-    """{key: {cost, tokens, days: {day: cost}}}; days — только с since_day, cost и tokens — за всё время."""
+    """{key: {cost, tokens, days: {day: cost}, day_tokens: {day: tokens}}}; по дням — только с since_day, cost и tokens — за всё время."""
     out: dict[str, dict] = {}
     for r in records:
-        rec = out.setdefault(r['task'], {'cost': 0.0, 'tokens': 0, 'days': {}})
+        rec = out.setdefault(r['task'], {'cost': 0.0, 'tokens': 0, 'days': {}, 'day_tokens': {}})
+        spent = r['input'] + r['output'] + r['cache_write'] + r['cache_read']
         rec['cost'] += r['cost']
-        rec['tokens'] += r['input'] + r['output'] + r['cache_write'] + r['cache_read']
+        rec['tokens'] += spent
         if r['day'] >= since_day:
             rec['days'][r['day']] = rec['days'].get(r['day'], 0.0) + r['cost']
+            rec['day_tokens'][r['day']] = rec['day_tokens'].get(r['day'], 0) + spent
     return out
 
 
@@ -455,25 +457,30 @@ def _cost(rec: dict, days: list[str]) -> float:
 
 
 def chart(tokens: dict, now: datetime) -> dict:
-    """14 дней × ряды: CHART_TOP самых дорогих задач за период, «прочее» при остатке, «без задачи» всегда последним."""
+    """14 дней × ряды {name, values ($), tokens}: CHART_TOP самых дорогих задач за период, «прочее» при остатке,
+    «без задачи» всегда последним."""
     days = _day_range(now, CHART_DAYS)
     tasks = sorted(((k, r) for k, r in tokens.items() if k != NO_TASK), key=lambda kr: -_cost(kr[1], days))
-    series = [{'name': k, 'values': [round(r['days'].get(d, 0.0), 4) for d in days]} for k, r in tasks[:CHART_TOP]]
-    rest = tasks[CHART_TOP:]
-    if rest:
-        series.append({'name': OTHER, 'values': [round(sum(r['days'].get(d, 0.0) for _, r in rest), 4) for d in days]})
-    none = tokens.get(NO_TASK, {'days': {}})
-    series.append({'name': NO_TASK, 'values': [round(none['days'].get(d, 0.0), 4) for d in days]})
-    return {'days': days, 'series': series}
+
+    def series(name: str, recs: list[dict]) -> dict:
+        return {'name': name, 'values': [round(sum(r['days'].get(d, 0.0) for r in recs), 4) for d in days],
+                'tokens': [sum(r.get('day_tokens', {}).get(d, 0) for r in recs) for d in days]}
+
+    out = [series(k, [r]) for k, r in tasks[:CHART_TOP]]
+    if tasks[CHART_TOP:]:
+        out.append(series(OTHER, [r for _, r in tasks[CHART_TOP:]]))
+    out.append(series(NO_TASK, [tokens.get(NO_TASK, {'days': {}})]))
+    return {'days': days, 'series': out}
 
 
 def facts(tokens: dict, now: datetime) -> dict:
-    """{week, prev_week, no_task_pct}: $ за 7 дней, за 7 дней до того и доля «без задачи» за неделю."""
+    """{week, prev_week, no_task_pct, week_tokens}: $ за 7 дней, за 7 дней до того, доля «без задачи» и токены за неделю."""
     week, prev = _day_range(now, 7), _day_range(now, 7, 7)
     total = sum(_cost(r, week) for r in tokens.values())
     none = _cost(tokens.get(NO_TASK, {'days': {}}), week)
     return {'week': round(total, 2), 'prev_week': round(sum(_cost(r, prev) for r in tokens.values()), 2),
-            'no_task_pct': round(none / total * 100) if total else 0}
+            'no_task_pct': round(none / total * 100) if total else 0,
+            'week_tokens': sum(r.get('day_tokens', {}).get(d, 0) for r in tokens.values() for d in week)}
 
 
 def limits(now: datetime, path: Path | None = None) -> list[dict]:

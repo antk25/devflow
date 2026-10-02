@@ -550,7 +550,7 @@ def test_task_tokens_three_keys_sums_match_and_old_days_count_only_in_totals():
                rec('AB-2', '2026-09-30', 0.25), rec(NO_TASK, '2026-10-02', 0.75)]
     tokens = board.task_tokens(records, '2026-09-18')
     assert set(tokens) == {'AB-1', 'AB-2', NO_TASK}
-    assert tokens['AB-1'] == {'cost': 3.5, 'tokens': 164, 'days': {'2026-10-01': 1.5}}
+    assert tokens['AB-1'] == {'cost': 3.5, 'tokens': 164, 'days': {'2026-10-01': 1.5}, 'day_tokens': {'2026-10-01': 160}}
     assert tokens['AB-2']['cost'] == 0.25 and tokens[NO_TASK]['cost'] == 0.75
     assert sum(t['cost'] for t in tokens.values()) == sum(r['cost'] for r in records)
 
@@ -594,6 +594,7 @@ def test_chart_seven_tasks_give_top_five_other_and_no_task_over_14_days():
     day = ch['days'].index('2026-10-01')
     assert ch['series'][0]['values'][day] == 7.0 and ch['series'][5]['values'][day] == 3.0
     assert ch['series'][6]['values'] == [0.5] + [0.0] * 13  # 09-18 вне окна
+    assert all(s['tokens'] == [0] * 14 for s in ch['series'])
     assert sum(sum(s['values']) for s in ch['series']) == 28.5
 
 
@@ -605,8 +606,9 @@ def test_chart_without_leftover_tasks_has_no_other_series():
 def test_facts_week_prev_week_and_no_task_share():
     tokens = _tokens({'AB-1': {'2026-10-02': 3.0, '2026-09-26': 1.0, '2026-09-25': 4.0, '2026-09-18': 100.0},
                       NO_TASK: {'2026-09-30': 1.0, '2026-09-20': 2.0}})
-    assert board.facts(tokens, NOW) == {'week': 5.0, 'prev_week': 6.0, 'no_task_pct': 20}  # неделя: 26.09–02.10
-    assert board.facts({}, NOW) == {'week': 0.0, 'prev_week': 0.0, 'no_task_pct': 0}
+    tokens['AB-1']['day_tokens'] = {'2026-10-02': 300, '2026-09-25': 400}
+    assert board.facts(tokens, NOW) == {'week': 5.0, 'prev_week': 6.0, 'no_task_pct': 20, 'week_tokens': 300}  # неделя: 26.09–02.10
+    assert board.facts({}, NOW) == {'week': 0.0, 'prev_week': 0.0, 'no_task_pct': 0, 'week_tokens': 0}
 
 
 def test_limits_54_percent_gives_5_4_cells_and_missing_file_gives_empty(tmp_path):
@@ -625,4 +627,6 @@ def test_build_snapshot_has_chart_facts_and_limits(root):
     fetch = lambda key_re: [rec('ZZ-1', '2026-10-01', 1.0), rec(NO_TASK, '2026-10-01', 3.0)]
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'token_records': fetch})
     assert len(snap['chart']['days']) == 14 and [s['name'] for s in snap['chart']['series']] == ['ZZ-1', NO_TASK]
-    assert snap['facts'] == {'week': 4.0, 'prev_week': 0.0, 'no_task_pct': 75} and snap['limits'] == []
+    assert snap['facts'] == {'week': 4.0, 'prev_week': 0.0, 'no_task_pct': 75, 'week_tokens': 30} and snap['limits'] == []
+    day = snap['chart']['days'].index('2026-10-01')
+    assert [s['tokens'][day] for s in snap['chart']['series']] == [15, 15]
