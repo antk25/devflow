@@ -18,7 +18,7 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 | `/note save\|read\|search\|list\|tz` | Manage notes in the project vault | `<vault>/notes/`, `<vault>/tz/` |
 | `/project init\|sync\|list\|info\|remove` | Onboard projects and manage the registry | `.claude/data/projects.json` |
 | `/tokens [--by …]` | Token spend by task / project / phase / model / day, with dollar cost | table, JSON, or an HTML dashboard |
-| `timesheet serve` → `/board` | Read-only task board across all registry projects: DevFlow stage and days waiting at a gate; `devflow board [--refresh]` prints the same snapshot as JSON | `~/.claude/devflow/board/snapshot.json` |
+| `timesheet serve` → `/board` | Read-only task board across all registry projects: DevFlow stage and days waiting at a gate, Jira status, PRs, time and tokens/$ per task, a 14-day spend chart and rate limits; `devflow board [--refresh]` prints the same snapshot as JSON | `~/.claude/devflow/board/snapshot.json` |
 | `/review [target]` | Review in two axes — conventions and conformance to the TZ — as parallel subagents; findings are never merged between axes | two sections, no fixes |
 | `/xreview [target] [focus]` | Second opinion on a diff from Codex (OpenAI models over the ChatGPT subscription), called from Bash | review text |
 | `/transcribe [files]` | Local call transcription (faster-whisper large-v3 on the GPU) into `notes/<date>-calls-transcripts/` | transcript notes |
