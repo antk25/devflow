@@ -94,7 +94,9 @@ def project_tasks(name: str, path: Path, now: datetime) -> tuple[list[dict], str
     tasks, seen = [], set()
     try:
         db.execute('BEGIN')
-        last = dict(db.execute('SELECT slug, MAX(at) FROM events GROUP BY slug').fetchall())
+        last = dict(db.execute(
+            "SELECT slug, MAX(at) FROM events WHERE NOT (action='complexity' AND json_extract(data, '$.gate')='backfill') GROUP BY slug"
+        ).fetchall())
         listed = active(ctx, db, ACTIVE_LIMIT)
         for folder in ('tz', 'research', 'plans'):
             for item in listed[folder]:

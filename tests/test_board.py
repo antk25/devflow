@@ -182,11 +182,11 @@ def stamp(delta):
     return (NOW - delta).isoformat(timespec='seconds')
 
 
-def set_events(ctx, slug, at):
+def set_events(ctx, slug, at, action='approve', **data):
     db = connect(ctx)
     db.execute('BEGIN IMMEDIATE')
-    event(db, 'approve', slug, phase='research')
-    db.execute("UPDATE events SET at=? WHERE slug=?", (at, slug))
+    event(db, action, slug, **(data or {'phase': 'research'}))
+    db.execute("UPDATE events SET at=? WHERE slug=? AND at>?", (at, slug, at))
     db.execute('COMMIT')
     db.close()
 
@@ -197,6 +197,17 @@ def test_project_tasks_moved_at_is_the_last_event_of_the_slug(root):
     tasks, _ = board.project_tasks('p', ctx['cwd'], NOW)
     assert tasks[0]['moved_at'] == stamp(timedelta(days=3))
     assert tasks[0]['open_pr'] is False
+
+
+def test_project_tasks_moved_at_skips_complexity_backfill(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=15)))
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=2)), 'complexity', value='low', gate='backfill', source='jev')
+    tasks, _ = board.project_tasks('p', ctx['cwd'], NOW)
+    assert tasks[0]['moved_at'] == stamp(timedelta(days=15))
+    assert board.fold(tasks, NOW)[0] == []
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=1)), 'complexity', value='low', gate='research', source='user')
+    assert board.project_tasks('p', ctx['cwd'], NOW)[0][0]['moved_at'] == stamp(timedelta(days=1))
 
 
 def test_project_tasks_hides_tz_with_status_obsolete_or_done(root):
