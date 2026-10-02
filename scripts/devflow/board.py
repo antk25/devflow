@@ -13,12 +13,13 @@ from typing import Any, Callable
 
 import yaml
 
+from . import policy
 from . import timesheet as ts
 from .documents import WorkflowError, artifact, context, plan_steps
 from .project import ROOT, registry_path
 from .registry import load as load_registry
 from .storage import atomic_write, connect
-from .transcripts import PI_ROOT, PROJECTS_ROOT, human_messages, load_ledger, pi_messages, project_of, tag_messages
+from .transcripts import NO_TASK, PI_ROOT, PROJECTS_ROOT, human_messages, load_ledger, pi_messages, project_of, tag_messages
 from .workflow import route
 
 STATE_DIR = Path.home() / '.claude' / 'devflow' / 'board'
@@ -37,6 +38,11 @@ WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ р�
         'migration_required': '⏸ миграция плана', 'migration_pending': '⏸ миграция плана',
         'plan_outdated': '⏸ план устарел', 'legacy_review': '⏸ legacy'}
 GROUPS = ('wait', 'work', 'done')
+CHART_DAYS = 14
+CHART_TOP = 5
+OTHER = 'прочее'
+LIMIT_WINDOWS = {'five_hour': '5 ч', 'seven_day': '7 дн'}
+LIMITS_MAX_AGE_MIN = 10
 
 
 def task_key(slug: str) -> str | None:
@@ -434,6 +440,49 @@ def merge_tokens(tasks: list[dict], tokens: dict) -> list[dict]:
     return tasks
 
 
+def _day_range(now: datetime, count: int, end_offset: int = 0) -> list[str]:
+    last = now - timedelta(days=end_offset)
+    return [(last - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(count - 1, -1, -1)]
+
+
+def _cost(rec: dict, days: list[str]) -> float:
+    return sum(rec['days'].get(d, 0.0) for d in days)
+
+
+def chart(tokens: dict, now: datetime) -> dict:
+    """14 дней × ряды: CHART_TOP самых дорогих задач за период, «прочее» при остатке, «без задачи» всегда последним."""
+    days = _day_range(now, CHART_DAYS)
+    tasks = sorted(((k, r) for k, r in tokens.items() if k != NO_TASK), key=lambda kr: -_cost(kr[1], days))
+    series = [{'name': k, 'values': [round(r['days'].get(d, 0.0), 4) for d in days]} for k, r in tasks[:CHART_TOP]]
+    rest = tasks[CHART_TOP:]
+    if rest:
+        series.append({'name': OTHER, 'values': [round(sum(r['days'].get(d, 0.0) for _, r in rest), 4) for d in days]})
+    none = tokens.get(NO_TASK, {'days': {}})
+    series.append({'name': NO_TASK, 'values': [round(none['days'].get(d, 0.0), 4) for d in days]})
+    return {'days': days, 'series': series}
+
+
+def facts(tokens: dict, now: datetime) -> dict:
+    """{week, prev_week, no_task_pct}: $ за 7 дней, за 7 дней до того и доля «без задачи» за неделю."""
+    week, prev = _day_range(now, 7), _day_range(now, 7, 7)
+    total = sum(_cost(r, week) for r in tokens.values())
+    none = _cost(tokens.get(NO_TASK, {'days': {}}), week)
+    return {'week': round(total, 2), 'prev_week': round(sum(_cost(r, prev) for r in tokens.values()), 2),
+            'no_task_pct': round(none / total * 100) if total else 0}
+
+
+def limits(now: datetime, path: Path | None = None) -> list[dict]:
+    """Окна rate-limits.json → [{window, label, used, cells, resets_at}]; файл отсутствует или устарел → []."""
+    path = Path(path or policy.limits_path())
+    if policy.limits(path, 100, LIMITS_MAX_AGE_MIN, now.timestamp()) is None:
+        return []
+    data = json.loads(path.read_text())
+    return [{'window': name, 'label': label, 'used': w['used_percentage'], 'cells': round(w['used_percentage'] / 10, 1),
+             'resets_at': w.get('resets_at')}
+            for name, label in LIMIT_WINDOWS.items()
+            if isinstance(w := data.get(name), dict) and isinstance(w.get('used_percentage'), (int, float))]
+
+
 def build(state: Path, now: datetime | None = None, sources: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     sources = sources or {}
@@ -457,7 +506,7 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     shown, folded = fold(merge_jira(tasks, statuses), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
                 'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error,
-                'tokens_error': tokens_error}
+                'tokens_error': tokens_error, 'chart': chart(tokens, now), 'facts': facts(tokens, now), 'limits': limits(now)}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot
 

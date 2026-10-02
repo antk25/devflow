@@ -40,6 +40,16 @@ button,a{font:inherit;color:inherit}
 @keyframes spin{to{transform:rotate(1turn)}}
 
 .main{padding:1rem 1.25rem 4rem}
+.facts{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .6rem;margin-bottom:.8rem;font-size:.92rem}
+.limit{display:inline-flex;align-items:center;gap:.35rem;margin-left:.8rem}
+.cells{display:inline-flex;gap:2px}
+.cells i{display:block;width:.55rem;height:.8rem;border:1px solid var(--rule-strong);border-radius:2px;
+  background:linear-gradient(to right,var(--focus) calc(var(--fill)*100%),transparent 0)}
+.cells.bad i{background:linear-gradient(to right,var(--bad) calc(var(--fill)*100%),transparent 0)}
+.chart{margin-bottom:1rem;padding:.6rem .7rem;background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);overflow-x:auto}
+.chart svg text{font:10px var(--mono);fill:var(--ink-3)}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem 1rem;margin-top:.4rem;font-size:.82rem;color:var(--ink-2)}
+.legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;margin-right:.35rem;vertical-align:-1px}
 table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--rule);border-radius:var(--r)}
 th,td{padding:.45rem .7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--rule)}
 th{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);font-weight:600;background:var(--surface-2)}

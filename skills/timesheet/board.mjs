@@ -22,6 +22,44 @@ const tokenDays = t => Object.entries(t.tokens?.days || {}).sort((a, b) => b[0].
   .map(([d, c]) => html`<span class="day mono">${d.slice(5)} ${usd(c)}</span>`);
 const prs = t => (t.prs || []).map(p => html`<a class="pr" href=${p.url} target="_blank" title=${p.title}>#${p.number} ${p.state}</a>`);
 
+const PALETTE = ['#2F6FB0', '#C98A2B', '#4E9A6B', '#8E5BB5', '#C1554E'];
+const color = (name, i) => name === '(без задачи)' ? 'var(--ink-3)' : name === 'прочее' ? 'var(--rule-strong)' : PALETTE[i % PALETTE.length];
+
+function Facts({ facts, limits }) {
+  if (!facts) return null;
+  return html`<div class="facts">
+    <span>7 дн: <b class="mono">${usd(facts.week)}</b></span>
+    <span class="muted">·</span><span>неделей раньше <span class="mono">${usd(facts.prev_week)}</span></span>
+    <span class="muted">·</span><span>без задачи <span class="mono">${facts.no_task_pct}%</span></span>
+    ${limits.map(l => html`<span class="limit" title=${`${l.used}% окна ${l.label}`}>
+      <span class="muted">${l.label}</span>
+      <span class=${'cells' + (l.used >= 100 ? ' bad' : '')}>${[...Array(10)].map((_, i) =>
+        html`<i style=${`--fill:${Math.max(0, Math.min(1, l.cells - i))}`}></i>`)}</span>
+      <span class="mono">${l.used}%</span></span>`)}
+  </div>`;
+}
+
+function Chart({ chart }) {
+  if (!chart?.days?.length) return null;
+  const W = 14, H = 120, GAP = 3, PAD = 4;
+  const totals = chart.days.map((_, d) => chart.series.reduce((a, s) => a + s.values[d], 0));
+  const max = Math.max(...totals, 0.01);
+  const bars = chart.days.map((day, d) => {
+    let y = H;
+    const parts = chart.series.map((s, i) => {
+      const h = s.values[d] / max * (H - PAD);
+      y -= h;
+      return html`<rect x=${d * (W + GAP)} y=${y} width=${W} height=${h} fill=${color(s.name, i)}><title>${day.slice(5)} ${s.name}: ${usd(s.values[d])}</title></rect>`;
+    });
+    return html`<g>${parts}<text x=${d * (W + GAP) + W / 2} y=${H + 11} text-anchor="middle">${day.slice(8)}</text></g>`;
+  });
+  return html`<div class="chart">
+    <svg viewBox=${`0 0 ${chart.days.length * (W + GAP) - GAP} ${H + 14}`} width=${chart.days.length * (W + GAP) - GAP} height=${H + 14}>${bars}</svg>
+    <div class="legend">${chart.series.map((s, i) => html`<span><i style=${`background:${color(s.name, i)}`}></i>${s.name}</span>`)}
+      <span class="muted">макс. день ${usd(max)}</span></div>
+  </div>`;
+}
+
 async function api(path, method = 'GET') {
   const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' } });
   const j = await r.json();
@@ -107,6 +145,8 @@ function App() {
       </button>
     </div></header>
     <main class="main">
+      <${Facts} facts=${data?.facts} limits=${data?.limits || []} />
+      <${Chart} chart=${data?.chart} />
       ${data && !rows.length ? html`<div class="empty">задач нет</div>` : html`
       <table>
         <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th><th>Jira</th><th>PR</th><th>время</th><th>токены / $</th></tr></thead>
