@@ -168,6 +168,7 @@ def test_collect_tasks_reports_broken_project_and_keeps_the_rest(root):
 
 def test_build_writes_snapshot_and_load_reads_it_back(root):
     ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=1)))
     state = root / 'board'
     snap = board.build(state, NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}})
     assert snap['generated'] == NOW.isoformat(timespec='seconds')
@@ -175,3 +176,69 @@ def test_build_writes_snapshot_and_load_reads_it_back(root):
     assert board.load(state) == snap
     assert json.loads((state / 'snapshot.json').read_text())['errors'] == []
     assert board.load(root / 'nowhere') is None
+
+
+def stamp(delta):
+    return (NOW - delta).isoformat(timespec='seconds')
+
+
+def set_events(ctx, slug, at):
+    db = connect(ctx)
+    db.execute('BEGIN IMMEDIATE')
+    event(db, 'approve', slug, phase='research')
+    db.execute("UPDATE events SET at=? WHERE slug=?", (at, slug))
+    db.execute('COMMIT')
+    db.close()
+
+
+def test_project_tasks_moved_at_is_the_last_event_of_the_slug(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=3)))
+    tasks, _ = board.project_tasks('p', ctx['cwd'], NOW)
+    assert tasks[0]['moved_at'] == stamp(timedelta(days=3))
+    assert tasks[0]['open_pr'] is False
+
+
+def test_project_tasks_hides_tz_with_status_obsolete_or_done(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    (ctx['vault'] / 'tz/ab-1-task.md').write_text('---\nstatus: obsolete\n---\n# Старое\n')
+    assert board.project_tasks('p', ctx['cwd'], NOW)[0] == []
+    (ctx['vault'] / 'tz/ab-1-task.md').write_text('---\nstatus: done\n---\n# Сделано\n')
+    assert board.project_tasks('p', ctx['cwd'], NOW)[0] == []
+    (ctx['vault'] / 'tz/ab-1-task.md').write_text('---\nstatus: active\n---\n# Живое\n')
+    assert [t['slug'] for t in board.project_tasks('p', ctx['cwd'], NOW)[0]] == ['ab-1-task']
+
+
+def moving(slug, group='work', moved_at=None, open_pr=False, since=None):
+    return dict(task(slug, group, since), moved_at=moved_at, open_pr=open_pr)
+
+
+def test_fold_by_events_open_pr_and_fresh_done():
+    tasks = [moving('fresh', moved_at=stamp(timedelta(days=3))),
+             moving('stale', moved_at=stamp(timedelta(days=15))),
+             moving('never'),
+             moving('pr-only', open_pr=True),
+             moving('done-new', 'done', since=NOW - timedelta(days=3)),
+             moving('done-old', 'done', since=NOW - timedelta(days=10))]
+    shown, folded = board.fold(tasks, NOW)
+    assert [t['slug'] for t in shown] == ['fresh', 'pr-only', 'done-new']
+    assert [t['slug'] for t in folded] == ['never', 'stale']
+
+
+def test_fold_ignores_fresh_mtime_of_artifacts(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=20)))
+    for f in ('research/ab-1-task.md', 'plans/ab-1-task.md'):
+        os.utime(ctx['vault'] / f, None)
+    (ctx['vault'] / 'tz/ab-1-task.md').write_text('# ТЗ\n')
+    tasks, _ = board.project_tasks('p', ctx['cwd'], NOW)
+    shown, folded = board.fold(tasks, NOW)
+    assert shown == [] and [t['slug'] for t in folded] == ['ab-1-task']
+
+
+def test_build_snapshot_has_folded_count_for_the_page(root):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=15)))
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}})
+    assert snap['tasks'] == []
+    assert len(snap['folded']) == 1 and snap['folded'][0]['slug'] == 'ab-1-task'

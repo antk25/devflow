@@ -18,6 +18,8 @@ from .workflow import route
 STATE_DIR = Path.home() / '.claude' / 'devflow' / 'board'
 KEY_RE = re.compile(r'^[a-z][a-z0-9]+-\d+')
 DONE_DAYS = timedelta(days=7)
+MOVE_DAYS = timedelta(days=14)
+HIDDEN_TZ = ('obsolete', 'done')
 ACTIVE_LIMIT = 50
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
         'migration_required': '⏸ миграция плана', 'migration_pending': '⏸ миграция плана',
@@ -67,14 +69,16 @@ def _title(ctx, slug: str) -> str:
     return slug
 
 
-def _task(ctx, name: str, rt: dict, since: datetime | None, now: datetime) -> dict:
+def _task(ctx, name: str, rt: dict, since: datetime | None, now: datetime, moved_at: str | None) -> dict | None:
     slug = rt['slug']
+    tz = artifact(ctx['vault'], 'tz', slug)
+    if tz and tz['meta'].get('status') in HIDDEN_TZ:
+        return None
     if rt['state'] == 'running' and rt.get('plan_path'):
         steps = plan_steps(artifact(ctx['vault'], 'plans', slug))
         rt = dict(rt, total=len(steps), n=next((s['n'] for s in steps if s['id'] == rt.get('step')), None))
-    tz = artifact(ctx['vault'], 'tz', slug)
     return {'slug': slug, 'key': task_key(slug), 'project': name, 'title': _title(ctx, slug),
-            'stage': stage(rt, since, now), 'state': rt['state'],
+            'stage': stage(rt, since, now), 'state': rt['state'], 'moved_at': moved_at, 'open_pr': False,
             'links': {'tz': tz['path'] if tz else None, 'research': rt.get('research_path'), 'plan': rt.get('plan_path')}}
 
 
@@ -90,6 +94,7 @@ def project_tasks(name: str, path: Path, now: datetime) -> tuple[list[dict], str
     tasks, seen = [], set()
     try:
         db.execute('BEGIN')
+        last = dict(db.execute('SELECT slug, MAX(at) FROM events GROUP BY slug').fetchall())
         listed = active(ctx, db, ACTIVE_LIMIT)
         for folder in ('tz', 'research', 'plans'):
             for item in listed[folder]:
@@ -99,7 +104,7 @@ def project_tasks(name: str, path: Path, now: datetime) -> tuple[list[dict], str
                 seen.add(rt['slug'])
                 since = _mtime(rt.get('artifact') or rt.get('plan_path') or rt.get('research_path')) \
                     if stage(rt, None, now)['group'] == 'wait' else None
-                tasks.append(_task(ctx, name, rt, since, now))
+                tasks.append(_task(ctx, name, rt, since, now, last.get(rt['slug'])))
         cutoff = (now - DONE_DAYS).isoformat(timespec='seconds')
         finished = {}
         for row in db.execute("SELECT slug, at, data FROM events WHERE action='finish' AND at>=? ORDER BY at", (cutoff,)):
@@ -114,10 +119,10 @@ def project_tasks(name: str, path: Path, now: datetime) -> tuple[list[dict], str
                 continue
             if rt['state'] == 'completed':
                 seen.add(slug)
-                tasks.append(_task(ctx, name, rt, datetime.fromisoformat(at), now))
+                tasks.append(_task(ctx, name, rt, datetime.fromisoformat(at), now, last.get(slug)))
     finally:
         db.close()
-    return tasks, None
+    return [t for t in tasks if t], None
 
 
 def collect_tasks(registry: dict, now: datetime) -> dict:
@@ -144,12 +149,26 @@ def order(tasks: list[dict], now: datetime | None = None) -> list[dict]:
     return wait + work + done
 
 
+def moved(task: dict, now: datetime) -> bool:
+    if task.get('open_pr'):
+        return True
+    at = task.get('moved_at')
+    return bool(at) and datetime.fromisoformat(at) >= now - MOVE_DAYS
+
+
+def fold(tasks: list[dict], now: datetime) -> tuple[list[dict], list[dict]]:
+    shown = [t for t in tasks if t['stage']['group'] == 'done' or moved(t, now)]
+    folded = [t for t in tasks if t['stage']['group'] != 'done' and not moved(t, now)]
+    return order(shown, now), order(folded, now)
+
+
 def build(state: Path, now: datetime | None = None, sources: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     sources = sources or {}
     registry = sources.get('registry') or load_registry(registry_path(ROOT))
     collected = collect_tasks(registry, now)
-    snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': order(collected['tasks'], now),
+    shown, folded = fold(collected['tasks'], now)
+    snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
                 'errors': collected['errors']}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot

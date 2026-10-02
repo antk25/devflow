@@ -39,6 +39,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(null);
+  const [showFolded, setShowFolded] = useState(false);
 
   const load = async (refresh = false) => {
     setBusy(true);
@@ -56,6 +57,9 @@ function App() {
   }, []);
 
   const tasks = data?.tasks || [];
+  const folded = data?.folded || [];
+  const row = t => html`<${Row} key=${t.project + '/' + t.slug} t=${t} open=${open === t.project + '/' + t.slug}
+      toggle=${() => setOpen(open === t.project + '/' + t.slug ? null : t.project + '/' + t.slug)} />`;
   const rows = [];
   let group = null;
   for (const t of tasks) {
@@ -63,8 +67,11 @@ function App() {
       group = t.stage.group;
       rows.push(html`<tr class="sep" key=${'g' + group}><td colSpan="4">${GROUPS[group] || group}</td></tr>`);
     }
-    rows.push(html`<${Row} key=${t.project + '/' + t.slug} t=${t} open=${open === t.project + '/' + t.slug}
-      toggle=${() => setOpen(open === t.project + '/' + t.slug ? null : t.project + '/' + t.slug)} />`);
+    rows.push(row(t));
+  }
+  if (showFolded && folded.length) {
+    rows.push(html`<tr class="sep" key="gfolded"><td colSpan="4">без движения > 14 дн</td></tr>`);
+    folded.forEach(t => rows.push(row(t)));
   }
 
   return html`
@@ -78,11 +85,13 @@ function App() {
       </button>
     </div></header>
     <main class="main">
-      ${data && !tasks.length ? html`<div class="empty">задач нет</div>` : html`
+      ${data && !rows.length ? html`<div class="empty">задач нет</div>` : html`
       <table>
         <thead><tr><th>ключ</th><th>проект</th><th>название</th><th>стадия</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
+      ${folded.length ? html`<button class="fold" onClick=${() => setShowFolded(!showFolded)}>
+        ${showFolded ? '▾' : '▸'} без движения > 14 дн: ${folded.length}</button>` : null}
       ${data?.errors?.length ? html`<div class="errors">не прочитаны: ${data.errors.join('; ')}</div>` : null}
     </main>`;
 }
