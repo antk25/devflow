@@ -24,3 +24,18 @@ def test_html_report_renders(tmp_path):
                           env={**os.environ, 'HOME': str(tmp_path)}, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert 'SE-1' in out.read_text()
+
+
+def test_opus_5_5_priced_at_4_per_million_input(tmp_path):
+    root = tmp_path / 'projects'
+    (root / 'p').mkdir(parents=True)
+    entry = {'type': 'assistant', 'timestamp': '2026-10-01T09:00:00Z', 'cwd': '/home/u/projects/green',
+             'sessionId': 's1',
+             'message': {'id': 'm1', 'model': 'claude-opus-5-5',
+                         'usage': {'input_tokens': 1_000_000, 'output_tokens': 0}}}
+    (root / 'p' / 's1.jsonl').write_text(json.dumps(entry) + '\n')
+    proc = subprocess.run([sys.executable, str(SCRIPT), '--root', str(root), '--by', 'model', '--json'],
+                          env={**os.environ, 'HOME': str(tmp_path)}, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    rows = json.loads(proc.stdout)['rows']
+    assert [(r['name'], r['cost']) for r in rows] == [('claude-opus-5-5', 4.0)]

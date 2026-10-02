@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .documents import WorkflowError
+from .storage import atomic_write
 
 REQUIRED = ('claude', 'pi', 'limits')
 PHASES = ('research', 'plan', 'implement')
@@ -118,7 +119,6 @@ def agent_names(policy):
 
 
 def render_agent(policy, name, source_dir=SOURCE_DIR):
-    """agents/<phase>.md with name/model/effort from the policy and a marker as the first body line."""
     phase, _, suffix = name.partition('-')
     entry = policy['claude'][phase][suffix or 'default']
     text = (source_dir / f'{phase}.md').read_text()
@@ -133,7 +133,6 @@ def render_agent(policy, name, source_dir=SOURCE_DIR):
 
 
 def installed_stale(policy, directory=None, source_dir=SOURCE_DIR):
-    """Agent names whose installed file is missing or differs from render_agent (frontmatter and body)."""
     directory = agents_dir() if directory is None else Path(directory)
     stale = []
     for name in agent_names(policy):
@@ -149,7 +148,6 @@ def is_generated(path):
 
 
 def write_agents(policy, directory, source_dir=SOURCE_DIR):
-    """Atomically (re)write every generated agent; yields (name, 'generate'|'ok')."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     for name in agent_names(policy):
@@ -158,9 +156,7 @@ def write_agents(policy, directory, source_dir=SOURCE_DIR):
         if dst.is_file() and not dst.is_symlink() and dst.read_text() == content:
             yield name, 'ok'
             continue
-        tmp = dst.with_suffix('.md.tmp')
-        tmp.write_text(content)
-        os.replace(tmp, dst)
+        atomic_write(dst, content)
         yield name, 'generate'
 
 
@@ -185,7 +181,6 @@ def launch(phase, complexity=None, now=None):
 
 
 def main(argv):
-    """install.sh entry: names | write <dir> | stale <dir>."""
     policy = load(policy_path())
     if policy is None:
         sys.exit(f'MISS model policy {policy_path()}')
