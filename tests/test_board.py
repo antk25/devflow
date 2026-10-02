@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from devflow import board, documents
-from devflow.transcripts import Msg
+from devflow.transcripts import NO_TASK, Msg
 from devflow.documents import context
 from devflow.storage import connect, db_path, event
 
@@ -73,6 +73,7 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv('DEVFLOW_STATE_DIR', str(tmp_path / 'state'))
     monkeypatch.setattr(board, 'pull_requests', lambda run=None: [])  # no live gh in tests
     monkeypatch.setattr(board, 'messages', lambda since, until: ([], {}))  # no real transcripts in tests
+    monkeypatch.setattr(board, 'token_records', lambda key_re: [])
     return tmp_path
 
 
@@ -499,3 +500,45 @@ def test_build_key_only_row_gets_merged_pr_and_jira_status(root):
     row = next(t for t in snap['tasks'] if t['key'] == 'ZZ-7')
     assert row['stage'] == {'label': 'готово', 'group': 'done', 'since': '2026-10-01T10:00:00+00:00'}
     assert row['jira']['status'] == 'Done' and [p['number'] for p in row['prs']] == [4]
+
+
+def rec(task, day, cost, tokens=(10, 5, 0, 0)):
+    i, o, cw, cr = tokens
+    return {'task': task, 'day': day, 'cost': cost, 'input': i, 'output': o, 'cache_write': cw, 'cache_read': cr}
+
+
+def test_task_tokens_three_keys_sums_match_and_old_days_count_only_in_totals():
+    records = [rec('AB-1', '2026-10-01', 1.5, (100, 10, 20, 30)), rec('AB-1', '2026-09-01', 2.0, (1, 1, 1, 1)),
+               rec('AB-2', '2026-09-30', 0.25), rec(NO_TASK, '2026-10-02', 0.75)]
+    tokens = board.task_tokens(records, '2026-09-18')
+    assert set(tokens) == {'AB-1', 'AB-2', NO_TASK}
+    assert tokens['AB-1'] == {'cost': 3.5, 'tokens': 164, 'days': {'2026-10-01': 1.5}}
+    assert tokens['AB-2']['cost'] == 0.25 and tokens[NO_TASK]['cost'] == 0.75
+    assert sum(t['cost'] for t in tokens.values()) == sum(r['cost'] for r in records)
+
+
+def test_merge_tokens_shared_key_shows_sum_on_freshest_row_and_arrow_on_the_rest():
+    tasks = [moving('se-2186-one', moved_at=stamp(timedelta(days=5))), moving('se-2186-two', moved_at=stamp(timedelta(days=1)))]
+    for t in tasks:
+        t['key'] = 'SE-2186'
+    out = board.merge_tokens(tasks, {'SE-2186': {'cost': 4.2, 'tokens': 3_100_000, 'days': {}}})
+    assert out[0]['tokens'] == {'shared': True}
+    assert out[1]['tokens'] == {'cost': 4.2, 'tokens': 3_100_000, 'days': {}}
+
+
+def test_build_tokens_land_on_tasks_and_key_only_rows(root):
+    ctx = make_project(root, 'p', 'zz-1-task')
+    fetch = lambda key_re: [rec('ZZ-1', '2026-10-01', 1.0), rec('ZZ-7', '2026-10-01', 2.0), rec(NO_TASK, '2026-10-01', 3.0)]
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}},
+                                                     'messages': _key_only_messages(40), 'token_records': fetch})
+    by_key = {t['key']: t for t in snap['tasks'] + snap['folded']}
+    assert by_key['ZZ-1']['tokens']['cost'] == 1.0 and by_key['ZZ-7']['tokens']['cost'] == 2.0
+    assert snap['tokens_error'] is None
+
+
+def test_build_puts_tokens_error_in_snapshot(root):
+    ctx = make_project(root, 'p', 'zz-1-task')
+    def boom(key_re):
+        raise RuntimeError('scan failed')
+    snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'token_records': boom})
+    assert snap['tokens_error'] == 'scan failed' and all(t['tokens'] is None for t in snap['tasks'] + snap['folded'])

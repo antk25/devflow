@@ -1,5 +1,6 @@
 """Read-only task board: stages of every registry project in one JSON snapshot."""
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -29,6 +30,7 @@ ACTIVE_LIMIT = 50
 CACHE_TTL = timedelta(minutes=10)
 HISTORY_DAYS = timedelta(days=90)
 ROW_MIN_SECONDS = 30 * 60
+TOKEN_STATS = ROOT / 'skills' / 'tokens' / 'token-stats.py'
 PR_KEY_RE = re.compile(r'\b[A-Z][A-Z0-9]+-\d+\b')
 PR_FIELDS = 'number,title,state,repository,url,updatedAt'
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
@@ -346,11 +348,15 @@ def task_time(msgs: list, since: datetime, recent_since: datetime | None = None)
     return out
 
 
-def collect_time(tasks: list[dict], now: datetime, fetch=messages) -> dict:
+def key_pattern(tasks: list[dict]) -> re.Pattern | None:
     prefixes = sorted({t['key'].split('-')[0] for t in tasks if t.get('key')})
-    if not prefixes:
+    return re.compile(rf"\b(?:{'|'.join(prefixes)})-\d{{1,5}}\b", re.I) if prefixes else None
+
+
+def collect_time(tasks: list[dict], now: datetime, fetch=messages) -> dict:
+    key_re = key_pattern(tasks)
+    if key_re is None:
         return {}
-    key_re = re.compile(rf"\b(?:{'|'.join(prefixes)})-\d{{1,5}}\b", re.I)
     since = now - HISTORY_DAYS
     msgs, ledger = fetch(since, now)
     return task_time(tag_messages(msgs, ledger, since, key_re, project_of), since, now - MOVE_DAYS)
@@ -360,11 +366,7 @@ def merge_time(tasks: list[dict], time: dict, now: datetime) -> list[dict]:
     """Сумма по ключу — у строки с самым свежим moved_at, у остальных строк ключа «↑» (shared).
 
     Ключ без задачи в vault — строка «—», если за MOVE_DAYS по нему не меньше ROW_MIN_SECONDS; иначе это упоминание."""
-    by_key: dict[str, list[dict]] = {}
-    for t in tasks:
-        t['time'] = None
-        if t.get('key') in time:
-            by_key.setdefault(t['key'], []).append(t)
+    by_key = _by_key(tasks, 'time')
     for key, rec in time.items():
         own = by_key.get(key)
         if not own:
@@ -375,10 +377,60 @@ def merge_time(tasks: list[dict], time: dict, now: datetime) -> list[dict]:
                               'time': {'total': rec['total'], 'days': rec['days']},
                               'links': {'tz': None, 'research': None, 'plan': None}})
             continue
-        owner = max(own, key=lambda t: t.get('moved_at') or '')
+        _share(own, 'time', {'total': rec['total'], 'days': rec['days']})
         for t in own:
             t['moved_at'] = max(t.get('moved_at') or '', rec['last'])
-            t['time'] = {'total': rec['total'], 'days': rec['days']} if t is owner else {'shared': True}
+    return tasks
+
+
+def _by_key(tasks: list[dict], field: str) -> dict[str, list[dict]]:
+    by_key: dict[str, list[dict]] = {}
+    for t in tasks:
+        t[field] = None
+        if t.get('key'):
+            by_key.setdefault(t['key'], []).append(t)
+    return by_key
+
+
+def _share(rows: list[dict], field: str, value: dict) -> None:
+    """Значение — у строки с самым свежим moved_at, у остальных строк того же ключа «↑» (shared)."""
+    owner = max(rows, key=lambda t: t.get('moved_at') or '')
+    for t in rows:
+        t[field] = value if t is owner else {'shared': True}
+
+
+def token_records(key_re: re.Pattern) -> list[dict]:
+    """Записи token-stats.py по всем транскриптам; скилл загружается по пути, пакетом он не является."""
+    spec = importlib.util.spec_from_file_location('token_stats', TOKEN_STATS)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.scan(PROJECTS_ROOT, key_re, load_ledger())
+
+
+def task_tokens(records: list[dict], since_day: str) -> dict:
+    """{key: {cost, tokens, days: {day: cost}}}; days — только с since_day, cost и tokens — за всё время."""
+    out: dict[str, dict] = {}
+    for r in records:
+        rec = out.setdefault(r['task'], {'cost': 0.0, 'tokens': 0, 'days': {}})
+        rec['cost'] += r['cost']
+        rec['tokens'] += r['input'] + r['output'] + r['cache_write'] + r['cache_read']
+        if r['day'] >= since_day:
+            rec['days'][r['day']] = rec['days'].get(r['day'], 0.0) + r['cost']
+    return out
+
+
+def collect_tokens(tasks: list[dict], now: datetime, fetch=token_records) -> dict:
+    key_re = key_pattern(tasks)
+    if key_re is None:
+        return {}
+    return task_tokens(fetch(key_re), (now - MOVE_DAYS).strftime('%Y-%m-%d'))
+
+
+def merge_tokens(tasks: list[dict], tokens: dict) -> list[dict]:
+    by_key = _by_key(tasks, 'tokens')
+    for key, rec in tokens.items():
+        if key in by_key:
+            _share(by_key[key], 'tokens', rec)
     return tasks
 
 
@@ -392,6 +444,11 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     except Exception as exc:
         time, time_error = {}, str(exc) or exc.__class__.__name__
     tasks = merge_time(collected['tasks'], time, now)
+    try:
+        tokens, tokens_error = collect_tokens(tasks, now, sources.get('token_records') or token_records), None
+    except Exception as exc:
+        tokens, tokens_error = {}, str(exc) or exc.__class__.__name__
+    tasks = merge_tokens(tasks, tokens)
     prs, prs_error = _external(state, 'prs', now, sources.get('pull_requests') or pull_requests, [])
     tasks = merge_prs(tasks, prs)
     keys = {t['key'] for t in tasks if t.get('key')}
@@ -399,7 +456,8 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     statuses, jira_error = _external(state, 'jira', now, lambda: fetch_jira(keys), {})
     shown, folded = fold(merge_jira(tasks, statuses), now)
     snapshot = {'generated': now.isoformat(timespec='seconds'), 'tasks': shown, 'folded': folded,
-                'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error}
+                'errors': collected['errors'], 'prs_error': prs_error, 'jira_error': jira_error, 'time_error': time_error,
+                'tokens_error': tokens_error}
     atomic_write(Path(state) / 'snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=1) + '\n')
     return snapshot
 
