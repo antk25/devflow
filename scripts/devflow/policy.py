@@ -161,6 +161,13 @@ def conflicts(policy, directory, source_dir=SOURCE_DIR):
     return found
 
 
+def orphans(policy, directory):
+    """Marked files in `directory` for a known phase whose name the policy no longer produces; foreign files are never listed."""
+    names = set(agent_names(policy))
+    return sorted(p.stem for p in Path(directory).glob('*.md')
+                  if p.stem.partition('-')[0] in PHASES and p.stem not in names and is_generated(p))
+
+
 def write_agents(policy, directory, source_dir=SOURCE_DIR):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -172,6 +179,9 @@ def write_agents(policy, directory, source_dir=SOURCE_DIR):
             continue
         atomic_write(dst, content)
         yield name, 'generate'
+    for name in orphans(policy, directory):
+        (directory / f'{name}.md').unlink()
+        yield name, 'remove'
 
 
 def launch(phase, complexity=None, now=None):
@@ -207,6 +217,8 @@ def main(argv):
     elif command == 'stale':
         for name in installed_stale(policy, args[0]):
             print(f'STALE agent {name}')
+        for name in orphans(policy, args[0]):
+            print(f'ORPHAN agent {name}')
     elif command == 'conflicts':
         for name in conflicts(policy, args[0]):
             print(f'{Path(args[0]) / name}.md')

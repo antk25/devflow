@@ -147,6 +147,18 @@ def test_conflicts_only_foreign_files_under_policy_names(example, tmp_path):
     assert policy.conflicts(example, d) == ['research']
 
 
+def test_orphans_are_marked_files_of_a_phase_outside_policy_names(example, tmp_path):
+    d = tmp_path / 'agents'
+    d.mkdir()
+    (d / 'plan-high.md').write_text(policy.render_agent(example, 'plan-high'))
+    (d / 'plan-old.md').write_text(policy.render_agent(example, 'plan-high'))
+    (d / 'plan-manual.md').write_text('mine\n')
+    (d / 'mine.md').write_text(policy.render_agent(example, 'plan-high'))
+    assert policy.orphans(example, d) == ['plan-old']
+    assert dict(policy.write_agents(example, d))['plan-old'] == 'remove'
+    assert not (d / 'plan-old.md').exists() and (d / 'plan-manual.md').exists() and (d / 'mine.md').exists()
+
+
 def test_render_agent_replaces_frontmatter_and_keeps_body(example):
     source = (policy.SOURCE_DIR / 'research.md').read_text()
     body = source.split('---\n', 2)[2]

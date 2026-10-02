@@ -138,6 +138,31 @@ def test_check_reports_missing_agent(home):
     assert r.returncode == 1 and 'STALE agent plan-high' in r.stdout
 
 
+def test_orphan_is_reported_by_check_and_removed_by_install(home):
+    assert install(home).returncode == 0
+    p = home / 'model-policy.json'
+    data = json.loads(p.read_text())
+    del data['claude']['plan']['high']
+    p.write_text(json.dumps(data))
+    r = install(home, '--check')
+    assert r.returncode == 1 and 'ORPHAN agent plan-high' in r.stdout, r.stdout
+    assert 'ok ' + str(agents(home) / 'plan-high.md') not in r.stdout
+    r = install(home)
+    assert r.returncode == 0 and 'remove ' + str(agents(home) / 'plan-high.md') in r.stdout, r.stdout
+    assert not (agents(home) / 'plan-high.md').exists()
+    r = install(home, '--check')
+    assert r.returncode == 0 and 'ORPHAN' not in r.stdout, r.stdout
+
+
+def test_install_keeps_unmarked_and_foreign_files(home):
+    assert install(home).returncode == 0
+    (agents(home) / 'plan-old.md').write_text('mine\n')
+    (agents(home) / 'mine.md').write_text('keep\n')
+    r = install(home)
+    assert r.returncode == 0 and 'remove ' not in r.stdout, r.stdout
+    assert (agents(home) / 'plan-old.md').read_text() == 'mine\n' and (agents(home) / 'mine.md').read_text() == 'keep\n'
+
+
 def test_remove_deletes_only_generated_files(home):
     assert install(home).returncode == 0
     (agents(home) / 'mine.md').write_text('keep\n')
