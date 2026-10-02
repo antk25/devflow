@@ -582,33 +582,31 @@ def test_build_puts_tokens_error_in_snapshot(root):
     assert snap['tokens_error'] == 'scan failed' and all(t['tokens'] is None for t in snap['tasks'] + snap['folded'])
 
 
-def _tokens(costs: dict[str, dict[str, float]]) -> dict:
-    return {k: {'cost': sum(d.values()), 'tokens': 0, 'days': d} for k, d in costs.items()}
+def _tokens(spent: dict[str, dict[str, int]]) -> dict:
+    return {k: {'cost': 0.0, 'tokens': sum(d.values()), 'days': {}, 'day_tokens': d} for k, d in spent.items()}
 
 
-def test_chart_seven_tasks_give_top_five_other_and_no_task_over_14_days():
-    tokens = _tokens({f'AB-{i}': {'2026-10-01': float(i)} for i in range(1, 8)} | {NO_TASK: {'2026-09-19': 0.5, '2026-09-18': 9.0}})
+def test_chart_has_every_task_spent_in_14_days_and_no_task_last():
+    tokens = _tokens({f'AB-{i}': {'2026-10-01': i} for i in range(1, 8)} | {'AB-9': {'2026-09-18': 50}}
+                     | {NO_TASK: {'2026-09-19': 5, '2026-09-18': 90}})
     ch = board.chart(tokens, NOW)
     assert len(ch['days']) == 14 and ch['days'][0] == '2026-09-19' and ch['days'][-1] == '2026-10-02'
-    assert [s['name'] for s in ch['series']] == ['AB-7', 'AB-6', 'AB-5', 'AB-4', 'AB-3', 'прочее', NO_TASK]
+    assert [s['name'] for s in ch['series']] == [f'AB-{i}' for i in range(7, 0, -1)] + [NO_TASK]  # AB-9 — вне окна
     day = ch['days'].index('2026-10-01')
-    assert ch['series'][0]['values'][day] == 7.0 and ch['series'][5]['values'][day] == 3.0
-    assert ch['series'][6]['values'] == [0.5] + [0.0] * 13  # 09-18 вне окна
-    assert all(s['tokens'] == [0] * 14 for s in ch['series'])
-    assert sum(sum(s['values']) for s in ch['series']) == 28.5
+    assert ch['series'][0]['tokens'][day] == 7 and ch['series'][6]['tokens'][day] == 1
+    assert ch['series'][-1]['tokens'] == [5] + [0] * 13
 
 
-def test_chart_without_leftover_tasks_has_no_other_series():
-    ch = board.chart(_tokens({'AB-1': {'2026-10-02': 1.0}}), NOW)
-    assert [s['name'] for s in ch['series']] == ['AB-1', NO_TASK]
+def test_chart_without_tokens_still_has_no_task_series():
+    assert board.chart({}, NOW)['series'] == [{'name': NO_TASK, 'tokens': [0] * 14}]
 
 
-def test_facts_week_prev_week_and_no_task_share():
-    tokens = _tokens({'AB-1': {'2026-10-02': 3.0, '2026-09-26': 1.0, '2026-09-25': 4.0, '2026-09-18': 100.0},
-                      NO_TASK: {'2026-09-30': 1.0, '2026-09-20': 2.0}})
-    tokens['AB-1']['day_tokens'] = {'2026-10-02': 300, '2026-09-25': 400}
-    assert board.facts(tokens, NOW) == {'week': 5.0, 'prev_week': 6.0, 'no_task_pct': 20, 'week_tokens': 300}  # неделя: 26.09–02.10
-    assert board.facts({}, NOW) == {'week': 0.0, 'prev_week': 0.0, 'no_task_pct': 0, 'week_tokens': 0}
+def test_facts_count_tokens_week_prev_week_and_no_task_share():
+    tokens = _tokens({'AB-1': {'2026-10-02': 300, '2026-09-26': 100, '2026-09-25': 400, '2026-09-18': 10000},
+                      NO_TASK: {'2026-09-30': 100, '2026-09-20': 200}})
+    tokens['AB-1']['days'] = {'2026-10-02': 3.0, '2026-09-25': 4.0}
+    assert board.facts(tokens, NOW) == {'week_tokens': 500, 'prev_week_tokens': 600, 'no_task_pct': 20, 'week': 3.0}  # неделя: 26.09–02.10
+    assert board.facts({}, NOW) == {'week_tokens': 0, 'prev_week_tokens': 0, 'no_task_pct': 0, 'week': 0.0}
 
 
 def test_limits_54_percent_gives_5_4_cells_and_missing_file_gives_empty(tmp_path):
@@ -627,6 +625,6 @@ def test_build_snapshot_has_chart_facts_and_limits(root):
     fetch = lambda key_re: [rec('ZZ-1', '2026-10-01', 1.0), rec(NO_TASK, '2026-10-01', 3.0)]
     snap = board.build(root / 'board', NOW, sources={'registry': {'projects': {'p': {'path': str(ctx['cwd'])}}}, 'token_records': fetch})
     assert len(snap['chart']['days']) == 14 and [s['name'] for s in snap['chart']['series']] == ['ZZ-1', NO_TASK]
-    assert snap['facts'] == {'week': 4.0, 'prev_week': 0.0, 'no_task_pct': 75, 'week_tokens': 30} and snap['limits'] == []
+    assert snap['facts'] == {'week_tokens': 30, 'prev_week_tokens': 0, 'no_task_pct': 50, 'week': 4.0} and snap['limits'] == []
     day = snap['chart']['days'].index('2026-10-01')
     assert [s['tokens'][day] for s in snap['chart']['series']] == [15, 15]

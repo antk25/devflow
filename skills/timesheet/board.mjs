@@ -10,9 +10,9 @@ const GROUPS = [
   ['folded', 'Без движения больше 14 дней', '○'],
 ];
 const LINKS = [['tz', 'ТЗ'], ['research', 'Research'], ['plan', 'План']];
-const PALETTE = ['#1084d0', '#c47a00', '#20a060', '#a050d0', '#d04848'];
-const OTHER = 'прочее', NO_TASK = '(без задачи)';
-const HATCH = 'repeating-linear-gradient(45deg,#666 0 1.5px,#fff 1.5px 4px)';
+const NO_TASK = '(без задачи)';
+const TOTAL = '#1084d0', NONE = '#c47a00';
+const TIP_ROWS = 12;
 const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 
 const pad = n => String(n).padStart(2, '0');
@@ -31,7 +31,6 @@ const until = (epoch, now) => {
 };
 const dur = sec => sec < 60 ? '<1м' : sec < 3600 ? `${Math.round(sec / 60)}м` : `${Math.floor(sec / 3600)}ч ${pad(Math.round(sec % 3600 / 60))}м`;
 const usd = c => `$${c.toFixed(2)}`;
-const usdShort = c => !c ? '$0' : c >= 100 ? `$${Math.round(c)}` : c >= 10 ? `$${trim(c.toFixed(1))}` : `$${c.toFixed(2)}`;
 const trim = s => s.replace(/\.0+$/, '');
 const tok = n => n < 1e3 ? String(Math.round(n)) : n < 1e6 ? `${Math.round(n / 1e3)}K` : n < 1e9 ? `${trim((n / 1e6).toFixed(1))}M` : `${trim((n / 1e9).toFixed(2))}B`;
 const JIRA = [[/done|released|closed|archived|resolved|готово/i, 'j-done'], [/progress|review|test|работ/i, 'j-prog']];
@@ -42,8 +41,8 @@ const dayLabel = day => {
   return `${WEEKDAYS[d.getUTCDay()]}, ${day.slice(8)}.${day.slice(5, 7)}`;
 };
 const weekend = day => [0, 6].includes(new Date(day + 'T00:00:00Z').getUTCDay());
-const color = (name, i) => name === NO_TASK ? null : name === OTHER ? '#a0a0a0' : PALETTE[i % PALETTE.length];
-const swatch = (name, i) => name === NO_TASK ? HATCH : color(name, i);
+const lineKey = (stroke, dash = '') => html`<svg class="key" width="18" height="8" aria-hidden="true">
+  <line x1="0" x2="18" y1="4" y2="4" stroke=${stroke} stroke-width="2" stroke-dasharray=${dash} /></svg>`;
 
 const id = t => t.project + '/' + t.slug;
 const title = t => {
@@ -65,8 +64,7 @@ const COLUMNS = [
   { id: 'jira', label: 'Jira', width: '86px', sort: t => t.jira?.status || '' },
   { id: 'pr', label: 'PR', width: '112px', sort: t => (t.prs || []).length, desc: true },
   { id: 'time', label: 'Время', width: '66px', r: true, sort: t => t.time?.total || 0, desc: true },
-  { id: 'cost', label: '$', width: '118px', r: true, sort: t => t.tokens?.cost || 0, desc: true },
-  { id: 'tokens', label: 'Токены', width: '62px', r: true, sort: t => t.tokens?.tokens || 0, desc: true },
+  { id: 'tokens', label: 'Токены', width: '118px', r: true, sort: t => t.tokens?.tokens || 0, desc: true },
 ];
 
 const store = {
@@ -98,91 +96,84 @@ const niceMax = v => {
   return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v);
 };
 
-function Chart({ chart, field, fmt, name }) {
+function Chart({ chart }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState(null);
   const { days, series } = chart;
-  const totals = days.map((_, d) => series.reduce((a, s) => a + (s[field]?.[d] || 0), 0));
+  const tasks = series.filter(s => s.name !== NO_TASK);
+  const none = series.find(s => s.name === NO_TASK)?.tokens || days.map(() => 0);
+  const totals = days.map((_, d) => series.reduce((a, s) => a + (s.tokens[d] || 0), 0));
   const top = niceMax(Math.max(...totals));
-  const H = 170, L = 48, B = 20, T = 16, R = 4;
-  const plotW = Math.max(0, width - 12 - L - R), plotH = H - B - T;
-  const col = plotW / days.length, bar = Math.min(30, col * 0.64);
+  const H = 190, L = 48, B = 20, T = 18, R = 10;
+  const plotW = Math.max(0, width - L - R), plotH = H - B - T;
+  const col = plotW / days.length;
+  const x = d => L + d * col + col / 2;
   const y = v => T + plotH - v / top * plotH;
+  const path = vals => vals.map((v, d) => `${d ? 'L' : 'M'}${x(d)},${y(v)}`).join('');
   const peak = totals.indexOf(Math.max(...totals));
-  const hatch = `hatch-${field}`;
+  const last = days.length - 1;
+  const name = 'Токены по дням, 14 дней (UTC)';
 
-  const columns = width ? days.map((day, d) => {
-    const x = L + d * col;
-    let acc = 0;
-    const parts = series.map((s, i) => {
-      const v = s[field]?.[d] || 0;
-      if (!v) return null;
-      const y1 = y(acc + v), h = y(acc) - y1;
-      acc += v;
-      return html`<rect x=${x + (col - bar) / 2} y=${y1} width=${bar} height=${Math.max(0, h - (h > 2 ? 1 : 0))}
-        fill=${color(s.name, i) || `url(#${hatch})`} />`;
-    });
-    const label = d === 0 || day.slice(8) === '01' ? `${day.slice(8)}.${day.slice(5, 7)}` : String(Number(day.slice(8)));
-    return html`<g key=${day}>
-      ${weekend(day) && html`<rect x=${x} y=${T} width=${col} height=${plotH} fill="var(--weekend)" />`}
-      ${parts}
-      ${d === peak && totals[d] > 0 && html`<text x=${x + col / 2} y=${y(totals[d]) - 4} text-anchor="middle">${fmt(totals[d])}</text>`}
-      <text x=${x + col / 2} y=${H - 5} text-anchor="middle" class=${d === days.length - 1 ? 'today' : ''}>${label}</text>
-      <rect class=${'hit' + (hover === d ? ' on' : '')} x=${x} y=${T} width=${col} height=${plotH + B} tabindex="0"
-        aria-label=${`${dayLabel(day)}: ${fmt(totals[d])}`}
-        onMouseEnter=${() => setHover(d)} onMouseLeave=${() => setHover(null)}
-        onFocus=${() => setHover(d)} onBlur=${() => setHover(null)} />
-    </g>`;
-  }) : null;
-
-  const grid = width ? [0, top / 2, top].map(v => html`<g key=${v}>
-    <line x1=${L} x2=${width - 12 - R} y1=${y(v)} y2=${y(v)} stroke=${v ? 'var(--grid)' : 'var(--shadow)'} stroke-dasharray=${v ? '2 2' : ''} />
-    <text x=${L - 6} y=${y(v) + 4} text-anchor="end">${fmt(v)}</text></g>`) : null;
+  const plot = width ? html`
+    ${days.map((day, d) => weekend(day) && html`<rect key=${'w' + day} x=${L + d * col} y=${T} width=${col} height=${plotH} fill="var(--weekend)" />`)}
+    ${[top / 2, top].map(v => html`<line key=${'g' + v} x1=${L} x2=${L + plotW} y1=${y(v)} y2=${y(v)} stroke="var(--grid)" />`)}
+    <line x1=${L} x2=${L + plotW} y1=${y(0)} y2=${y(0)} stroke="var(--shadow)" />
+    ${[0, top / 2, top].map(v => html`<text key=${'t' + v} x=${L - 6} y=${y(v) + 4} text-anchor="end">${tok(v)}</text>`)}
+    ${days.map((day, d) => html`<text key=${'d' + day} x=${x(d)} y=${H - 5} text-anchor="middle" class=${d === last ? 'today' : ''}>
+      ${d === 0 || day.slice(8) === '01' ? `${day.slice(8)}.${day.slice(5, 7)}` : String(Number(day.slice(8)))}</text>`)}
+    <path d=${`${path(totals)}L${x(last)},${y(0)}L${x(0)},${y(0)}Z`} fill=${TOTAL} fill-opacity="0.1" />
+    <path d=${path(none)} fill="none" stroke=${NONE} stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" />
+    <path d=${path(totals)} fill="none" stroke=${TOTAL} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+    ${totals.map((v, d) => html`<circle key=${'c' + d} cx=${x(d)} cy=${y(v)} r="4" fill=${TOTAL} stroke="var(--field)" stroke-width="2" />`)}
+    ${totals[peak] > 0 && html`<text x=${x(peak)} y=${y(totals[peak]) - 9} text-anchor=${peak === last ? 'end' : 'middle'} class="peak">${tok(totals[peak])}</text>`}
+    ${hover != null && html`<g>
+      <line x1=${x(hover)} x2=${x(hover)} y1=${T} y2=${T + plotH} stroke="var(--ink-2)" />
+      <circle cx=${x(hover)} cy=${y(none[hover] || 0)} r="4" fill=${NONE} stroke="var(--field)" stroke-width="2" />
+      <circle cx=${x(hover)} cy=${y(totals[hover])} r="5" fill=${TOTAL} stroke="var(--field)" stroke-width="2" /></g>`}
+    ${days.map((day, d) => html`<rect key=${'h' + day} class="hit" x=${L + d * col} y=${T} width=${col} height=${plotH + B} tabindex="0"
+      aria-label=${`${dayLabel(day)}: ${tok(totals[d])}`}
+      onMouseEnter=${() => setHover(d)} onMouseLeave=${() => setHover(null)}
+      onFocus=${() => setHover(d)} onBlur=${() => setHover(null)} />`)}` : null;
 
   let tip = null;
   if (hover != null && width) {
-    const rows = series.map((s, i) => ({ s, i, v: s[field]?.[hover] || 0 })).filter(r => r.v > 0).sort((a, b) => b.v - a.v);
-    const x = L + hover * col + col / 2 + 6;
-    const right = x > width * 0.6;
-    tip = html`<div class="tip" style=${right ? `right:${width - x + col + 6}px;top:8px` : `left:${x + col / 2}px;top:8px`}>
-      <b>${dayLabel(chart.days[hover])}</b>
-      <table>${rows.map(r => html`<tr><td><i class="sw" style=${`display:inline-block;width:9px;height:9px;margin-right:5px;border:1px solid #000;background:${swatch(r.s.name, r.i)}`}></i>${r.s.name}</td><td class="num">${fmt(r.v)}</td></tr>`)}
-        <tr class="total"><td>Всего</td><td class="num">${fmt(totals[hover])}</td></tr></table>
+    const total = totals[hover];
+    const pct = v => !total ? '' : v / total < 0.005 ? '<1%' : `${Math.round(v / total * 100)}%`;
+    const rows = tasks.map(s => [s.name, s.tokens[hover] || 0]).filter(([, v]) => v).sort((a, b) => b[1] - a[1]);
+    const rest = rows.slice(TIP_ROWS), restSum = rest.reduce((a, [, v]) => a + v, 0);
+    const px = x(hover) + 6;
+    tip = html`<div class="tip" style=${px > width * 0.55 ? `right:${width + 12 - px + 12}px;top:8px` : `left:${px + 12}px;top:8px`}>
+      <b>${dayLabel(days[hover])}</b>
+      <table>
+        ${rows.slice(0, TIP_ROWS).map(([k, v]) => html`<tr><td>${k}</td><td class="num">${tok(v)}</td><td class="num muted">${pct(v)}</td></tr>`)}
+        ${rest.length > 0 && html`<tr><td class="muted">ещё задач: ${rest.length}</td><td class="num">${tok(restSum)}</td><td class="num muted">${pct(restSum)}</td></tr>`}
+        ${none[hover] > 0 && html`<tr><td>${lineKey(NONE, '4 3')}без задачи</td><td class="num">${tok(none[hover])}</td><td class="num muted">${pct(none[hover])}</td></tr>`}
+        <tr class="total"><td>${lineKey(TOTAL)}Всего</td><td class="num">${tok(total)}</td><td></td></tr>
+      </table>
     </div>`;
   }
 
-  return html`<fieldset><legend>${name}</legend>
+  return html`<fieldset class="chart"><legend>${name}</legend>
     <div class="plot" ref=${ref}>
-      <svg height=${H} role="img" aria-label=${name}>
-        <defs><pattern id=${hatch} width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <rect width="4" height="4" fill="#fff" /><rect width="1.5" height="4" fill="#666" /></pattern></defs>
-        ${grid}${columns}
-      </svg>
+      <svg height=${H} role="img" aria-label=${name}>${plot}</svg>
       ${tip}
     </div>
+    <div class="legend"><span>${lineKey(TOTAL)}всего</span>
+      <span>${lineKey(NONE, '4 3')}без задачи — сессии, где не встретился ключ задачи</span>
+      <span class="muted">наведите на день — расход по каждой задаче</span></div>
   </fieldset>`;
-}
-
-function Charts({ chart }) {
-  if (!chart?.days?.length) return null;
-  return html`
-    <div class="charts">
-      <${Chart} chart=${chart} field="values" fmt=${usdShort} name="Расход $ по дням, 14 дней (UTC)" />
-      <${Chart} chart=${chart} field="tokens" fmt=${tok} name="Токены по дням, 14 дней (UTC)" />
-    </div>
-    <div class="legend">${chart.series.map((s, i) => html`<span><i style=${`background:${swatch(s.name, i)}`}></i>${s.name}</span>`)}</div>`;
 }
 
 function Panels({ data, counts, jump, now }) {
   const f = data.facts;
-  const trend = f && f.prev_week ? Math.round((f.week - f.prev_week) / f.prev_week * 100) : null;
+  const trend = f && f.prev_week_tokens ? Math.round((f.week_tokens - f.prev_week_tokens) / f.prev_week_tokens * 100) : null;
   return html`<div class="panels">
-    ${f && html`<fieldset><legend>Расход за 7 дней</legend>
-      <div class="big num">${usd(f.week)}</div>
-      ${trend != null && html`<div>${trend > 0 ? '▲' : '▼'} ${Math.abs(trend)}% к прошлой неделе <span class="muted num">(${usd(f.prev_week)})</span></div>`}
+    ${f && html`<fieldset><legend>Токены за 7 дней</legend>
+      <div class="big num">${tok(f.week_tokens)}</div>
+      ${trend != null && html`<div>${trend > 0 ? '▲' : '▼'} ${Math.abs(trend)}% к прошлой неделе <span class="muted num">(${tok(f.prev_week_tokens)})</span></div>`}
       <div class="kv">
-        <span class="muted">Токены</span><span class="num">${tok(f.week_tokens || 0)}</span>
         <span class="muted">Без задачи</span><span class="num">${f.no_task_pct}%</span>
+        <span class="muted">В долларах</span><span class="num muted">${usd(f.week)}</span>
       </div>
     </fieldset>`}
     <fieldset><legend>Лимиты Claude</legend>
@@ -224,7 +215,7 @@ function PrCell({ t }) {
       ${open.length ? '+' : '✔︎ '}${merged.length === 1 && !open.length ? `#${merged[0].number} слит` : `${merged.length} слито`}</span>` : ''}`;
 }
 
-function Row({ t, open, toggle, days, maxCost }) {
+function Row({ t, open, toggle, days, maxTokens }) {
   const st = stageParts(t);
   const name = title(t);
   const age = st.age == null ? '' : st.age >= 7 ? 'bad' : st.age >= 3 ? 'warn' : '';
@@ -237,7 +228,7 @@ function Row({ t, open, toggle, days, maxCost }) {
       rows[rows.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     }
   };
-  const cost = t.tokens && !t.tokens.shared ? t.tokens.cost : null;
+  const spent = t.tokens && !t.tokens.shared ? t.tokens.tokens : null;
   const links = LINKS.filter(([k]) => t.links?.[k]);
   return html`
     <tr class=${'row' + (open ? ' sel' : '') + (t.folded ? ' old' : '')} tabindex="0" onClick=${toggle} onKeyDown=${onKey} aria-expanded=${open}>
@@ -251,8 +242,8 @@ function Row({ t, open, toggle, days, maxCost }) {
       <td><${PrCell} t=${t} /></td>
       <td class="r num">${!t.time ? '' : t.time.shared ? html`<span class="muted" title="время у другой строки этого ключа">↑</span>` : dur(t.time.total)}</td>
       <td class="r num">${!t.tokens ? '' : t.tokens.shared ? html`<span class="muted" title="расход у другой строки этого ключа">↑</span>`
-        : html`<div class="bar" style=${`--w:${maxCost ? Math.round(cost / maxCost * 100) : 0}%`} title="доля от самой дорогой задачи в списке"><i></i><span>${usd(cost)}</span></div>`}</td>
-      <td class="r num">${t.tokens && !t.tokens.shared ? tok(t.tokens.tokens) : ''}</td>
+        : html`<div class="bar" style=${`--w:${maxTokens ? Math.round(spent / maxTokens * 100) : 0}%`}
+            title=${`${usd(t.tokens.cost)} · полоса — доля от самой затратной задачи в списке`}><i></i><span>${tok(spent)}</span></div>`}</td>
     </tr>
     ${open && html`<tr class="detail"><td colSpan=${COLUMNS.length}><div class="dgrid">
       <div>
@@ -275,8 +266,8 @@ function Row({ t, open, toggle, days, maxCost }) {
         ${t.time?.shared ? html`<span class="muted">у другой строки этого ключа ↑</span>` : html`<${Days} days=${days} values=${t.time?.days || {}} fmt=${dur} />`}
       </div>
       <div>
-        <h4>$ по дням</h4>
-        ${t.tokens?.shared ? html`<span class="muted">у другой строки этого ключа ↑</span>` : html`<${Days} days=${days} values=${t.tokens?.days || {}} fmt=${usd} />`}
+        <h4>Токены по дням</h4>
+        ${t.tokens?.shared ? html`<span class="muted">у другой строки этого ключа ↑</span>` : html`<${Days} days=${days} values=${t.tokens?.day_tokens || {}} fmt=${tok} />`}
       </div>
     </div></td></tr>`}`;
 }
@@ -326,7 +317,7 @@ function App() {
     && (!q || [t.key, t.title, t.project, t.slug, t.jira?.status].join(' ').toLowerCase().includes(q)));
   const groupOf = t => t.folded ? 'folded' : t.stage.group;
   const counts = Object.fromEntries(GROUPS.map(([g]) => [g, visible.filter(t => groupOf(t) === g).length]));
-  const maxCost = Math.max(0, ...visible.map(t => (t.tokens && !t.tokens.shared ? t.tokens.cost : 0)));
+  const maxTokens = Math.max(0, ...visible.map(t => (t.tokens && !t.tokens.shared ? t.tokens.tokens : 0)));
   const days = data?.chart?.days || [];
 
   const toggleGroup = g => setCollapsed(c => { const n = new Set(c); n.has(g) ? n.delete(g) : n.add(g); return n; });
@@ -355,7 +346,7 @@ function App() {
       <td colSpan=${COLUMNS.length}><span class="tw">${shut ? '+' : '−'}</span> ${icon} ${label} <span class="muted">(${list.length})</span></td></tr>`);
     if (shut) continue;
     for (const t of sorted(list)) {
-      rows.push(html`<${Row} key=${id(t)} t=${t} open=${open === id(t)} days=${days} maxCost=${maxCost}
+      rows.push(html`<${Row} key=${id(t)} t=${t} open=${open === id(t)} days=${days} maxTokens=${maxTokens}
         toggle=${() => setOpen(open === id(t) ? null : id(t))} />`);
     }
   }
@@ -390,7 +381,7 @@ function App() {
     </div>
     <div class="content">
       ${data && charts && html`<${Panels} data=${data} counts=${counts} jump=${jump} now=${now} />`}
-      ${data && charts && html`<${Charts} chart=${data.chart} />`}
+      ${data && charts && data.chart?.days?.length > 0 && html`<${Chart} chart=${data.chart} />`}
       <div class="listview">
         ${data && !rows.length ? html`<div class="empty">${q || project ? 'ничего не найдено' : 'задач нет'}</div>` : html`
         <table class="list">

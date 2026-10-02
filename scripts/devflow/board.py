@@ -39,8 +39,6 @@ WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ р�
         'plan_outdated': '⏸ план устарел', 'legacy_review': '⏸ legacy'}
 GROUPS = ('wait', 'work', 'done')
 CHART_DAYS = 14
-CHART_TOP = 5
-OTHER = 'прочее'
 LIMIT_WINDOWS = {'five_hour': '5 ч', 'seven_day': '7 дн'}
 LIMITS_MAX_AGE_MIN = 10
 
@@ -456,31 +454,26 @@ def _cost(rec: dict, days: list[str]) -> float:
     return sum(rec['days'].get(d, 0.0) for d in days)
 
 
+def _spent(rec: dict, days: list[str]) -> int:
+    return sum(rec.get('day_tokens', {}).get(d, 0) for d in days)
+
+
 def chart(tokens: dict, now: datetime) -> dict:
-    """14 дней × ряды {name, values ($), tokens}: CHART_TOP самых дорогих задач за период, «прочее» при остатке,
-    «без задачи» всегда последним."""
+    """14 дней × ряды {name, tokens}: каждая задача с расходом за период, по убыванию токенов; «без задачи» всегда последним."""
     days = _day_range(now, CHART_DAYS)
-    tasks = sorted(((k, r) for k, r in tokens.items() if k != NO_TASK), key=lambda kr: -_cost(kr[1], days))
-
-    def series(name: str, recs: list[dict]) -> dict:
-        return {'name': name, 'values': [round(sum(r['days'].get(d, 0.0) for r in recs), 4) for d in days],
-                'tokens': [sum(r.get('day_tokens', {}).get(d, 0) for r in recs) for d in days]}
-
-    out = [series(k, [r]) for k, r in tasks[:CHART_TOP]]
-    if tasks[CHART_TOP:]:
-        out.append(series(OTHER, [r for _, r in tasks[CHART_TOP:]]))
-    out.append(series(NO_TASK, [tokens.get(NO_TASK, {'days': {}})]))
-    return {'days': days, 'series': out}
+    ranked = sorted(((k, r) for k, r in tokens.items() if k != NO_TASK and _spent(r, days)), key=lambda kr: -_spent(kr[1], days))
+    return {'days': days, 'series': [{'name': k, 'tokens': [r.get('day_tokens', {}).get(d, 0) for d in days]}
+                                     for k, r in [*ranked, (NO_TASK, tokens.get(NO_TASK, {}))]]}
 
 
 def facts(tokens: dict, now: datetime) -> dict:
-    """{week, prev_week, no_task_pct, week_tokens}: $ за 7 дней, за 7 дней до того, доля «без задачи» и токены за неделю."""
+    """{week_tokens, prev_week_tokens, no_task_pct, week}: токены за 7 дней и за 7 дней до того, доля «без задачи» по токенам, $ за неделю."""
     week, prev = _day_range(now, 7), _day_range(now, 7, 7)
-    total = sum(_cost(r, week) for r in tokens.values())
-    none = _cost(tokens.get(NO_TASK, {'days': {}}), week)
-    return {'week': round(total, 2), 'prev_week': round(sum(_cost(r, prev) for r in tokens.values()), 2),
+    total = sum(_spent(r, week) for r in tokens.values())
+    none = _spent(tokens.get(NO_TASK, {}), week)
+    return {'week_tokens': total, 'prev_week_tokens': sum(_spent(r, prev) for r in tokens.values()),
             'no_task_pct': round(none / total * 100) if total else 0,
-            'week_tokens': sum(r.get('day_tokens', {}).get(d, 0) for r in tokens.values() for d in week)}
+            'week': round(sum(_cost(r, week) for r in tokens.values()), 2)}
 
 
 def limits(now: datetime, path: Path | None = None) -> list[dict]:

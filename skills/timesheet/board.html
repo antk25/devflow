@@ -60,15 +60,14 @@ legend{padding:0 4px}
 .progress.marquee i{width:30%;animation:marquee 1.6s linear infinite}
 @keyframes marquee{from{margin-left:-30%}to{margin-left:100%}}
 
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:8px;margin-bottom:4px}
+.chart{margin-bottom:6px}
 .plot{position:relative;background:var(--field);box-shadow:var(--sunken);padding:6px 6px 2px}
-.plot svg{display:block;width:100%}
+.plot>svg{display:block;width:100%}
 .plot text{font:11px var(--ui);fill:var(--ink-2)}
-.plot text.today{font-weight:bold;fill:var(--ink)}
-.plot .hit{fill:transparent;cursor:crosshair}
-.plot .hit:hover,.plot .hit.on{fill:rgba(0,0,128,.08)}
-.legend{display:flex;flex-wrap:wrap;gap:3px 14px;margin:2px 2px 8px}
-.legend i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1px solid var(--dark)}
+.plot text.today,.plot text.peak{font-weight:bold;fill:var(--ink)}
+.plot .hit{fill:transparent;cursor:crosshair;outline:none}
+.legend{display:flex;flex-wrap:wrap;gap:3px 14px;margin:6px 2px 0}
+.key{margin-right:5px;vertical-align:1px}
 .tip{position:absolute;z-index:5;pointer-events:none;background:var(--tip);border:1px solid var(--ink);padding:4px 6px;box-shadow:2px 2px 0 rgba(0,0,0,.25);white-space:nowrap}
 .tip table{border-collapse:collapse}
 .tip td{padding:0 0 0 8px;text-align:right}
@@ -137,7 +136,6 @@ tr.detail td{padding:6px 10px 10px 30px;background:#f4f4f4;white-space:normal;bo
 @media (max-width:700px){
   body{padding:0}
   .input{width:140px}
-  .charts{grid-template-columns:1fr}
 }
 </style>
 <body>
