@@ -18,8 +18,8 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 - The slug's prefix is the Jira key (`DEV-541`).
 
 ## Step 1: Project context
-1. Read `AGENTS.md` from cwd. Parse frontmatter → `project`, `vault`.
-2. If `AGENTS.md` is missing, stop and return that to the driver.
+1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+2. Read the body of `AGENTS.md` for stack and conventions.
 
 ## Step 2: Investigate (autonomously)
 - **Read the TZ** if present: `<vault>/tz/<slug>.md`, or scan `<vault>/tz/` for a matching spec.

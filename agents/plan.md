@@ -20,7 +20,8 @@ architectural boundaries respected") must be answered *here*, before implementat
 - Runs in the project cwd; given a **slug**. Slug prefix = Jira key.
 
 ## Step 1: Project context
-1. Read `AGENTS.md` from cwd → `project`, `vault`, stack, conventions.
+1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+   Read the body of `AGENTS.md` for stack and conventions.
 2. Run `devflow route <slug>` and read its `research_path`.
    Require `research_approved: true` before planning. Use its exact hash as
    `research_revision`. On missing/stale state stop and return the CLI diagnostic.

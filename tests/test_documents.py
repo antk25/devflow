@@ -1,4 +1,6 @@
-from devflow import documents
+import json
+import sys
+from devflow import cli, documents
 
 
 def test_requirement_wish_and_source():
@@ -67,3 +69,12 @@ def test_step_criteria_keeps_browser_item_verbatim():
     item = 'browser: env: staging; Дано товар в корзине; Когда открыть /cart; Тогда виден итог'
     section = f'### s: Шаг\n- **Acceptance:**\n  - pytest зелёный\n  - {item}\n- **Files:** a\n'
     assert documents.step_criteria(section) == ['pytest зелёный', item]
+
+
+def test_context_without_agents_md_is_human_readable(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, 'argv', ['devflow', '--cwd', str(tmp_path), 'context'])
+    assert cli.main() == 1
+    err = json.loads(capsys.readouterr().err)
+    assert err['state'] == 'invalid'
+    assert 'No AGENTS.md' in err['error'] and '/project init' in err['error']
+    assert 'Errno' not in err['error']
