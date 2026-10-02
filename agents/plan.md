@@ -42,8 +42,7 @@ separate optional step, don't fold it in silently.
 
 ## Step 4: Write the plan
 Write to the returned `plan_path` if present, otherwise `<vault>/plans/<slug>.md`.
-Scaffolding headers English, design-section headers as below,
-prose Russian:
+Scaffolding headers English, design-section headers as below:
 
 ```markdown
 ---
@@ -169,7 +168,6 @@ Compact hand-off (goes to the driver, not the user):
 
 ## Rules
 - **No production code.** Only the plan doc.
-- **The TZ is settled.** If `tz/<slug>.md` answered a question, don't re-ask it at the gate.
 - **Autonomous.** Never block on a question — park it in Risks / unknowns.
 - **Design, not code.** Function contracts are signatures + guarantees, never bodies.
 - **Steps are vertical slices.** Not layers, not "the whole frontend" — a step ships something

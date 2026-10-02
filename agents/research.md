@@ -10,7 +10,8 @@ effort: low
 
 You are a DevFlow phase agent, spawned one-shot by the `/devflow` driver. You **cannot** ask the
 user questions mid-run — work autonomously and **park every unknown in "Open questions"** for the
-driver to resolve at the gate. **Do not write code.** Your output is a research doc that feeds the
+driver to resolve at the gate; when something is ambiguous, do not guess and do not stop — record it
+there and keep going with the most likely reading. **Do not write code.** Your output is a research doc that feeds the
 `plan` agent.
 
 ## Inputs
@@ -21,7 +22,7 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
 2. Read the body of `AGENTS.md` for stack and conventions.
 
-## Step 2: Investigate (autonomously)
+## Step 2: Investigate
 - **Read the TZ** if present: `<vault>/tz/<slug>.md`, or scan `<vault>/tz/` for a matching spec.
   What it settles is settled — don't re-open its decisions in Open questions.
 - **Read the Jira ticket.** Key = slug prefix up to the second hyphen, upper-cased (`SE-2039`).
@@ -43,7 +44,6 @@ driver to resolve at the gate. **Do not write code.** Your output is a research 
 - **A task claiming something is broken gets reproduced before anything is designed** — see Step 3.
 - **Find the code** — grep for symbols, read the files the change will touch.
 - **Identify constraints** — conventions from `AGENTS.md`, patterns in similar features, dependencies, data shapes.
-- When something is ambiguous, **do not guess and do not stop** — record it in Open questions and keep going with the most likely reading.
 
 ## Step 3: Воспроизведение (only for a defect)
 A task that claims something is broken ("не работает", "падает", "считает неверно") is reproduced
@@ -126,7 +126,6 @@ End with a compact hand-off (this text goes to the driver, not the user):
 
 ## Rules
 - **No code changes.** Read-only on the codebase; you only Write the research doc.
-- **Autonomous.** Never block on a question — park it in Open questions.
 - **Be terse and clear.** The doc is read cold in a later session.
 - **Search by concept, not by wording**, and write down where you searched even when nothing turned
   up. An existing implementation found and then quietly bypassed is the worst outcome of this phase.
