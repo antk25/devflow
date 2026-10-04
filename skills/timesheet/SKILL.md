@@ -1,5 +1,6 @@
 ---
 name: timesheet
+pi: "not verified for pi"
 description: Учёт времени по двум табелям (client — productsearch, employer — resolventa) — сводка недели против нормы, черновик из активности и ручных записей, запись ворклогов в Jira только после явного «да». Использовать, когда пользователь просит закрыть неделю, посмотреть списанное время или записать ворклоги.
 user_invocable: true
 arguments:

@@ -1,5 +1,6 @@
 ---
 name: xreview
+pi: "not verified for pi"
 description: "Второе мнение о коде от Codex (модели OpenAI по подписке ChatGPT, без API-ключа). Кросс-ревью ветки, коммита или незакоммиченных правок через `codex review` из Bash. Вызывать, когда нужен взгляд другой модели на diff — в дополнение к встроенному /code-review, а не вместо него."
 user_invocable: true
 arguments:

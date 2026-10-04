@@ -21,7 +21,8 @@ not "just finish the next one while you're here".
   to running the plan end to end.
 
 ## Step 1: Project context
-1. Read `AGENTS.md` from cwd.
+1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+   Read the body of `AGENTS.md` for conventions, run commands and the commit format.
 2. Require the driver-provided **run ID, step ID and plan revision**. Run
    `devflow status <slug>` and verify this is the active run, step and revision, with `documents_changed: false`.
    Do not create a second run. Missing state or mismatched input → stop and report it.

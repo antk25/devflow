@@ -16,7 +16,8 @@ asked belongs to the other axis, and you never see its findings.
 - The project cwd, and the diff to review (a git range, `--uncommitted`, or a SHA) — given to you.
 
 ## Step 1: Load the conventions
-1. Read `AGENTS.md` from cwd → stack, run/test commands, **Conventions** section.
+1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+   Read the body of `AGENTS.md` for stack, run/test commands and the **Conventions** section.
 2. Note the global ones that apply everywhere: comments minimal (a comment earns its place only by
    explaining *why*), reuse before creating, don't raise the abstraction level, match the neighbours'
    style, tests in the same commit as the code they cover.

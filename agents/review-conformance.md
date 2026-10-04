@@ -16,7 +16,8 @@ belong to the other axis, and you never see its findings.
 - The project cwd, the **slug**, and the diff to review — given to you.
 
 ## Step 1: Find the contract
-Read `<vault>/tz/<slug>.md` (vault from `AGENTS.md`).
+Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+Then read `<vault>/tz/<slug>.md`.
 
 **No TZ → stop immediately** and return exactly `ТЗ не найдено — ось соответствия пропущена`.
 Do not fall back to the research doc, the plan, or the Jira summary: without a contract there is

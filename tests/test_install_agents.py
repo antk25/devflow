@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -9,6 +10,9 @@ from devflow import policy
 from devflow.project import ROOT
 
 MARKER = policy.MARKER_KEY
+EXAMPLE = policy.load(ROOT / 'model-policy.example.json')
+GENERATED = sorted(f'{n}.md' for n in policy.agent_names(EXAMPLE))
+LINKED = sorted(p.name for p in (ROOT / 'agents').glob('*.md') if p.stem not in policy.PHASES)
 
 
 @pytest.fixture
@@ -37,13 +41,23 @@ def agents(home):
     return home / '.claude/agents'
 
 
+def fallback_policy(home, effort='medium'):
+    """Example policy whose implement/fallback effort differs from default, so `implement-fallback` is generated."""
+    data = json.loads((ROOT / 'model-policy.example.json').read_text())
+    data['claude']['implement']['fallback']['effort'] = effort
+    (home / 'model-policy.json').write_text(json.dumps(data))
+    return data
+
+
 def test_install_generates_phase_agents_and_links_the_rest(home):
+    assert not (home / 'model-policy.json').exists()
     r = install(home)
     assert r.returncode == 0, r.stdout + r.stderr
+    assert 'copy ' + str(home / 'model-policy.json') in r.stdout
     generated = sorted(p.name for p in agents(home).iterdir() if p.is_file() and not p.is_symlink())
-    assert generated == ['implement.md', 'plan-high.md', 'plan.md', 'research-high.md', 'research.md']
+    assert generated == GENERATED
     linked = sorted(p.name for p in agents(home).iterdir() if p.is_symlink())
-    assert linked == ['browser.md', 'crossreview.md', 'reader.md', 'review-conformance.md', 'review-standards.md']
+    assert linked == LINKED
     text = (agents(home) / 'research-high.md').read_text()
     assert 'name: research-high\n' in text and 'model: claude-opus-5-5\n' in text and 'effort: high\n' in text
     assert text.split('---\n', 2)[2].startswith('<!-- ' + MARKER)
@@ -80,6 +94,27 @@ def test_foreign_research_file_is_a_conflict(home):
     assert not (agents(home) / 'plan.md').exists()
 
 
+def test_foreign_fallback_file_is_a_conflict_when_policy_generates_it(home):
+    fallback_policy(home)
+    agents(home).mkdir(parents=True)
+    (agents(home) / 'implement-fallback.md').write_text('---\nname: implement-fallback\n---\nmine\n')
+    r = install(home)
+    assert r.returncode == 1
+    assert 'CONFLICT (not replacing): ' + str(agents(home) / 'implement-fallback.md') in r.stderr
+    assert not (agents(home) / 'implement.md').exists()
+
+
+def test_remove_deletes_generated_fallback_without_policy(home):
+    fallback_policy(home)
+    assert install(home).returncode == 0
+    assert MARKER in (agents(home) / 'implement-fallback.md').read_text()
+    (home / 'model-policy.json').unlink()
+    r = install(home, '--remove')
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'remove ' + str(agents(home) / 'implement-fallback.md') in r.stdout
+    assert list(agents(home).iterdir()) == []
+
+
 def test_check_reports_stale_after_policy_edit(home):
     assert install(home).returncode == 0
     p = home / 'model-policy.json'
@@ -101,6 +136,31 @@ def test_check_reports_missing_agent(home):
     (agents(home) / 'plan-high.md').unlink()
     r = install(home, '--check')
     assert r.returncode == 1 and 'STALE agent plan-high' in r.stdout
+
+
+def test_orphan_is_reported_by_check_and_removed_by_install(home):
+    assert install(home).returncode == 0
+    p = home / 'model-policy.json'
+    data = json.loads(p.read_text())
+    del data['claude']['plan']['high']
+    p.write_text(json.dumps(data))
+    r = install(home, '--check')
+    assert r.returncode == 1 and 'ORPHAN agent plan-high' in r.stdout, r.stdout
+    assert 'ok ' + str(agents(home) / 'plan-high.md') not in r.stdout
+    r = install(home)
+    assert r.returncode == 0 and 'remove ' + str(agents(home) / 'plan-high.md') in r.stdout, r.stdout
+    assert not (agents(home) / 'plan-high.md').exists()
+    r = install(home, '--check')
+    assert r.returncode == 0 and 'ORPHAN' not in r.stdout, r.stdout
+
+
+def test_install_keeps_unmarked_and_foreign_files(home):
+    assert install(home).returncode == 0
+    (agents(home) / 'plan-old.md').write_text('mine\n')
+    (agents(home) / 'mine.md').write_text('keep\n')
+    r = install(home)
+    assert r.returncode == 0 and 'remove ' not in r.stdout, r.stdout
+    assert (agents(home) / 'plan-old.md').read_text() == 'mine\n' and (agents(home) / 'mine.md').read_text() == 'keep\n'
 
 
 def test_remove_deletes_only_generated_files(home):
@@ -139,3 +199,34 @@ def test_maintain_skill_is_linked_and_skipped_for_pi(home):
     r = install(home, '--check')
     assert r.returncode == 0 and 'skip pi maintain' in r.stdout, r.stdout
     assert not (home / 'pi/skills/maintain').exists()
+
+
+def pi_fields():
+    from devflow.documents import document
+    return {p.parent.name: document(p)['meta'].get('pi') for p in (ROOT / 'skills').glob('*/SKILL.md')}
+
+
+def test_every_skill_declares_pi_as_true_or_a_reason():
+    fields = pi_fields()
+    assert fields
+    for name, value in fields.items():
+        assert value is True or (isinstance(value, str) and value.strip()), f'{name}: pi={value!r}'
+
+
+def test_pi_prompts_match_skills_with_pi_true():
+    linked = {name for name, value in pi_fields().items() if value is True}
+    assert linked == {p.stem for p in (ROOT / 'pi/prompts').glob('*.md')}
+
+
+def test_install_links_into_pi_exactly_the_skills_with_pi_true(home):
+    assert install(home).returncode == 0
+    fields = pi_fields()
+    linked = {name for name, value in fields.items() if value is True}
+    assert {p.name for p in (home / 'pi/skills').iterdir()} == linked
+    assert {p.stem for p in (home / 'pi/prompts').iterdir()} == linked
+    r = install(home, '--check')
+    assert r.returncode == 0, r.stdout + r.stderr
+    for name, value in fields.items():
+        if value is not True:
+            assert f'skip pi {name}: {value}\n' in r.stdout, r.stdout
+    assert 'skip pi autoresearch: not verified for pi' in r.stdout

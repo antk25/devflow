@@ -1,5 +1,6 @@
 ---
 name: tokens
+pi: "uses Agent"
 description: Token spend statistics across all Claude Code work — by task, project, phase, model, or day, with dollar cost. Reads the local transcripts; nothing is sent anywhere. Also tags the current session to a task so future attribution is exact.
 user_invocable: true
 arguments:

@@ -11,12 +11,12 @@ import tempfile
 from pathlib import Path
 
 from .documents import WorkflowError, artifact, document
+from .policy import PHASES
 from .workflow import interrupt, route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
 AGENTS = Path(__file__).resolve().parents[2] / 'agents'
 INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
-PHASES = ('research', 'plan', 'implement')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')

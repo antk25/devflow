@@ -1,5 +1,6 @@
 ---
 name: note
+pi: true
 description: Read, write, and search notes in the project's obsidian vault. Vault layout is tz/ research/ plans/ changelog/ notes/.
 user_invocable: true
 arguments:

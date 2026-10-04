@@ -51,7 +51,10 @@ def document(path):
 
 def context(cwd):
     cwd = Path(cwd).resolve()
-    meta = document(cwd / 'AGENTS.md')['meta']
+    agents = cwd / 'AGENTS.md'
+    if not agents.is_file():
+        raise WorkflowError(f'No AGENTS.md in {cwd}; connect the project with /project init')
+    meta = document(agents)['meta']
     for key in ('project', 'vault'):
         if not isinstance(meta.get(key), str) or not meta[key].strip():
             raise WorkflowError(f"AGENTS.md needs a non-empty {key}")

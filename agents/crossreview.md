@@ -16,7 +16,8 @@ result in the vault. **You change nothing in the repository.**
 - The project cwd, the task slug, and the base branch — given to you by the driver.
 
 ## Step 1: Context
-1. Read `AGENTS.md` from cwd → `project`, `vault`, `Base branch`, run/test/typecheck commands.
+1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
+   Read the body of `AGENTS.md` for `Base branch` and run/test/typecheck commands.
    If the driver gave no base, use `Base branch` from `AGENTS.md`.
 2. Confirm the branch: `git rev-parse --abbrev-ref HEAD`. Target is `<base>...HEAD`. The base is
    the **local** branch — `git fetch` is blocked.
