@@ -106,9 +106,10 @@ elif [ -x "$PYTHON" ]; then
     preflight_policy="$POLICY_FILE"
     [ -e "$preflight_policy" ] || preflight_policy="$DEVFLOW_DIR/model-policy.example.json"
     conflicts="$(DEVFLOW_MODEL_POLICY="$preflight_policy" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy conflicts "$CLAUDE_DIR/agents")" || issues=1
-    for dst in $conflicts; do
+    while IFS= read -r dst; do
+        [ -n "$dst" ] || continue
         echo "CONFLICT (not replacing): $dst" >&2; issues=1
-    done
+    done <<< "$conflicts"
 fi
 if [ "$mode" != remove ]; then
     for line in "${pi_skipped[@]}"; do
