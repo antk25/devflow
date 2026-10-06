@@ -1,7 +1,7 @@
 ---
 name: standup
 pi: "not verified for pi"
-description: Morning Jira digest — "what's new on my tasks since last time" across every Jira account in config.env, then help pick a task and route it to the right devflow phase. Read-only; calls jira-digest.sh, never MCP.
+description: "Утренняя сводка Jira — что нового по моим задачам с прошлого раза во всех аккаунтах config.env, затем выбор задачи и маршрут в нужную фазу devflow. Read-only, через jira-digest.sh, не MCP. Вызывать, когда пользователь спрашивает «что нового по задачам», «что в Jira», «с чего начать день», «что у меня сегодня»; morning standup, what's new on my tasks."
 user-invocable: true
 argument-hint: "[mode]"
 ---
