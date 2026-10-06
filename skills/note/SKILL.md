@@ -2,14 +2,8 @@
 name: note
 pi: true
 description: "Заметки в obsidian-vault проекта (tz/ research/ plans/ changelog/ notes/) — сохранить, прочитать, найти, перечислить. Вызывать, когда пользователь говорит «запомни», «сохрани в заметки», «запиши в vault», «найди заметку», «что у нас есть по …», «покажи ТЗ»; save/read/search notes, remember this."
-user_invocable: true
-arguments:
-  - name: command
-    description: "save | read | search | list | tz"
-    required: true
-  - name: args
-    description: "Title, query, slug, or folder — depends on command"
-    required: false
+user-invocable: true
+argument-hint: "save|read|search|list|tz [title|query|slug]"
 ---
 
 # /note — Obsidian vault integration

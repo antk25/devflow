@@ -2,11 +2,8 @@
 name: review
 pi: "uses Agent/SendMessage"
 description: "Ревью в две оси — стандарты (конвенции AGENTS.md и глобальные) и соответствие ТЗ, параллельными подагентами. Вызывать, когда пользователь просит «отревьюй», «проверь ветку», «посмотри код перед PR», «соответствует ли ТЗ»; review my branch. Встроенный /code-review — один общий список, /xreview — второе мнение от Codex."
-user_invocable: true
-arguments:
-  - name: target
-    description: "Что смотреть: слаг задачи, `--uncommitted`, SHA или диапазон. Без аргумента — текущая ветка против базы из AGENTS.md"
-    required: false
+user-invocable: true
+argument-hint: "[target]"
 ---
 
 # /review — ревью в две оси

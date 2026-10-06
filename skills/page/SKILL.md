@@ -2,11 +2,8 @@
 name: page
 pi: "not verified for pi"
 description: "Объяснительная HTML-страница (поток данных, архитектура, сравнение, отчёт) на дизайн-системе devflow, пишется в <vault>/pages/ и открывается локально. Вызывать, когда пользователь просит «схему», «нарисуй», «покажи наглядно», «объясни визуально» или говорит «непонятно», «запутался»; diagram, visual explanation. Публикация артефактом — отдельный явный шаг."
-user_invocable: true
-arguments:
-  - name: topic
-    description: "What the page should explain — a task key, a slug, or a phrase"
-    required: false
+user-invocable: true
+argument-hint: "[topic]"
 ---
 
 # /page — объяснительная HTML-страница

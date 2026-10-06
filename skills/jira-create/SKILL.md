@@ -2,11 +2,8 @@
 name: jira-create
 pi: "not verified for pi"
 description: Создать задачу в Jira через скрипт jira-create.sh — черновик, dry run, запись только после явного «да» пользователя. Ключ проекта и правила текста берутся из раздела Jira в AGENTS.md проекта. Использовать, когда пользователь просит завести задачу/тикет/баг в Jira.
-user_invocable: true
-arguments:
-  - name: what
-    description: "Что завести: суть задачи или ссылка на уже написанное ТЗ"
-    required: false
+user-invocable: true
+argument-hint: "[what]"
 ---
 
 # /jira-create — завести задачу в Jira

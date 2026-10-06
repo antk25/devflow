@@ -2,11 +2,8 @@
 name: devflow
 pi: true
 description: "Конвейер DevFlow research → plan → implement фазовыми агентами с гейтом одобрения между фазами. Без аргумента — standup → выбор задачи → маршрут; со слагом — продолжить с нужной фазы. Вызывать, когда пользователь говорит «возьми задачу», «начнём SE-…», «продолжи задачу <slug>», «что дальше по задаче», «запусти research/план/реализацию»; start or resume a task."
-user_invocable: true
-arguments:
-  - name: slug
-    description: "Optional: task slug (e.g. dev-541-discount-on-invoices) to skip standup and route directly"
-    required: false
+user-invocable: true
+argument-hint: "[slug]"
 ---
 
 # /devflow — pipeline driver (standup → route → phase agent → gate → next)

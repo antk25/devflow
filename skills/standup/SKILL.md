@@ -2,11 +2,8 @@
 name: standup
 pi: "not verified for pi"
 description: Morning Jira digest — "what's new on my tasks since last time" across every Jira account in config.env, then help pick a task and route it to the right devflow phase. Read-only; calls jira-digest.sh, never MCP.
-user_invocable: true
-arguments:
-  - name: mode
-    description: "Optional: 'peek' to show the digest without marking items seen"
-    required: false
+user-invocable: true
+argument-hint: "[mode]"
 ---
 
 # /standup — Jira digest → pick a task → route

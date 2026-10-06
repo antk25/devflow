@@ -2,7 +2,7 @@
 name: smoke
 pi: "needs a Claude Code subagent; in pi run the saved script"
 description: "Проверить сценарий в браузере — страницы, формы, запросы /api/, консоль на local/staging/prod/shopify. Вызывать, когда пользователь говорит «проверь в браузере», «открой страницу и посмотри», «работает ли на staging», «смоук», и для пунктов browser: в Acceptance шага. Идёт в подагенте browser через изолированный headless Chrome (devflow-browser, не MCP), возвращает таблицу вердиктов ✅/❌ со скриншотами."
-user_invocable: true
+user-invocable: true
 context: fork
 agent: browser
 argument-hint: "[env: <имя>;] [slug: <slug>;] [save;] <адрес, вход, проверки «Дано/Когда/Тогда», критерии провала>"

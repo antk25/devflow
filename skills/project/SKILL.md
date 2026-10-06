@@ -2,14 +2,8 @@
 name: project
 pi: true
 description: Project registry and onboarding. init/add a project (AGENTS.md draft + vault + identity + database + registry), sync missing pieces, list, info, remove. Switching is done outside Claude Code via start.sh.
-user_invocable: true
-arguments:
-  - name: command
-    description: "init | add | sync | list | info | remove"
-    required: true
-  - name: target
-    description: "Project path (init/add), project name or --all (sync/info/remove)"
-    required: false
+user-invocable: true
+argument-hint: "init|add|sync|list|info|remove [path|name|--all]"
 ---
 
 # /project — Project onboarding and registry

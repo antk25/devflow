@@ -2,11 +2,8 @@
 name: tokens
 pi: "uses Agent"
 description: Token spend statistics across all Claude Code work — by task, project, phase, model, or day, with dollar cost. Reads the local transcripts; nothing is sent anywhere. Also tags the current session to a task so future attribution is exact.
-user_invocable: true
-arguments:
-  - name: args
-    description: "Passed through to token-stats.py, e.g. `--by phase --since 2026-07-01`, `--task SE-2032`, `--html ~/tokens.html`, `tag SE-2044`"
-    required: false
+user-invocable: true
+argument-hint: "[args]"
 ---
 
 # /tokens — расход токенов по задачам
