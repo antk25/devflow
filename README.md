@@ -34,7 +34,8 @@ The driver spawns three **phase agents** (`~/.claude/agents/`), each with its mo
 | `research` | from `model-policy.json` (Opus 5.5 medium; `research-high` — high) | `<vault>/research/<slug>.md` |
 | `plan` | from `model-policy.json` (Opus 5.5 medium; `plan-high` — high) | `<vault>/plans/<slug>.md` |
 | `implement` | from `model-policy.json` (Fable 5.1 low; Opus 5.5 low when Fable limits are out) | `<vault>/changelog/<date>-<slug>.md` |
-| `crossreview` | session model (effort low) | `<vault>/notes/<slug>-cross-review.md` — after the last step: own review + Codex second opinion, every finding verified in code |
+| `crossreview` | Opus 5.5 medium | `<vault>/notes/<slug>-cross-review.md` — after the last step: own review + Codex second opinion, every finding verified in code |
+| `second-opinion` | Fable 5.1 high | findings list — replaces Codex when it is unavailable (`SECOND_OPINION_NEEDED`) |
 
 The artifact from one phase is the input to the next; the driver re-routes after each gate through
 one Python CLI. Markdown stores definitions; SQLite stores approvals, attempts and completion.
@@ -350,7 +351,7 @@ devflow/
 ├── install.sh                 — symlinks skills → ~/.claude/skills/, agents → ~/.claude/agents/
 ├── start.sh                   — project launcher (fable 5.1 driver)
 ├── agents/
-│   └── research.md  plan.md  implement.md  crossreview.md   — phase agents (model pinned in frontmatter)
+│   └── research.md  plan.md  implement.md  crossreview.md  second-opinion.md   — phase agents (model pinned in frontmatter)
 ├── skills/
 │   ├── devflow/   standup/    — pipeline driver + Jira digest front-end
 │   ├── note/   project/

@@ -108,6 +108,10 @@ It reviews the whole branch itself, gets a second opinion from Codex, verifies e
 code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repository. Show its
 summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
 finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
+If it replies `SECOND_OPINION_NEEDED <slug> base=<base> reason=…` (Codex unavailable), spawn a
+`second-opinion` agent with cwd, slug and base, then a fresh `crossreview` with the same inputs plus
+`second-opinion:` and its findings list verbatim. Its own review is already saved as a draft note, so
+the second launch only verifies both lists and writes the note.
 In pi there is no `crossreview` launch yet: show the changelog and stop.
 On `completed` in both hosts also list the `browser:` items of the plan's `## Acceptance (overall)`
 as checks after deploy, each as a ready line `/smoke env: staging; slug: <slug>; save; <Дано …;
