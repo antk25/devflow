@@ -2,14 +2,8 @@
 name: xreview
 pi: "not verified for pi"
 description: "Второе мнение о коде от Codex (модели OpenAI по подписке ChatGPT, без API-ключа). Кросс-ревью ветки, коммита или незакоммиченных правок через `codex review` из Bash. Вызывать, когда нужен взгляд другой модели на diff — в дополнение к встроенному /code-review, а не вместо него."
-user_invocable: true
-arguments:
-  - name: target
-    description: "Что смотреть: имя репы в green, `--uncommitted`, SHA коммита. Если не задан — определить по грязным/неотправленным веткам"
-    required: false
-  - name: focus
-    description: "Опционально: на чём сосредоточиться («гонки», «состояние между запросами»). Уходит в Codex свободным промптом"
-    required: false
+user-invocable: true
+argument-hint: "[target] [focus]"
 ---
 
 # /xreview — второе мнение от Codex

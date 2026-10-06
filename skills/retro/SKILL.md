@@ -2,11 +2,8 @@
 name: retro
 pi: "not verified for pi"
 description: Разобрать одну сессию, где агент буксовал, — найти, что стоило лишних шагов, и предложить правку правила (AGENTS.md, агент, глобальные конвенции, хук). Запускается вручную.
-user_invocable: true
-arguments:
-  - name: session
-    description: "Id сессии (первые 8 символов хватит) или слаг задачи. Без аргумента — топ-5 дорогих сессий за 7 дней на выбор"
-    required: false
+user-invocable: true
+argument-hint: "[session]"
 ---
 
 # /retro — разбор сессии

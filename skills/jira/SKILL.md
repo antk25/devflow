@@ -1,17 +1,11 @@
 ---
 name: jira
 pi: true
-description: Read Jira issues, comments and attachments via the read-only shell scripts (never MCP). The account is picked by issue key from config.env. Use whenever you need the text of a Jira task, a specific comment, or an attached screenshot.
-user_invocable: true
+description: "Прочитать задачу Jira, комментарии и вложения read-only скриптами (не MCP); аккаунт выбирается по ключу. Вызывать всякий раз, когда в разговоре есть ключ задачи (SE-2032, RS-993, DEV-…) или пользователь просит «прочитай тикет», «что в задаче», «посмотри комментарий/скриншот в Jira»; read a Jira issue."
+user-invocable: true
 context: fork
 agent: reader
-arguments:
-  - name: key
-    description: "Issue key, e.g. SE-2032 or RS-993"
-    required: true
-  - name: rest
-    description: "Optional: a comment-id to fetch one comment, or 'attachments' to pull images"
-    required: false
+argument-hint: "<SE-2032> [comment-id|attachments]"
 ---
 
 # /jira — read Jira via scripts, not MCP

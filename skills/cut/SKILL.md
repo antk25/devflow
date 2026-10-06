@@ -2,11 +2,8 @@
 name: cut
 pi: true
 description: Разрезать сессию на пороге контекста — записать передачу в vault и выдать строку для продолжения. Вызывать, когда в статусной строке загорелось «✂ РЕЗАТЬ» или хук прислал CONTEXT_CUT / CONTEXT_WARN.
-user_invocable: true
-arguments:
-  - name: slug
-    description: "Слаг задачи (se-2139). Если не задан — берётся из текущей работы"
-    required: false
+user-invocable: true
+argument-hint: "[slug]"
 ---
 
 # /cut — разрез сессии
