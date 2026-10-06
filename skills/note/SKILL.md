@@ -1,7 +1,7 @@
 ---
 name: note
 pi: true
-description: Read, write, and search notes in the project's obsidian vault. Vault layout is tz/ research/ plans/ changelog/ notes/.
+description: "Заметки в obsidian-vault проекта (tz/ research/ plans/ changelog/ notes/) — сохранить, прочитать, найти, перечислить. Вызывать, когда пользователь говорит «запомни», «сохрани в заметки», «запиши в vault», «найди заметку», «что у нас есть по …», «покажи ТЗ»; save/read/search notes, remember this."
 user_invocable: true
 arguments:
   - name: command

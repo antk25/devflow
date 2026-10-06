@@ -1,7 +1,7 @@
 ---
 name: devflow
 pi: true
-description: DevFlow driver — run the research → plan → implement pipeline as autonomous phase agents with an explicit approval gate between phases. No arg — Jira standup → pick a task → route → run. With <slug> — skip standup, resume at the right phase.
+description: "Конвейер DevFlow research → plan → implement фазовыми агентами с гейтом одобрения между фазами. Без аргумента — standup → выбор задачи → маршрут; со слагом — продолжить с нужной фазы. Вызывать, когда пользователь говорит «возьми задачу», «начнём SE-…», «продолжи задачу <slug>», «что дальше по задаче», «запусти research/план/реализацию»; start or resume a task."
 user_invocable: true
 arguments:
   - name: slug

@@ -1,7 +1,7 @@
 ---
 name: page
 pi: "not verified for pi"
-description: Build an explanatory HTML page (data flow, architecture, comparison, report) on the devflow design system. Use whenever the user asks for a schema, diagram, visual explanation, or says the conversation is hard to follow. Writes to <vault>/pages/, opens locally; publishing as an artifact is a separate explicit step.
+description: "Объяснительная HTML-страница (поток данных, архитектура, сравнение, отчёт) на дизайн-системе devflow, пишется в <vault>/pages/ и открывается локально. Вызывать, когда пользователь просит «схему», «нарисуй», «покажи наглядно», «объясни визуально» или говорит «непонятно», «запутался»; diagram, visual explanation. Публикация артефактом — отдельный явный шаг."
 user_invocable: true
 arguments:
   - name: topic
