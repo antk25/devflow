@@ -1,18 +1,25 @@
 """`devflow bench`: model × phase combos for the pipeline benchmark."""
+import datetime
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
+from string import Template
 
 from . import bench_container as container
 from .bench_eval import CACHE_DIR, SETS_DIR, build_set, instances
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
-from .documents import WorkflowError
+from .documents import WorkflowError, context
 from .policy import PHASES
+from .storage import connect
 
 ROOT = Path(__file__).resolve().parents[2]
 COMBOS_DIR = ROOT / 'bench/combos'
+AGENTS_TEMPLATE = ROOT / 'bench/AGENTS.bench.md'
+TASK_SLUG = 'bench-task'
+GIT_IDENTITY = ['-c', 'user.name=bench', '-c', 'user.email=bench@devflow.local', '-c', 'commit.gpgsign=false']
 
 
 def load_combo(path):
@@ -160,6 +167,81 @@ def doctor(instance_id, execute=None, probe_execute=None, workdir=None, keep=Fal
             'ok': all(c['ok'] for c in checks), 'checks': checks}
 
 
+def pair_id(pair):
+    return f"{pair['task']}__{pair['combo']}__r{pair['replica']}"
+
+
+def git(repo, *args):
+    proc = subprocess.run(['git', '-C', str(repo), *GIT_IDENTITY, *args], capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0:
+        raise WorkflowError(f'git {args[0]} failed in {repo}: {(proc.stderr or "").strip()[-500:]}')
+    return proc.stdout.strip()
+
+
+def task_document(instance):
+    return (f"---\ncreated: {datetime.date.today().isoformat()}\nproject: bench\ntype: tz\n"
+            f"task: {instance['instance_id']}\n---\n\n# {instance['instance_id']}\n\n"
+            f"{instance['problem_statement'].strip()}\n\n"
+            "Внешних ссылок и Jira у задачи нет: вход — только это ТЗ.\n")
+
+
+def init_state(repo, state):
+    """`devflow init` of the sandbox repository with its database under `state`, never under the real root."""
+    saved = os.environ.get('DEVFLOW_STATE_DIR')
+    os.environ['DEVFLOW_STATE_DIR'] = str(state)
+    try:
+        connect(context(repo), create=True).close()
+    finally:
+        if saved is None:
+            del os.environ['DEVFLOW_STATE_DIR']
+        else:
+            os.environ['DEVFLOW_STATE_DIR'] = saved
+
+
+def make_sandbox(root, pair, instance, execute=None):
+    """`<root>/<pair_id>/` with `repo/` (the image's /testbed on a single base commit), `vault/`, `state/`, `home/`;
+    an existing directory is replaced. Returns the paths and `base`, the sha of the base commit."""
+    execute = execute or container.docker_execute
+    sb_dir = Path(root).expanduser().resolve() / pair_id(pair)
+    if sb_dir.exists():
+        shutil.rmtree(sb_dir)
+    sb = {'dir': sb_dir, 'repo': sb_dir / 'repo', 'vault': sb_dir / 'vault', 'state': sb_dir / 'state', 'home': sb_dir / 'home'}
+    container.checkout(instance['image'], sb['repo'], execute)
+    for folder in ('tz', 'research', 'plans', 'changelog', 'notes'):
+        (sb['vault'] / folder).mkdir(parents=True)
+    sb['state'].mkdir()
+    sb['home'].mkdir()
+    shutil.rmtree(sb['repo'] / '.git', ignore_errors=True)
+    git(sb['repo'], 'init', '-q')
+    (sb['repo'] / '.git/info').mkdir(exist_ok=True)
+    (sb['repo'] / '.git/info/exclude').write_text('AGENTS.md\n.devflow/\n', encoding='utf-8')
+    agents = Template(AGENTS_TEMPLATE.read_text(encoding='utf-8')).substitute(
+        vault=sb['vault'], instance_id=instance['instance_id'], repo=instance.get('repo', ''), test_cmd=instance['test_cmd'])
+    (sb['repo'] / 'AGENTS.md').write_text(agents, encoding='utf-8')
+    (sb['vault'] / 'tz' / f'{TASK_SLUG}.md').write_text(task_document(instance), encoding='utf-8')
+    git(sb['repo'], 'add', '-A')
+    git(sb['repo'], 'commit', '-q', '-m', 'base')
+    sb['base'] = git(sb['repo'], 'rev-parse', 'HEAD')
+    init_state(sb['repo'], sb['state'])
+    return sb
+
+
+def sandbox(set_name, instance_id, root=None, execute=None):
+    """A sandbox of the task for manual debugging, with its task container started."""
+    execute = execute or container.docker_execute
+    data = load_set(set_name)
+    if instance_id not in data['instances']:
+        raise WorkflowError(f'instance {instance_id} is not in set {set_name}')
+    instance = instances(data['dataset'], data['split'], [instance_id])[instance_id]
+    pair = {'task': instance_id, 'combo': 'manual', 'replica': 1}
+    sb = make_sandbox(Path(root or CACHE_DIR / 'sandbox'), pair, instance, execute)
+    name = f'devflow-bench-{pair_id(pair)}'
+    container.start(name, instance['image'], sb['dir'], execute=execute)
+    return {**{k: str(v) for k, v in sb.items()}, 'container': name, 'slug': TASK_SLUG,
+            'route': f'DEVFLOW_STATE_DIR={sb["state"]} devflow --cwd {sb["repo"]} route {TASK_SLUG}',
+            'tests': f'docker exec -w {sb["repo"]} {name} sh -c {json.dumps(instance["test_cmd"])}'}
+
+
 def command(args):
     if args.bench_command == 'combos':
         selected = combos(args.names)
@@ -169,6 +251,8 @@ def command(args):
         return result
     if args.bench_command == 'doctor':
         return doctor(args.instance, keep=args.keep)
+    if args.bench_command == 'sandbox':
+        return sandbox(args.set, args.instance)
     if args.bench_command == 'set' and args.set_command == 'build':
         return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
                          workers=args.workers)

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -123,3 +124,96 @@ def test_cli_bench_combos_runs_before_context(tmp_path, monkeypatch):
     monkeypatch.setattr(bench, 'host_execute', lambda cmd, timeout: subprocess.CompletedProcess(cmd, 0, json.dumps({'is_error': False, 'modelUsage': {'claude-sonnet-5-5': {}}}), ''))
     result = cli.execute(cli.parser().parse_args(['bench', 'combos', 'smoke', '--probe']))
     assert result['probes'] == [{'runner': 'claude', 'model': 'claude-sonnet-5-5', 'effort': 'low', 'ok': True, 'model_actual': 'claude-sonnet-5-5', 'error_text': None}]
+
+
+INSTANCE = {'instance_id': 'php-cs-fixer__php-cs-fixer-8367', 'repo': 'php-cs-fixer/php-cs-fixer',
+            'image': 'swebench/php-cs-fixer-8367:latest', 'problem_statement': 'Arrow functions are not fixed.\n\n```php\nfn() => 1;\n```',
+            'test_cmd': 'vendor/bin/phpunit tests/T.php'}
+PAIR = {'task': INSTANCE['instance_id'], 'combo': 'manual', 'replica': 1}
+
+
+def fake_checkout(image, dest, execute=None, source='/testbed'):
+    """The image's /testbed stand-in: a deep history, an ignored vendor/ and a tag."""
+    dest = Path(dest)
+    dest.mkdir(parents=True)
+    (dest / 'src').mkdir()
+    (dest / 'src/a.php').write_text('<?php\n')
+    (dest / '.gitignore').write_text('vendor/\n')
+    (dest / 'vendor').mkdir()
+    (dest / 'vendor/x.php').write_text('<?php\n')
+    git = ['git', '-C', str(dest), '-c', 'user.name=t', '-c', 'user.email=t@t']
+    subprocess.run(git + ['init', '-q'], check=True)
+    for n in range(3):
+        (dest / 'src/a.php').write_text(f'<?php // {n}\n')
+        subprocess.run(git + ['add', '-A'], check=True)
+        subprocess.run(git + ['commit', '-q', '-m', f'c{n}'], check=True)
+    subprocess.run(git + ['tag', 'v1'], check=True)
+    return dest
+
+
+@pytest.fixture
+def sandbox_env(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    monkeypatch.delenv('DEVFLOW_STATE_DIR', raising=False)
+    monkeypatch.setattr(bench.container, 'checkout', fake_checkout)
+    return tmp_path
+
+
+def test_make_sandbox_single_base_commit_excludes_and_tz(sandbox_env):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    assert sb['dir'] == sandbox_env / 'run' / 'php-cs-fixer__php-cs-fixer-8367__manual__r1'
+    repo = sb['repo']
+    log = subprocess.run(['git', '-C', str(repo), 'log', '--oneline'], capture_output=True, text=True).stdout
+    assert log.splitlines() == [f'{sb["base"][:7]} base']
+    assert subprocess.run(['git', '-C', str(repo), 'tag'], capture_output=True, text=True).stdout == ''
+    assert subprocess.run(['git', '-C', str(repo), 'status', '--porcelain'], capture_output=True, text=True).stdout == ''
+    assert (repo / '.git/info/exclude').read_text() == 'AGENTS.md\n.devflow/\n'
+    assert (repo / 'vendor/x.php').exists() and (repo / 'src/a.php').read_text() == '<?php // 2\n'
+    agents = (repo / 'AGENTS.md').read_text()
+    assert agents.startswith(f'---\nproject: bench\nvault: {sb["vault"]}\n---\n') and 'jev' not in agents
+    assert '`vendor/bin/phpunit tests/T.php`' in agents and '`fix: <описание>`' in agents and 'Jira нет' in agents
+    tz = (sb['vault'] / 'tz/bench-task.md').read_text()
+    assert INSTANCE['problem_statement'] in tz and 'Jira' in tz
+    assert all((sb['vault'] / d).is_dir() for d in ('tz', 'research', 'plans', 'changelog', 'notes'))
+    assert (sb['home']).is_dir()
+
+
+def test_make_sandbox_state_lives_under_sb_state_only(sandbox_env, monkeypatch):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    assert list(sb['state'].rglob('state.sqlite3')) and (sb['repo'] / '.devflow/project.json').exists()
+    assert not (sandbox_env / 'home/.local/share/devflow').exists()
+    assert 'DEVFLOW_STATE_DIR' not in os.environ
+    monkeypatch.setenv('DEVFLOW_STATE_DIR', str(sb['state']))
+    result = cli.execute(cli.parser().parse_args(['--cwd', str(sb['repo']), 'route', 'bench-task']))
+    assert result['state'] == 'research' and result['source'] == 'tz'
+
+
+def test_make_sandbox_replaces_an_existing_directory(sandbox_env):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    (sb['repo'] / 'leftover.php').write_text('<?php\n')
+    (sb['vault'] / 'research/bench-task.md').write_text('x')
+    again = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    assert again['dir'] == sb['dir']
+    assert not (sb['repo'] / 'leftover.php').exists() and not (sb['vault'] / 'research/bench-task.md').exists()
+
+
+def test_sandbox_command_starts_the_task_container(sandbox_env, monkeypatch):
+    calls = []
+
+    def execute(cmd, timeout, cwd=None, env=None):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'dataset': 'd', 'split': 'test', 'instances': [INSTANCE['instance_id']]})
+    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE})
+    result = bench.sandbox('php-pilot', INSTANCE['instance_id'], root=sandbox_env / 'sb', execute=execute)
+    run = next(c for c in calls if c[:2] == ['docker', 'run'])
+    assert result['container'] == 'devflow-bench-php-cs-fixer__php-cs-fixer-8367__manual__r1'
+    assert run[run.index('--name') + 1] == result['container'] and run[run.index('-v') + 1] == f"{result['dir']}:{result['dir']}"
+    assert run[-2] == INSTANCE['image'] and result['route'].startswith(f"DEVFLOW_STATE_DIR={result['state']} devflow --cwd {result['repo']} route bench-task")
+    with pytest.raises(WorkflowError, match='not in set'):
+        bench.sandbox('php-pilot', 'other', root=sandbox_env / 'sb', execute=execute)
+
+
+def test_cli_bench_sandbox_wires_set_and_instance(monkeypatch):
+    monkeypatch.setattr(bench, 'sandbox', lambda set_name, instance_id: {'set': set_name, 'instance': instance_id})
+    assert cli.execute(cli.parser().parse_args(['bench', 'sandbox', 'php-pilot', 'x-1'])) == {'set': 'php-pilot', 'instance': 'x-1'}
