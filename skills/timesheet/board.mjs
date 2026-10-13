@@ -72,8 +72,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* недоступно */ } },
 };
 
-async function api(path, method = 'GET') {
-  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' } });
+async function api(path, method = 'GET', body = undefined) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
@@ -99,7 +99,13 @@ const niceMax = v => {
 function Chart({ chart }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState(null);
-  const { days, series } = chart;
+  const projects = chart.projects || [];
+  const [stored, setStored] = useState(store.get('board.chartProject') || '');
+  const proj = projects.includes(stored) ? stored : '';
+  const pick = v => { setStored(v); store.set('board.chartProject', v); };
+  const { days } = chart;
+  const series = !proj ? chart.series
+    : chart.series.filter(s => s.projects?.[proj]).map(s => ({ ...s, tokens: s.projects[proj] }));
   const tasks = series.filter(s => s.name !== NO_TASK);
   const none = series.find(s => s.name === NO_TASK)?.tokens || days.map(() => 0);
   const totals = days.map((_, d) => series.reduce((a, s) => a + (s.tokens[d] || 0), 0));
@@ -112,7 +118,7 @@ function Chart({ chart }) {
   const path = vals => vals.map((v, d) => `${d ? 'L' : 'M'}${x(d)},${y(v)}`).join('');
   const peak = totals.indexOf(Math.max(...totals));
   const last = days.length - 1;
-  const name = 'Токены по дням, 14 дней (UTC)';
+  const name = `Токены по дням, 14 дней (UTC)${proj ? ` — ${proj}` : ''}`;
 
   const plot = width ? html`
     ${days.map((day, d) => weekend(day) && html`<rect key=${'w' + day} x=${L + d * col} y=${T} width=${col} height=${plotH} fill="var(--weekend)" />`)}
@@ -158,9 +164,98 @@ function Chart({ chart }) {
       <svg height=${H} role="img" aria-label=${name}>${plot}</svg>
       ${tip}
     </div>
-    <div class="legend"><span>${lineKey(TOTAL)}всего</span>
+    <div class="legend">
+      ${projects.length > 1 && html`<label>Проект:${' '}
+        <select class="input" value=${proj} onChange=${e => pick(e.target.value)}>
+          <option value="">все</option>
+          ${projects.map(p => html`<option value=${p}>${p}</option>`)}
+        </select></label>`}
+      <span>${lineKey(TOTAL)}всего</span>
       <span>${lineKey(NONE, '4 3')}без задачи — сессии, где не встретился ключ задачи</span>
       <span class="muted">наведите на день — расход по каждой задаче</span></div>
+  </fieldset>`;
+}
+
+const inline = text => text.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map(part =>
+  part.startsWith('`') && part.endsWith('`') ? html`<code>${part.slice(1, -1)}</code>`
+    : part.startsWith('**') && part.endsWith('**') ? html`<b>${part.slice(2, -2)}</b>` : part);
+
+const RECAP_KINDS = { 'Сделано': 'done', 'Проблема → решение': 'issue', 'Дальше': 'next' };
+
+function RecapText({ markdown }) {
+  const cards = [];
+  let title = '', extra = [];
+  for (const line of markdown.split('\n').map(l => l.trim()).filter(Boolean)) {
+    if (line.startsWith('### ')) {
+      const [key, ...rest] = line.slice(4).split(' — ');
+      cards.push({ key, name: rest.join(' — '), rows: [] });
+    } else if (line.startsWith('# ')) {
+      title = line.slice(2);
+    } else if (line.startsWith('- ') && cards.length) {
+      const m = line.slice(2).match(/^\*\*(.+?):\*\*\s*(.*)$/);
+      cards.at(-1).rows.push(m ? { label: m[1], text: m[2] } : { label: '', text: line.slice(2) });
+    } else if (!/^\*\*Также касался:\*\*\s*нет\.?$/i.test(line)) {
+      extra.push(line);
+    }
+  }
+  return html`<div class="recap-text">
+    ${title && html`<h2>${title}</h2>`}
+    ${cards.map(c => html`<section class="recap-card">
+      <h3><span class="recap-key">${c.key}</span> ${c.name}</h3>
+      ${c.rows.map(r => html`<div class=${'recap-row ' + (RECAP_KINDS[r.label] || '')}>
+        ${r.label && html`<span class="recap-label">${r.label}</span>`}<span>${inline(r.text)}</span></div>`)}
+    </section>`)}
+    ${extra.map(l => html`<p>${inline(l)}</p>`)}
+  </div>`;
+}
+
+function Recap({ onClose }) {
+  const [hours, setHours] = useState(Number(store.get('board.recapHours')) || 24);
+  const [state, setState] = useState({});
+  const [list, setList] = useState([]);
+  const open = async name => {
+    try {
+      setState({ result: await api(`/api/board/recap/${name}`) });
+    } catch (e) {
+      setState({ error: e.message });
+    }
+  };
+  useEffect(() => {
+    api('/api/board/recap').then(items => { setList(items); if (items.length) open(items[0].name); })
+      .catch(e => setState({ error: e.message }));
+  }, []);
+  const run = async () => {
+    const started = Date.now();
+    setState({ busy: started });
+    try {
+      const result = await api('/api/board/recap', 'POST', { hours });
+      setState({ result, took: Date.now() - started });
+      setList(await api('/api/board/recap'));
+    } catch (e) {
+      setState({ error: e.message });
+    }
+  };
+  const copy = () => navigator.clipboard?.writeText(state.result.markdown);
+  const current = state.result?.name;
+  return html`<fieldset class="recap"><legend>Сводка к созвону</legend>
+    <div class="toolbar">
+      ${list.length > 0 && html`<label>Сохранённые:${' '}
+        <select class="input" value=${current || ''} disabled=${!!state.busy} onChange=${e => open(e.target.value)}>
+          ${!list.some(i => i.name === current) && html`<option value="">—</option>`}
+          ${list.map(i => html`<option value=${i.name}>${i.title.replace('Сводка к созвону — ', '')}</option>`)}
+        </select></label>`}
+      <label>Новая за${' '}<select class="input" value=${hours} disabled=${!!state.busy}
+        onChange=${e => { const v = Number(e.target.value); setHours(v); store.set('board.recapHours', String(v)); }}>
+        <option value="24">сутки</option><option value="72">3 суток (после выходных)</option><option value="168">неделю</option>
+      </select></label>
+      <button class="btn" disabled=${!!state.busy} onClick=${run}>${state.busy ? 'Собираю… (до минуты)' : '▶ Собрать'}</button>
+      ${state.result && html`<button class="btn" onClick=${copy}>⧉ Копировать</button>`}
+      <button class="btn" onClick=${onClose}>✕ Закрыть</button>
+    </div>
+    ${state.error && html`<div class="src bad">⚠ ${state.error}</div>`}
+    ${!state.result && !state.busy && !state.error && !list.length && html`<div class="muted">Сохранённых сводок нет — нажмите «Собрать».</div>`}
+    ${state.result && html`<${RecapText} markdown=${state.result.markdown} />
+      <div class="muted">${state.result.path}${state.took ? ` · ${Math.round(state.took / 1000)} с` : ''}</div>`}
   </fieldset>`;
 }
 
@@ -283,6 +378,7 @@ function App() {
   const [sort, setSort] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [charts, setCharts] = useState(store.get('board.charts') !== '0');
+  const [recap, setRecap] = useState(false);
   const search = useRef(null);
 
   const load = async (refresh = false) => {
@@ -367,6 +463,8 @@ function App() {
       <button class="btn" disabled=${!!busy} onClick=${() => load(true)} title="Пересчитать снимок: транскрипты, токены, PR, Jira">↻ Обновить</button>
       <button class=${'btn' + (charts ? ' on' : '')} aria-pressed=${charts} title="Показать или скрыть сводку и графики"
         onClick=${() => { store.set('board.charts', charts ? '0' : '1'); setCharts(!charts); }}>▥ Сводка</button>
+      <button class=${'btn' + (recap ? ' on' : '')} aria-pressed=${recap} onClick=${() => setRecap(!recap)}
+        title="Что сделано за сутки, проблемы и решения — по changelog и репликам, текст пишет Sonnet">☰ К созвону</button>
       <a class="btn" href="/">▦ Табель</a>
       <span class="sep"></span>
       <label class="fld">Найти:
@@ -380,6 +478,7 @@ function App() {
       ${(q || project) && html`<button class="btn" onClick=${() => { setQuery(''); setProject(''); }}>Сбросить</button>`}
     </div>
     <div class="content">
+      ${recap && html`<${Recap} onClose=${() => setRecap(false)} />`}
       ${data && charts && html`<${Panels} data=${data} counts=${counts} jump=${jump} now=${now} />`}
       ${data && charts && data.chart?.days?.length > 0 && html`<${Chart} chart=${data.chart} />`}
       <div class="listview">

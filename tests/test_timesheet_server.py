@@ -492,6 +492,10 @@ def test_board_api_serves_snapshot_without_collecting(tmp_path, monkeypatch):
         assert '<title>Доска задач</title>' in page and '/board.mjs' in page
         assert b'preact-htm' in urllib.request.urlopen(f'http://127.0.0.1:{server.server_address[1]}/board.mjs').read()
         assert call(server, '/api/week/W38')['week'] == WEEK
+        (tmp_path / 'board/recap').mkdir()
+        (tmp_path / 'board/recap/2026-10-13.md').write_text('# Сводка к созвону — 13.10\n')
+        assert call(server, '/api/board/recap') == [{'name': '2026-10-13', 'title': 'Сводка к созвону — 13.10'}]
+        assert call(server, '/api/board/recap/2026-10-13')['markdown'].startswith('# Сводка')
     finally:
         server.shutdown()
         server.server_close()

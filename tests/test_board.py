@@ -550,7 +550,8 @@ def test_task_tokens_three_keys_sums_match_and_old_days_count_only_in_totals():
                rec('AB-2', '2026-09-30', 0.25), rec(NO_TASK, '2026-10-02', 0.75)]
     tokens = board.task_tokens(records, '2026-09-18')
     assert set(tokens) == {'AB-1', 'AB-2', NO_TASK}
-    assert tokens['AB-1'] == {'cost': 3.5, 'tokens': 164, 'days': {'2026-10-01': 1.5}, 'day_tokens': {'2026-10-01': 160}}
+    assert tokens['AB-1'] == {'cost': 3.5, 'tokens': 164, 'days': {'2026-10-01': 1.5}, 'day_tokens': {'2026-10-01': 160},
+                              'project_tokens': {'?': {'2026-10-01': 160}}}
     assert tokens['AB-2']['cost'] == 0.25 and tokens[NO_TASK]['cost'] == 0.75
     assert sum(t['cost'] for t in tokens.values()) == sum(r['cost'] for r in records)
 
@@ -598,7 +599,22 @@ def test_chart_has_every_task_spent_in_14_days_and_no_task_last():
 
 
 def test_chart_without_tokens_still_has_no_task_series():
-    assert board.chart({}, NOW)['series'] == [{'name': NO_TASK, 'tokens': [0] * 14}]
+    assert board.chart({}, NOW) | {'days': None} == {'days': None, 'series': [{'name': NO_TASK, 'tokens': [0] * 14, 'projects': {}}],
+                                                     'projects': []}
+
+
+def test_chart_splits_task_tokens_by_root_project_and_ranks_projects():
+    records = [rec('AB-1', '2026-10-01', 0, (100, 0, 0, 0)) | {'project': 'green'},
+               rec('AB-1', '2026-10-02', 0, (30, 0, 0, 0)) | {'project': 'devflow/scripts'},
+               rec(NO_TASK, '2026-10-02', 0, (50, 0, 0, 0)) | {'project': 'devflow'},
+               rec('AB-2', '2026-09-01', 0, (999, 0, 0, 0)) | {'project': 'old'}]
+    roots = board.project_roots({'projects': {'green': {'path': Path.home() / 'resolventa/green'}}})
+    records[0]['project'] = 'resolventa/green/web'
+    ch = board.chart(board.task_tokens(records, '2026-09-18', roots), NOW)
+    assert ch['projects'] == ['green', 'devflow']  # old — вне окна
+    ab1 = ch['series'][0]
+    assert ab1['name'] == 'AB-1' and ab1['projects']['green'][-2] == 100 and ab1['projects']['devflow'][-1] == 30
+    assert ch['series'][-1]['projects'] == {'devflow': [0] * 13 + [50]}
 
 
 def test_facts_count_tokens_week_prev_week_and_no_task_share():
