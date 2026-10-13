@@ -176,6 +176,39 @@ function Chart({ chart }) {
   </fieldset>`;
 }
 
+const inline = text => text.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map(part =>
+  part.startsWith('`') && part.endsWith('`') ? html`<code>${part.slice(1, -1)}</code>`
+    : part.startsWith('**') && part.endsWith('**') ? html`<b>${part.slice(2, -2)}</b>` : part);
+
+const RECAP_KINDS = { 'Сделано': 'done', 'Проблема → решение': 'issue', 'Дальше': 'next' };
+
+function RecapText({ markdown }) {
+  const cards = [];
+  let title = '', extra = [];
+  for (const line of markdown.split('\n').map(l => l.trim()).filter(Boolean)) {
+    if (line.startsWith('### ')) {
+      const [key, ...rest] = line.slice(4).split(' — ');
+      cards.push({ key, name: rest.join(' — '), rows: [] });
+    } else if (line.startsWith('# ')) {
+      title = line.slice(2);
+    } else if (line.startsWith('- ') && cards.length) {
+      const m = line.slice(2).match(/^\*\*(.+?):\*\*\s*(.*)$/);
+      cards.at(-1).rows.push(m ? { label: m[1], text: m[2] } : { label: '', text: line.slice(2) });
+    } else if (!/^\*\*Также касался:\*\*\s*нет\.?$/i.test(line)) {
+      extra.push(line);
+    }
+  }
+  return html`<div class="recap-text">
+    ${title && html`<h2>${title}</h2>`}
+    ${cards.map(c => html`<section class="recap-card">
+      <h3><span class="recap-key">${c.key}</span> ${c.name}</h3>
+      ${c.rows.map(r => html`<div class=${'recap-row ' + (RECAP_KINDS[r.label] || '')}>
+        ${r.label && html`<span class="recap-label">${r.label}</span>`}<span>${inline(r.text)}</span></div>`)}
+    </section>`)}
+    ${extra.map(l => html`<p>${inline(l)}</p>`)}
+  </div>`;
+}
+
 function Recap({ onClose }) {
   const [hours, setHours] = useState(Number(store.get('board.recapHours')) || 24);
   const [state, setState] = useState({});
@@ -200,7 +233,7 @@ function Recap({ onClose }) {
       <button class="btn" onClick=${onClose}>✕ Закрыть</button>
     </div>
     ${state.error && html`<div class="src bad">⚠ ${state.error}</div>`}
-    ${state.result && html`<pre class="recap-text">${state.result.markdown}</pre>
+    ${state.result && html`<${RecapText} markdown=${state.result.markdown} />
       ${state.result.path && html`<div class="muted">Сохранено: ${state.result.path} · ${Math.round(state.took / 1000)} с</div>`}`}
   </fieldset>`;
 }

@@ -62,7 +62,18 @@ legend{padding:0 4px}
 
 .chart{margin-bottom:6px}
 .recap{margin-bottom:6px}
-.recap-text{white-space:pre-wrap;font:inherit;margin:6px 2px;max-height:60vh;overflow:auto;background:var(--field);padding:6px}
+.recap-text{margin:6px 2px;max-height:70vh;overflow:auto;background:var(--field);box-shadow:var(--sunken);padding:12px 16px;font-size:15px;line-height:1.5}
+.recap-text h2{font-size:17px;margin:0 0 10px}
+.recap-text p{margin:8px 0;max-width:80ch}
+.recap-card{max-width:80ch;margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid var(--grid)}
+.recap-card h3{font-size:16px;margin:0 0 6px}
+.recap-key{background:var(--navy);color:#fff;padding:1px 6px;margin-right:4px;font-weight:bold}
+.recap-row{display:grid;grid-template-columns:11em 1fr;gap:10px;margin:4px 0}
+.recap-label{font-weight:bold;color:var(--ink-2)}
+.recap-row.issue .recap-label{color:#a00}
+.recap-row.next .recap-label{color:var(--navy)}
+.recap-text code{background:var(--tip);padding:0 3px;font-size:14px}
+@media (max-width:640px){.recap-row{grid-template-columns:1fr;gap:0}}
 .plot{position:relative;background:var(--field);box-shadow:var(--sunken);padding:6px 6px 2px}
 .plot>svg{display:block;width:100%}
 .plot text{font:11px var(--ui);fill:var(--ink-2)}
