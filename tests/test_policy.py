@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from devflow import complexity, documents, policy, workflow
+from devflow import cli, complexity, documents, policy, workflow
 from devflow.documents import WorkflowError, context
 from devflow.storage import connect
 
@@ -309,3 +309,26 @@ def test_fallback_effort_differing_from_default_gets_its_own_agent(ready, monkey
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time())))
     out = workflow.route(ready['ctx'], ready['db'], 'x')
     assert out['launch']['claude']['agent'] == 'implement-fallback' and out['launch']['claude']['effort'] == 'medium'
+
+
+LAUNCH_FIELDS = {'launch', 'complexity', 'policy', 'policy_stale', 'limits'}
+
+
+def test_active_items_carry_task_state_without_launch(ready, monkeypatch):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    item = next(i for i in cli.active(ready['ctx'], ready['db'])['plans'] if i['name'] == 'x')
+    assert item['status'] == 'ready' and item['route']['phase'] == 'implement'
+    assert not LAUNCH_FIELDS & set(item['route'])
+
+
+def test_resume_returns_task_state_without_launch(ready, monkeypatch):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    ctx, db = ready['ctx'], ready['db']
+    run = workflow.start(ctx, db, 'x', 's1', workflow.route(ctx, db, 'x')['revision'])['run_id']
+    log = ready['vault'] / 'changelog/2026-10-13-x.md'
+    log.write_text(f'# X\n\n<!-- devflow-run: {run} -->\n## Шаг 1\n**Status:** blocked\nстоп\n')
+    workflow.finish(ctx, db, run, 'blocked', str(log), 'причина')
+    out = workflow.resume(ctx, db, 'x', 'снова')
+    assert out['state'] == 'ready' and out['slug'] == 'x'
+    assert not LAUNCH_FIELDS & set(out)
+    assert 'launch' in workflow.route(ctx, db, 'x')

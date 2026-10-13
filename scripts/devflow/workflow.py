@@ -34,7 +34,7 @@ def pending_path(ctx, slug):
 
 
 def route(ctx, db, query):
-    result = _route(ctx, db, query)
+    result = task_state(ctx, db, query)
     result['complexity'] = complexity.user_complexity(db, result['slug'])
     if result.get('phase'):
         value = result['complexity']['value'] if result['complexity'] else None
@@ -42,7 +42,7 @@ def route(ctx, db, query):
     return result
 
 
-def _route(ctx, db, query):
+def task_state(ctx, db, query):
     slug, research, plan = task_docs(ctx, query)
     result = {'slug': slug, 'state': 'research', 'phase': 'research',
               'research_revision': research['revision'] if research else None,
@@ -99,7 +99,7 @@ def _route(ctx, db, query):
 
 def approve(ctx, db, query, phase, revision):
     with transaction(db):
-        current = route(ctx, db, query)
+        current = task_state(ctx, db, query)
         if current['state'] != 'approval_required' or current['phase'] != phase:
             slug, research, plan = task_docs(ctx, query)
             doc = research if phase == 'research' else plan
@@ -120,7 +120,7 @@ def approve(ctx, db, query, phase, revision):
 
 def start(ctx, db, query, step_id, revision):
     with transaction(db):
-        current = route(ctx, db, query)
+        current = task_state(ctx, db, query)
         if current['state'] != 'ready' or current['revision'] != revision:
             raise WorkflowError('Task is not ready at the requested plan revision: ' + current['state'])
         if step_id not in current['frontier']:
@@ -194,7 +194,7 @@ def resume(ctx, db, query, reason):
         if not changed:
             raise WorkflowError('Task has no blocked/partial attempts')
         event(db, 'resume', slug, reason=reason)
-    return route(ctx, db, slug)
+    return task_state(ctx, db, slug)
 
 
 def reopen(ctx, db, query, step_id, revision, reason):

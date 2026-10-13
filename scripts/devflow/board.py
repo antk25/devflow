@@ -20,7 +20,7 @@ from .project import ROOT, registry_path
 from .registry import load as load_registry
 from .storage import atomic_write, connect
 from .transcripts import NO_TASK, PI_ROOT, PROJECTS_ROOT, human_messages, load_ledger, pi_messages, project_of, tag_messages
-from .workflow import route
+from .workflow import task_state
 
 STATE_DIR = Path.home() / '.claude' / 'devflow' / 'board'
 KEY_RE = re.compile(r'^[a-z][a-z0-9]+-\d+')
@@ -132,7 +132,7 @@ def project_tasks(name: str, path: Path, now: datetime) -> tuple[list[dict], str
             if slug in seen:
                 continue
             try:
-                rt = route(ctx, db, slug)
+                rt = task_state(ctx, db, slug)
             except (WorkflowError, yaml.YAMLError, OSError, ValueError):
                 continue
             if rt['state'] == 'completed':
