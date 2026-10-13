@@ -452,6 +452,15 @@ def make_handler(app: App, board_dir: Path | None = None):
                 self._json(200, board.load(board_dir) or board.build(board_dir))
             elif method == 'POST' and path == '/api/board/refresh':
                 self._json(200, board.build(board_dir))
+            elif method == 'POST' and path == '/api/board/recap':
+                hours = self._body().get('hours', 24)
+                if not isinstance(hours, int) or not 1 <= hours <= 24 * 7:
+                    self._json(400, {'error': 'hours — целое от 1 до 168'})
+                    return True
+                try:
+                    self._json(200, board.recap(board_dir, hours))
+                except Exception as exc:
+                    self._json(502, {'error': str(exc) or exc.__class__.__name__})
             else:
                 self._json(404, {'error': 'нет такого адреса'})
             return True

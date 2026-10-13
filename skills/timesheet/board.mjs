@@ -72,8 +72,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* недоступно */ } },
 };
 
-async function api(path, method = 'GET') {
-  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' } });
+async function api(path, method = 'GET', body = undefined) {
+  const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
@@ -173,6 +173,35 @@ function Chart({ chart }) {
       <span>${lineKey(TOTAL)}всего</span>
       <span>${lineKey(NONE, '4 3')}без задачи — сессии, где не встретился ключ задачи</span>
       <span class="muted">наведите на день — расход по каждой задаче</span></div>
+  </fieldset>`;
+}
+
+function Recap({ onClose }) {
+  const [hours, setHours] = useState(Number(store.get('board.recapHours')) || 24);
+  const [state, setState] = useState({});
+  const run = async () => {
+    const started = Date.now();
+    setState({ busy: started });
+    try {
+      setState({ result: await api('/api/board/recap', 'POST', { hours }), took: Date.now() - started });
+    } catch (e) {
+      setState({ error: e.message });
+    }
+  };
+  const copy = () => navigator.clipboard?.writeText(state.result.markdown);
+  return html`<fieldset class="recap"><legend>Сводка к созвону</legend>
+    <div class="toolbar">
+      <label>За${' '}<select class="input" value=${hours} disabled=${!!state.busy}
+        onChange=${e => { const v = Number(e.target.value); setHours(v); store.set('board.recapHours', String(v)); }}>
+        <option value="24">сутки</option><option value="72">3 суток (после выходных)</option><option value="168">неделю</option>
+      </select></label>
+      <button class="btn" disabled=${!!state.busy} onClick=${run}>${state.busy ? 'Собираю… (до минуты)' : '▶ Собрать'}</button>
+      ${state.result && html`<button class="btn" onClick=${copy}>⧉ Копировать</button>`}
+      <button class="btn" onClick=${onClose}>✕ Закрыть</button>
+    </div>
+    ${state.error && html`<div class="src bad">⚠ ${state.error}</div>`}
+    ${state.result && html`<pre class="recap-text">${state.result.markdown}</pre>
+      ${state.result.path && html`<div class="muted">Сохранено: ${state.result.path} · ${Math.round(state.took / 1000)} с</div>`}`}
   </fieldset>`;
 }
 
@@ -295,6 +324,7 @@ function App() {
   const [sort, setSort] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [charts, setCharts] = useState(store.get('board.charts') !== '0');
+  const [recap, setRecap] = useState(false);
   const search = useRef(null);
 
   const load = async (refresh = false) => {
@@ -379,6 +409,8 @@ function App() {
       <button class="btn" disabled=${!!busy} onClick=${() => load(true)} title="Пересчитать снимок: транскрипты, токены, PR, Jira">↻ Обновить</button>
       <button class=${'btn' + (charts ? ' on' : '')} aria-pressed=${charts} title="Показать или скрыть сводку и графики"
         onClick=${() => { store.set('board.charts', charts ? '0' : '1'); setCharts(!charts); }}>▥ Сводка</button>
+      <button class=${'btn' + (recap ? ' on' : '')} aria-pressed=${recap} onClick=${() => setRecap(!recap)}
+        title="Что сделано за сутки, проблемы и решения — по changelog и репликам, текст пишет Sonnet">☰ К созвону</button>
       <a class="btn" href="/">▦ Табель</a>
       <span class="sep"></span>
       <label class="fld">Найти:
@@ -392,6 +424,7 @@ function App() {
       ${(q || project) && html`<button class="btn" onClick=${() => { setQuery(''); setProject(''); }}>Сбросить</button>`}
     </div>
     <div class="content">
+      ${recap && html`<${Recap} onClose=${() => setRecap(false)} />`}
       ${data && charts && html`<${Panels} data=${data} counts=${counts} jump=${jump} now=${now} />`}
       ${data && charts && data.chart?.days?.length > 0 && html`<${Chart} chart=${data.chart} />`}
       <div class="listview">

@@ -546,6 +546,15 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
     return snapshot
 
 
+def recap(state: Path, hours: int = 24) -> dict:
+    """Сводка к созвону по снимку: ключи задач — из него же, чтобы не пересчитывать доску."""
+    from . import recap as recap_module
+    snapshot = load(state) or build(state)
+    tasks = snapshot.get('tasks', []) + snapshot.get('folded', [])
+    registry = load_registry(registry_path(ROOT))
+    return recap_module.build({'tasks': tasks}, registry, key_pattern(tasks), Path(state), hours=hours)
+
+
 def load(state: Path) -> dict | None:
     path = Path(state) / 'snapshot.json'
     if not path.exists():
