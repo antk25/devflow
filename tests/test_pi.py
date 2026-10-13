@@ -227,12 +227,12 @@ def test_run_phase_warns_about_claude_bridge_but_runs(proj, fake_pi, tmp_path, m
     assert fake_pi['log'].exists()
 
 
-def test_cli_phase_run_exit_code_follows_pi(proj, fake_pi, monkeypatch, capsys):
+def test_cli_phase_run_exit_code_only_in_json(proj, fake_pi, monkeypatch, capsys):
     approve_research(proj)
     for key, value in {**fake_pi['env'], 'FAKE_PI_EXIT': '2'}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(sys, 'argv', ['devflow', '--cwd', str(proj['cwd']), 'phase', 'run', 'x', 'plan'])
-    assert cli.main() == 1
+    assert cli.main() == 0
     assert json.loads(capsys.readouterr().out)['exit_code'] == 2
 
 

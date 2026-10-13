@@ -161,8 +161,6 @@ def main():
     try:
         result = execute(parser().parse_args())
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        if isinstance(result, dict) and result.get('exit_code'):
-            return 1
     except (WorkflowError, OSError, ValueError, KeyError, sqlite3.Error, yaml.YAMLError) as exc:
         print(json.dumps({'state': 'invalid', 'error': str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1

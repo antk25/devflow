@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed — DF-26: оценка сложности отдельным модулем
 - Оценка сложности (`df complexity`, тень Jev, факты) переехала из `workflow.py` в `scripts/devflow/complexity.py`; `workflow.route` знает о ней только через `user_complexity`. Поиск секции документа — одна функция `documents.section`, `section_items` строится поверх неё; лимит входа Jev — `jev.INPUT_LIMIT`. Вывод `df route` и `df complexity` не изменился.
 - `workflow.task_state` — чистое состояние задачи без `launch`/`complexity`/`policy*`/`limits`; его читают `df active` (хук SessionStart, лаунчер pi), `board`, `approve`, `start`, `resume`. Поля запуска отдают только `df route`/`status` и `pi.run_phase`; `df resume` возвращает чистое состояние.
+- `df phase run` с ненулевым `exit_code` pi завершается с кодом 0: исход pi читается только из JSON, код возврата `devflow` говорит лишь об отказе самого devflow.
 
 ### Added — DF-24: дашборд задач
 - **`/board` на сервере `timesheet serve`** и `devflow board [--refresh]` — read-only таблица задач всех проектов реестра: стадия DevFlow и «висит N д» на гейте, статус Jira, PR, время и токены по задаче. Сначала ждущие решения, потом в работе, потом готовые за 7 дней; задачи без движения за 14 дней (события DevFlow, своя активность в транскриптах, открытый PR) свёрнуты в одну строку. Страница открывается из снимка `~/.claude/devflow/board/snapshot.json`, пересчёт — кнопкой.
