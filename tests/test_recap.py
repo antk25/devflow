@@ -64,3 +64,20 @@ def test_build_without_work_does_not_call_model(tmp_path):
     out = recap.build({'tasks': []}, {'projects': {}}, KEY_RE, tmp_path, now=NOW,
                       fetch=lambda s, u: ([], {}), ask=lambda p: 1 / 0)
     assert out['path'] is None and out['keys'] == []
+
+
+def test_history_lists_saved_recaps_newest_first_and_read_rejects_foreign_names(tmp_path):
+    (tmp_path / 'recap').mkdir()
+    (tmp_path / 'recap/2026-10-12.md').write_text('# Сводка к созвону — 12.10\n\nтекст')
+    (tmp_path / 'recap/2026-10-13-72h.md').write_text('# Сводка к созвону — 13.10, за 72 ч\n')
+    (tmp_path / 'recap/notes.md').write_text('чужой файл')
+    assert recap.history(tmp_path) == [{'name': '2026-10-13-72h', 'title': 'Сводка к созвону — 13.10, за 72 ч'},
+                                       {'name': '2026-10-12', 'title': 'Сводка к созвону — 12.10'}]
+    assert recap.read(tmp_path, '2026-10-12')['markdown'].endswith('текст')
+    assert recap.read(tmp_path, '../snapshot') is None and recap.read(tmp_path, 'notes') is None
+
+
+def test_build_names_non_daily_period_by_hours(tmp_path):
+    fetch = lambda since, until: ([msg('AB-1 готово', 2)], {})
+    out = recap.build({'tasks': []}, {'projects': {}}, KEY_RE, tmp_path, now=NOW, hours=72, fetch=fetch, ask=lambda p: 'x')
+    assert out['name'] == '2026-10-13-72h' and recap.history(tmp_path)[0]['name'] == '2026-10-13-72h'

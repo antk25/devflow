@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from devflow import board
+from devflow import board, recap
 from devflow import timesheet as ts
 
 HOST = '127.0.0.1'
@@ -452,6 +452,11 @@ def make_handler(app: App, board_dir: Path | None = None):
                 self._json(200, board.load(board_dir) or board.build(board_dir))
             elif method == 'POST' and path == '/api/board/refresh':
                 self._json(200, board.build(board_dir))
+            elif method == 'GET' and path == '/api/board/recap':
+                self._json(200, recap.history(board_dir))
+            elif method == 'GET' and path.startswith('/api/board/recap/'):
+                found = recap.read(board_dir, path.rsplit('/', 1)[1])
+                self._json(200, found) if found else self._json(404, {'error': 'сводки нет'})
             elif method == 'POST' and path == '/api/board/recap':
                 hours = self._body().get('hours', 24)
                 if not isinstance(hours, int) or not 1 <= hours <= 24 * 7:

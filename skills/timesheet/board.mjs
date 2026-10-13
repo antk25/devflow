@@ -212,19 +212,39 @@ function RecapText({ markdown }) {
 function Recap({ onClose }) {
   const [hours, setHours] = useState(Number(store.get('board.recapHours')) || 24);
   const [state, setState] = useState({});
+  const [list, setList] = useState([]);
+  const open = async name => {
+    try {
+      setState({ result: await api(`/api/board/recap/${name}`) });
+    } catch (e) {
+      setState({ error: e.message });
+    }
+  };
+  useEffect(() => {
+    api('/api/board/recap').then(items => { setList(items); if (items.length) open(items[0].name); })
+      .catch(e => setState({ error: e.message }));
+  }, []);
   const run = async () => {
     const started = Date.now();
     setState({ busy: started });
     try {
-      setState({ result: await api('/api/board/recap', 'POST', { hours }), took: Date.now() - started });
+      const result = await api('/api/board/recap', 'POST', { hours });
+      setState({ result, took: Date.now() - started });
+      setList(await api('/api/board/recap'));
     } catch (e) {
       setState({ error: e.message });
     }
   };
   const copy = () => navigator.clipboard?.writeText(state.result.markdown);
+  const current = state.result?.name;
   return html`<fieldset class="recap"><legend>Сводка к созвону</legend>
     <div class="toolbar">
-      <label>За${' '}<select class="input" value=${hours} disabled=${!!state.busy}
+      ${list.length > 0 && html`<label>Сохранённые:${' '}
+        <select class="input" value=${current || ''} disabled=${!!state.busy} onChange=${e => open(e.target.value)}>
+          ${!list.some(i => i.name === current) && html`<option value="">—</option>`}
+          ${list.map(i => html`<option value=${i.name}>${i.title.replace('Сводка к созвону — ', '')}</option>`)}
+        </select></label>`}
+      <label>Новая за${' '}<select class="input" value=${hours} disabled=${!!state.busy}
         onChange=${e => { const v = Number(e.target.value); setHours(v); store.set('board.recapHours', String(v)); }}>
         <option value="24">сутки</option><option value="72">3 суток (после выходных)</option><option value="168">неделю</option>
       </select></label>
@@ -233,8 +253,9 @@ function Recap({ onClose }) {
       <button class="btn" onClick=${onClose}>✕ Закрыть</button>
     </div>
     ${state.error && html`<div class="src bad">⚠ ${state.error}</div>`}
+    ${!state.result && !state.busy && !state.error && !list.length && html`<div class="muted">Сохранённых сводок нет — нажмите «Собрать».</div>`}
     ${state.result && html`<${RecapText} markdown=${state.result.markdown} />
-      ${state.result.path && html`<div class="muted">Сохранено: ${state.result.path} · ${Math.round(state.took / 1000)} с</div>`}`}
+      <div class="muted">${state.result.path}${state.took ? ` · ${Math.round(state.took / 1000)} с` : ''}</div>`}
   </fieldset>`;
 }
 

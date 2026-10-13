@@ -10,6 +10,7 @@ from .documents import context
 from .storage import atomic_write
 from .transcripts import NO_TASK, assign_tasks, project_of
 
+NAME = re.compile(r'^\d{4}-\d{2}-\d{2}(-\d+h)?$')
 MSK = timezone(timedelta(hours=3))
 STEP = re.compile(r'^## .*?(\d{4}-\d{2}-\d{2})', re.M)
 SKIP_SECTIONS = re.compile(r'^### (Files|Tests)\b.*?(?=^##|\Z)', re.M | re.S)
@@ -137,7 +138,21 @@ def build(snapshot: dict, registry: dict, key_re: re.Pattern | None, state: Path
     text = ask(PROMPT.format(hours=hours, materials=materials(snapshot.get('tasks', []), logs, said)))
     stamp = now.astimezone(MSK)
     markdown = f"# Сводка к созвону — {stamp:%d.%m.%Y %H:%M} МСК, за {hours} ч\n\n{text}\n"
-    path = state / 'recap' / f'{stamp:%Y-%m-%d}.md'
+    path = state / 'recap' / f"{stamp:%Y-%m-%d}{'' if hours == 24 else f'-{hours}h'}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(path, markdown)
-    return {'markdown': markdown, 'path': str(path), 'keys': keys}
+    return {'markdown': markdown, 'path': str(path), 'keys': keys, 'name': path.stem}
+
+
+def history(state: Path) -> list[dict]:
+    """[{name, title}] сохранённых сводок, свежие первыми; title — первая строка файла без «# »."""
+    files = sorted((Path(state) / 'recap').glob('*.md'), key=lambda p: p.stem, reverse=True)
+    return [{'name': p.stem, 'title': p.read_text(encoding='utf-8').split('\n', 1)[0].removeprefix('# ')}
+            for p in files if NAME.match(p.stem)]
+
+
+def read(state: Path, name: str) -> dict | None:
+    path = Path(state) / 'recap' / f'{name}.md'
+    if not NAME.match(name) or not path.is_file():
+        return None
+    return {'markdown': path.read_text(encoding='utf-8'), 'path': str(path), 'name': name}
