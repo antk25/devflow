@@ -1,0 +1,18 @@
+{
+  "name": "impl-opus",
+  "research": {
+    "runner": "claude",
+    "model": "claude-opus-5-5",
+    "effort": "medium"
+  },
+  "plan": {
+    "runner": "claude",
+    "model": "claude-opus-5-5",
+    "effort": "medium"
+  },
+  "implement": {
+    "runner": "claude",
+    "model": "claude-opus-5-5",
+    "effort": "low"
+  }
+}

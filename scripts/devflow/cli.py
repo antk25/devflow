@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import board, pi, project
+from . import bench, board, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
@@ -54,6 +54,8 @@ def parser():
     a = commands.add_parser('artifact'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan', 'changelog']); a.add_argument('--revision', required=True)
     a = commands.add_parser('backup'); a.add_argument('destination')
     a = commands.add_parser('board'); a.add_argument('--refresh', action='store_true')
+    bench_commands = commands.add_parser('bench').add_subparsers(dest='bench_command', required=True)
+    a = bench_commands.add_parser('combos'); a.add_argument('names', nargs='*'); a.add_argument('--probe', action='store_true')
     project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
@@ -72,6 +74,8 @@ def execute(args):
         return project.init(Path(args.path), args.name, draft=args.agents_draft, dry_run=args.dry_run)
     if args.command == 'board':
         return board.snapshot(refresh=args.refresh)
+    if args.command == 'bench':
+        return bench.command(args)
     ctx = context(args.cwd)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
