@@ -184,7 +184,7 @@ def test_render_agent_implement_tools(example):
         front = policy.render_agent(example, name).split('---\n', 2)[1]
         tools = next(line for line in front.splitlines() if line.startswith('tools:'))
         assert 'Agent' in tools, name
-        assert 'Skill' not in tools, name
+        assert 'Skill' in tools, name
 
 
 def test_installed_stale_missing_and_effort_drift(example, tmp_path):
