@@ -56,6 +56,7 @@ def parser():
     a = commands.add_parser('board'); a.add_argument('--refresh', action='store_true')
     bench_commands = commands.add_parser('bench').add_subparsers(dest='bench_command', required=True)
     a = bench_commands.add_parser('combos'); a.add_argument('names', nargs='*'); a.add_argument('--probe', action='store_true')
+    a = bench_commands.add_parser('doctor'); a.add_argument('instance'); a.add_argument('--keep', action='store_true')
     set_commands = bench_commands.add_parser('set').add_subparsers(dest='set_command', required=True)
     a = set_commands.add_parser('build'); a.add_argument('name'); a.add_argument('--dataset', required=True); a.add_argument('--split', default='test')
     a.add_argument('--language', required=True); a.add_argument('--per-repo', type=int, default=3); a.add_argument('--count', type=int); a.add_argument('--workers', type=int, default=1)

@@ -1,9 +1,13 @@
 """`devflow bench`: model × phase combos for the pipeline benchmark."""
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
-from .bench_eval import SETS_DIR, build_set
-from .bench_runners import RUNNERS, host_execute, probe
+from . import bench_container as container
+from .bench_eval import CACHE_DIR, SETS_DIR, build_set, instances
+from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
+                            host_execute, probe)
 from .documents import WorkflowError
 from .policy import PHASES
 
@@ -81,6 +85,81 @@ def probe_combos(selected, execute=None):
     return list(seen.values())
 
 
+def set_of_instance(instance_id, directory=SETS_DIR):
+    for path in sorted(Path(directory).glob('*.json')):
+        data = load_set(path.stem, directory)
+        if instance_id in data['instances']:
+            return data
+    raise WorkflowError(f'instance {instance_id} is in no set under {directory}')
+
+
+def git_apply(repo, patch):
+    proc = subprocess.run(['git', '-C', str(repo), 'apply', '--whitespace=nowarn'], input=patch,
+                          capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise WorkflowError(f'git apply failed: {(proc.stderr or "").strip()[-500:]}')
+
+
+def gold_check(instance, workdir, execute, apply=None, timeout=1800):
+    """The gold patch in a host copy of the repository: tests fail before it and pass after it, run in the task container."""
+    apply = apply or git_apply
+    name = f'devflow-bench-doctor-{instance["instance_id"]}'
+    repo = container.checkout(instance['image'], Path(workdir) / 'repo', execute)
+    container.start(name, instance['image'], repo, execute=execute)
+    try:
+        run = container.executor(name, repo, execute=execute)
+        apply(repo, instance['test_patch'])
+        before = container.shell(run, instance['test_cmd'], timeout)
+        apply(repo, instance['patch'])
+        after = container.shell(run, instance['test_cmd'], timeout)
+        offline = container.shell(run, container.OFFLINE_SCRIPT, 60)
+    finally:
+        container.stop(name, execute)
+    return {'before': before, 'after': after, 'offline': offline}
+
+
+def doctor(instance_id, execute=None, probe_execute=None, workdir=None, keep=False):
+    """Checks of the host-runner setup for one task; every check is {check, ok, detail}."""
+    execute = execute or container.docker_execute
+    probe_execute = probe_execute or host_execute
+    data = set_of_instance(instance_id)
+    instance = instances(data['dataset'], data['split'], [instance_id])[instance_id]
+    checks = []
+    try:
+        internal = container.ensure_network(execute)
+        checks.append({'check': 'network', 'ok': internal, 'detail': f'{container.NETWORK} internal={internal}'})
+    except RuntimeError as exc:
+        checks.append({'check': 'network', 'ok': False, 'detail': str(exc)})
+    for result in probe_combos(combos(), probe_execute):
+        checks.append({'check': f"probe {result['runner']} {result['model']} {result['effort']}", 'ok': result['ok'],
+                       'detail': result['model_actual'] if result['ok'] else result['error_text']})
+    proc = probe_execute(claude_probe_command('claude-sonnet-5-5', 'low', output_format='stream-json') + ['--verbose'],
+                         PROBE_TIMEOUT)
+    init = claude_init(proc.stdout) or {}
+    tools = init.get('tools') or []
+    leaked = [t for t in WEB_TOOLS if t in tools]
+    checks.append({'check': 'claude web tools', 'ok': bool(tools) and not leaked,
+                   'detail': f'init tools: {len(tools)}, web: {leaked or "none"}, mcp: {init.get("mcp_servers")}, '
+                             f'skills: {init.get("skills")}, memory: {init.get("memory_paths")}'})
+    workdir = Path(workdir or CACHE_DIR / 'work' / f'doctor-{instance_id}')
+    try:
+        result = gold_check(instance, workdir, execute)
+    except (WorkflowError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        checks.append({'check': 'gold', 'ok': False, 'detail': str(exc)})
+    else:
+        before, after, offline = result['before'], result['after'], result['offline']
+        checks.append({'check': 'offline', 'ok': offline.returncode != 0,
+                       'detail': f'github.com from the container: exit {offline.returncode} {(offline.stderr or "").strip()[-200:]}'})
+        checks.append({'check': 'gold', 'ok': before.returncode != 0 and after.returncode == 0,
+                       'detail': f'tests before gold: exit {before.returncode}; after gold: exit {after.returncode}; '
+                                 f'{(after.stdout or "").strip().splitlines()[-1:] or ""}'})
+    finally:
+        if not keep and workdir.exists():
+            shutil.rmtree(workdir)
+    return {'instance': instance_id, 'runner_mode': container.RUNNER_MODE, 'claude_isolation': CLAUDE_ISOLATION,
+            'ok': all(c['ok'] for c in checks), 'checks': checks}
+
+
 def command(args):
     if args.bench_command == 'combos':
         selected = combos(args.names)
@@ -88,6 +167,8 @@ def command(args):
         if args.probe:
             result['probes'] = probe_combos(selected)
         return result
+    if args.bench_command == 'doctor':
+        return doctor(args.instance, keep=args.keep)
     if args.bench_command == 'set' and args.set_command == 'build':
         return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
                          workers=args.workers)

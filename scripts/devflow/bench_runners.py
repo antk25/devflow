@@ -13,9 +13,28 @@ def host_execute(cmd, timeout):
     return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
 
 
-def claude_probe_command(model, effort):
-    return ['claude', '-p', '--model', model, '--effort', effort, '--output-format', 'json',
-            '--no-session-persistence', '--max-turns', '1', PROBE_MESSAGE]
+# Host-side isolation of claude: no user settings (hooks, deny rules, agents), no MCP, no skills, no web tools.
+# `--disallowedTools` is variadic, so the message goes right after `-p`.
+CLAUDE_ISOLATION = ['--setting-sources', 'project', '--strict-mcp-config', '--disable-slash-commands',
+                    '--disallowedTools', 'WebFetch,WebSearch']
+WEB_TOOLS = ('WebFetch', 'WebSearch')
+
+
+def claude_probe_command(model, effort, output_format='json'):
+    return ['claude', '-p', PROBE_MESSAGE, '--model', model, '--effort', effort, '--output-format', output_format,
+            '--no-session-persistence', '--max-turns', '1', *CLAUDE_ISOLATION]
+
+
+def claude_init(stdout):
+    """The `system/init` record of a `--output-format stream-json --verbose` reply; None when there is none."""
+    for line in stdout.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and record.get('type') == 'system' and record.get('subtype') == 'init':
+            return record
+    return None
 
 
 def pi_probe_command(model, effort, session_dir):
