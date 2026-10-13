@@ -221,7 +221,8 @@ created, a project without `AGENTS.md` gets a warning and a bare pi. If the mode
 Where Claude Code spawns a phase through the `Agent` tool, pi runs
 `devflow phase run <slug> <research|plan|implement> [--step <id>] [--note <text>]`: the CLI starts a
 separate `pi -p` process on `launch.pi.model` from the policy with the phase body (`agents/<phase>.md`) appended to
-the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`). Gate
+the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`); a non-zero
+`exit_code` is a pi process failure, the `devflow` return code only reports devflow's own refusal. Gate
 remarks go back as a repeated `phase run --note`. For `implement` the CLI calls `devflow start`
 itself before the process; if the step ends without `devflow finish`, `route` stays `running` and the
 result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through

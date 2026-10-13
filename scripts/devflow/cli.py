@@ -8,9 +8,10 @@ from pathlib import Path
 import yaml
 
 from . import board, pi, project
+from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
-from .workflow import approve, check, complexity, finish, interrupt, migrate, reopen, resume, route, start
+from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start, task_state
 
 
 def active(ctx, db, limit=5):
@@ -19,7 +20,7 @@ def active(ctx, db, limit=5):
         for path in sorted((ctx['vault'] / folder).glob('*.md'), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 doc = document(path)
-                state = route(ctx, db, path.stem) if db else {'state': 'needs_init'}
+                state = task_state(ctx, db, path.stem) if db else {'state': 'needs_init'}
                 if state['state'] == 'completed' or doc['meta'].get('status') in ('archived', 'closed'):
                     continue
                 title = next((line[2:] for line in doc['body'].splitlines() if line.startswith('# ')), path.stem)
@@ -160,8 +161,6 @@ def main():
     try:
         result = execute(parser().parse_args())
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        if isinstance(result, dict) and result.get('exit_code'):
-            return 1
     except (WorkflowError, OSError, ValueError, KeyError, sqlite3.Error, yaml.YAMLError) as exc:
         print(json.dumps({'state': 'invalid', 'error': str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1

@@ -26,7 +26,7 @@ of the `Agent` tool, then use one column for the whole session:
 | Launch a phase | `Agent(subagent_type=launch.claude.agent, model=launch.claude.model)` from `df route` (`<phase>` or `<phase>-high` by complexity), with cwd, slug, revision (and run data for implement) | `devflow phase run <slug> <phase> [--step <id>] [--note <text>]` — the CLI runs the phase body in a separate `pi` process on `launch.pi.model` |
 | Relay a remark at the gate | `SendMessage` to the same agent | repeat `devflow phase run <slug> <phase> --note "<remark>"` |
 | `start` before implement | the driver runs `df start`, passes `run_id` to the agent | `phase run … implement` calls `start` itself and returns `run_id` |
-| Result | the agent's hand-off | JSON: `exit_code`, `report`, `route`, `run_id`, `warning` — show `report`, act on `route` |
+| Result | the agent's hand-off | JSON: `exit_code`, `report`, `route`, `run_id`, `warning` — show `report`, act on `route`; non-zero `exit_code` is a pi process failure, the `devflow` return code only reports devflow's own refusal |
 
 If `route` returns a non-empty `policy_stale`, print one line — «запусти `./install.sh` в devflow:
 агенты <имена> устарели» — and launch anyway (old frontmatter is not a refusal).
