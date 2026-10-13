@@ -416,25 +416,44 @@ def token_records(key_re: re.Pattern) -> list[dict]:
     return module.scan(PROJECTS_ROOT, key_re, load_ledger())
 
 
-def task_tokens(records: list[dict], since_day: str) -> dict:
-    """{key: {cost, tokens, days: {day: cost}, day_tokens: {day: tokens}}}; по дням — только с since_day, cost и tokens — за всё время."""
+def task_tokens(records: list[dict], since_day: str, roots: list[tuple[str, str]] = ()) -> dict:
+    """{key: {cost, tokens, days: {day: cost}, day_tokens: {day: tokens}, project_tokens: {project: {day: tokens}}}};
+    по дням — только с since_day, cost и tokens — за всё время."""
     out: dict[str, dict] = {}
     for r in records:
-        rec = out.setdefault(r['task'], {'cost': 0.0, 'tokens': 0, 'days': {}, 'day_tokens': {}})
+        rec = out.setdefault(r['task'], {'cost': 0.0, 'tokens': 0, 'days': {}, 'day_tokens': {}, 'project_tokens': {}})
         spent = r['input'] + r['output'] + r['cache_write'] + r['cache_read']
         rec['cost'] += r['cost']
         rec['tokens'] += spent
         if r['day'] >= since_day:
             rec['days'][r['day']] = rec['days'].get(r['day'], 0.0) + r['cost']
             rec['day_tokens'][r['day']] = rec['day_tokens'].get(r['day'], 0) + spent
+            by_day = rec['project_tokens'].setdefault(_root_project(r.get('project'), roots), {})
+            by_day[r['day']] = by_day.get(r['day'], 0) + spent
     return out
 
 
-def collect_tokens(tasks: list[dict], now: datetime, fetch=token_records) -> dict:
+def project_roots(registry: dict) -> list[tuple[str, str]]:
+    """[(project_of(путь), имя)] из реестра, длинные пути первыми: green живёт в resolventa/green, а не в projects/."""
+    roots = [(project_of(str(e['path'])), name) for name, e in registry['projects'].items()]
+    return sorted(roots, key=lambda r: -len(r[0]))
+
+
+def _root_project(project: str | None, roots: list[tuple[str, str]] = ()) -> str:
+    """Проект реестра, в чей каталог попала сессия; вне реестра — первый сегмент пути."""
+    project = project or '?'
+    for prefix, name in roots:
+        if project == prefix or project.startswith(prefix + '/'):
+            return name
+    return project.split('/')[0] or '?'
+
+
+
+def collect_tokens(tasks: list[dict], now: datetime, fetch=token_records, roots: list[tuple[str, str]] = ()) -> dict:
     key_re = key_pattern(tasks)
     if key_re is None:
         return {}
-    return task_tokens(fetch(key_re), (now - MOVE_DAYS).strftime('%Y-%m-%d'))
+    return task_tokens(fetch(key_re), (now - MOVE_DAYS).strftime('%Y-%m-%d'), roots)
 
 
 def merge_tokens(tasks: list[dict], tokens: dict) -> list[dict]:
@@ -459,11 +478,19 @@ def _spent(rec: dict, days: list[str]) -> int:
 
 
 def chart(tokens: dict, now: datetime) -> dict:
-    """14 дней × ряды {name, tokens}: каждая задача с расходом за период, по убыванию токенов; «без задачи» всегда последним."""
+    """14 дней × ряды {name, tokens, projects: {project: tokens}}: каждая задача с расходом за период, по убыванию токенов;
+    «без задачи» всегда последним. projects — список проектов с расходом за период, по убыванию."""
     days = _day_range(now, CHART_DAYS)
     ranked = sorted(((k, r) for k, r in tokens.items() if k != NO_TASK and _spent(r, days)), key=lambda kr: -_spent(kr[1], days))
-    return {'days': days, 'series': [{'name': k, 'tokens': [r.get('day_tokens', {}).get(d, 0) for d in days]}
-                                     for k, r in [*ranked, (NO_TASK, tokens.get(NO_TASK, {}))]]}
+    series = [{'name': k, 'tokens': [r.get('day_tokens', {}).get(d, 0) for d in days],
+               'projects': {p: [by_day.get(d, 0) for d in days] for p, by_day in r.get('project_tokens', {}).items()
+                            if any(by_day.get(d) for d in days)}}
+              for k, r in [*ranked, (NO_TASK, tokens.get(NO_TASK, {}))]]
+    spent: dict[str, int] = {}
+    for s in series:
+        for p, vals in s['projects'].items():
+            spent[p] = spent.get(p, 0) + sum(vals)
+    return {'days': days, 'series': series, 'projects': sorted(spent, key=lambda p: -spent[p])}
 
 
 def facts(tokens: dict, now: datetime) -> dict:
@@ -499,7 +526,7 @@ def build(state: Path, now: datetime | None = None, sources: dict | None = None)
         time, time_error = {}, str(exc) or exc.__class__.__name__
     tasks = merge_time(collected['tasks'], time, now)
     try:
-        tokens, tokens_error = collect_tokens(tasks, now, sources.get('token_records') or token_records), None
+        tokens, tokens_error = collect_tokens(tasks, now, sources.get('token_records') or token_records, project_roots(registry)), None
     except Exception as exc:
         tokens, tokens_error = {}, str(exc) or exc.__class__.__name__
     tasks = merge_tokens(tasks, tokens)

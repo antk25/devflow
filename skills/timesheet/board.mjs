@@ -99,7 +99,13 @@ const niceMax = v => {
 function Chart({ chart }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState(null);
-  const { days, series } = chart;
+  const projects = chart.projects || [];
+  const [stored, setStored] = useState(store.get('board.chartProject') || '');
+  const proj = projects.includes(stored) ? stored : '';
+  const pick = v => { setStored(v); store.set('board.chartProject', v); };
+  const { days } = chart;
+  const series = !proj ? chart.series
+    : chart.series.filter(s => s.projects?.[proj]).map(s => ({ ...s, tokens: s.projects[proj] }));
   const tasks = series.filter(s => s.name !== NO_TASK);
   const none = series.find(s => s.name === NO_TASK)?.tokens || days.map(() => 0);
   const totals = days.map((_, d) => series.reduce((a, s) => a + (s.tokens[d] || 0), 0));
@@ -112,7 +118,7 @@ function Chart({ chart }) {
   const path = vals => vals.map((v, d) => `${d ? 'L' : 'M'}${x(d)},${y(v)}`).join('');
   const peak = totals.indexOf(Math.max(...totals));
   const last = days.length - 1;
-  const name = 'Токены по дням, 14 дней (UTC)';
+  const name = `Токены по дням, 14 дней (UTC)${proj ? ` — ${proj}` : ''}`;
 
   const plot = width ? html`
     ${days.map((day, d) => weekend(day) && html`<rect key=${'w' + day} x=${L + d * col} y=${T} width=${col} height=${plotH} fill="var(--weekend)" />`)}
@@ -158,7 +164,13 @@ function Chart({ chart }) {
       <svg height=${H} role="img" aria-label=${name}>${plot}</svg>
       ${tip}
     </div>
-    <div class="legend"><span>${lineKey(TOTAL)}всего</span>
+    <div class="legend">
+      ${projects.length > 1 && html`<label>Проект:${' '}
+        <select class="input" value=${proj} onChange=${e => pick(e.target.value)}>
+          <option value="">все</option>
+          ${projects.map(p => html`<option value=${p}>${p}</option>`)}
+        </select></label>`}
+      <span>${lineKey(TOTAL)}всего</span>
       <span>${lineKey(NONE, '4 3')}без задачи — сессии, где не встретился ключ задачи</span>
       <span class="muted">наведите на день — расход по каждой задаче</span></div>
   </fieldset>`;
