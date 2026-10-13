@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+from .bench_eval import SETS_DIR, build_set
 from .bench_runners import RUNNERS, host_execute, probe
 from .documents import WorkflowError
 from .policy import PHASES
@@ -52,6 +53,21 @@ def combos(names=None, directory=COMBOS_DIR):
     return result
 
 
+def load_set(name, directory=SETS_DIR):
+    """`bench/sets/<name>.json`: {name, adapter, dataset, split, swebench, instances: [id…]}; instance order is kept."""
+    path = Path(directory) / f'{name}.json'
+    if not path.is_file():
+        raise WorkflowError(f'unknown set: {name}')
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except ValueError as exc:
+        raise WorkflowError(f'set {path}: {exc}') from exc
+    missing = [k for k in ('name', 'adapter', 'dataset', 'split', 'swebench', 'instances') if k not in data]
+    if missing or not isinstance(data['instances'], list):
+        raise WorkflowError(f'set {name}: missing {", ".join(missing) or "instances list"}')
+    return data
+
+
 def probe_combos(selected, execute=None):
     """Every distinct runner × model × effort of the combos, probed once."""
     execute = execute or host_execute
@@ -72,4 +88,7 @@ def command(args):
         if args.probe:
             result['probes'] = probe_combos(selected)
         return result
+    if args.bench_command == 'set' and args.set_command == 'build':
+        return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
+                         workers=args.workers)
     raise WorkflowError(f'unknown bench command: {args.bench_command}')

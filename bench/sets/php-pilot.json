@@ -1,0 +1,98 @@
+{
+  "name": "php-pilot",
+  "adapter": "swebench",
+  "dataset": "SWE-bench/SWE-bench_Multilingual",
+  "split": "test",
+  "language": "php",
+  "swebench": "5.0.2",
+  "built_at": "2026-10-13T12:39:53+00:00",
+  "instances": [
+    "php-cs-fixer__php-cs-fixer-8367",
+    "php-cs-fixer__php-cs-fixer-8331",
+    "php-cs-fixer__php-cs-fixer-8256",
+    "phpoffice__phpspreadsheet-4313",
+    "phpoffice__phpspreadsheet-4214",
+    "phpoffice__phpspreadsheet-4186",
+    "laravel__framework-53949",
+    "laravel__framework-53914",
+    "laravel__framework-53696",
+    "briannesbitt__carbon-3103",
+    "briannesbitt__carbon-3098",
+    "briannesbitt__carbon-3073"
+  ],
+  "details": {
+    "php-cs-fixer__php-cs-fixer-8367": {
+      "repo": "php-cs-fixer/php-cs-fixer",
+      "created_at": "2025-01-12 10:26:00",
+      "image": "swebench/sweb.eval.x86_64.php-cs-fixer_1776_php-cs-fixer-8367:latest",
+      "gold_resolved": true
+    },
+    "php-cs-fixer__php-cs-fixer-8331": {
+      "repo": "php-cs-fixer/php-cs-fixer",
+      "created_at": "2024-12-26 17:33:20",
+      "image": "swebench/sweb.eval.x86_64.php-cs-fixer_1776_php-cs-fixer-8331:latest",
+      "gold_resolved": true
+    },
+    "php-cs-fixer__php-cs-fixer-8256": {
+      "repo": "php-cs-fixer/php-cs-fixer",
+      "created_at": "2024-10-21 19:17:33",
+      "image": "swebench/sweb.eval.x86_64.php-cs-fixer_1776_php-cs-fixer-8256:latest",
+      "gold_resolved": true
+    },
+    "phpoffice__phpspreadsheet-4313": {
+      "repo": "phpoffice/phpspreadsheet",
+      "created_at": "2025-01-10 07:18:11",
+      "image": "swebench/sweb.eval.x86_64.phpoffice_1776_phpspreadsheet-4313:latest",
+      "gold_resolved": true
+    },
+    "phpoffice__phpspreadsheet-4214": {
+      "repo": "phpoffice/phpspreadsheet",
+      "created_at": "2024-11-05 03:25:21",
+      "image": "swebench/sweb.eval.x86_64.phpoffice_1776_phpspreadsheet-4214:latest",
+      "gold_resolved": true
+    },
+    "phpoffice__phpspreadsheet-4186": {
+      "repo": "phpoffice/phpspreadsheet",
+      "created_at": "2024-10-06 15:37:11",
+      "image": "swebench/sweb.eval.x86_64.phpoffice_1776_phpspreadsheet-4186:latest",
+      "gold_resolved": true
+    },
+    "laravel__framework-53949": {
+      "repo": "laravel/framework",
+      "created_at": "2024-12-17 19:44:29",
+      "image": "swebench/sweb.eval.x86_64.laravel_1776_framework-53949:latest",
+      "gold_resolved": true
+    },
+    "laravel__framework-53914": {
+      "repo": "laravel/framework",
+      "created_at": "2024-12-16 11:21:23",
+      "image": "swebench/sweb.eval.x86_64.laravel_1776_framework-53914:latest",
+      "gold_resolved": true
+    },
+    "laravel__framework-53696": {
+      "repo": "laravel/framework",
+      "created_at": "2024-11-28 10:31:22",
+      "image": "swebench/sweb.eval.x86_64.laravel_1776_framework-53696:latest",
+      "gold_resolved": true
+    },
+    "briannesbitt__carbon-3103": {
+      "repo": "briannesbitt/carbon",
+      "created_at": "2024-11-07 17:38:38",
+      "image": "swebench/sweb.eval.x86_64.briannesbitt_1776_carbon-3103:latest",
+      "gold_resolved": true
+    },
+    "briannesbitt__carbon-3098": {
+      "repo": "briannesbitt/carbon",
+      "created_at": "2024-11-03 15:45:53",
+      "image": "swebench/sweb.eval.x86_64.briannesbitt_1776_carbon-3098:latest",
+      "gold_resolved": true
+    },
+    "briannesbitt__carbon-3073": {
+      "repo": "briannesbitt/carbon",
+      "created_at": "2024-10-04 13:00:39",
+      "image": "swebench/sweb.eval.x86_64.briannesbitt_1776_carbon-3073:latest",
+      "gold_resolved": true
+    }
+  },
+  "rejected": {}
+}
