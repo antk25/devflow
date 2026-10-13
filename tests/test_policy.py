@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from devflow import documents, policy, workflow
+from devflow import complexity, documents, policy, workflow
 from devflow.documents import WorkflowError, context
 from devflow.storage import connect
 
@@ -114,7 +114,7 @@ def test_route_resolves_for_phase_of_state(proj, monkeypatch):
 
 def test_route_high_complexity_picks_high_agent(proj, monkeypatch):
     monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
-    workflow.complexity(proj['ctx'], proj['db'], 'x', value='high', gate='research', shadow=False)
+    complexity.complexity(proj['ctx'], proj['db'], 'x', value='high', gate='research', shadow=False)
     out = workflow.route(proj['ctx'], proj['db'], 'x')
     assert out['state'] == 'plan'
     assert out['launch']['claude']['agent'] == 'plan-high'

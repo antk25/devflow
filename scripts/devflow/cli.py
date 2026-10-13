@@ -8,9 +8,10 @@ from pathlib import Path
 import yaml
 
 from . import board, pi, project
+from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
-from .workflow import approve, check, complexity, finish, interrupt, migrate, reopen, resume, route, start
+from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start
 
 
 def active(ctx, db, limit=5):

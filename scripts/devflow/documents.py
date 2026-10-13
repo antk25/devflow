@@ -233,13 +233,19 @@ def step_criteria(section):
     return []
 
 
-def section_items(body, title):
+def section(body, title):
+    """Raw text of the level-2 section `title` without its heading line; '' if absent."""
     hs = headings(body)
     for i, (level, name, start) in enumerate(hs):
         if level == 2 and name == title:
             end = next((h[2] for h in hs[i + 1:] if h[0] <= 2), len(body))
-            return list_items(body[start:end].split('\n', 1)[1] if '\n' in body[start:end] else '')
-    return []
+            chunk = body[start:end]
+            return chunk.split('\n', 1)[1] if '\n' in chunk else ''
+    return ''
+
+
+def section_items(body, title):
+    return list_items(section(body, title))
 
 
 def overall_criteria(body):

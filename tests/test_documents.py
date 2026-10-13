@@ -19,6 +19,12 @@ def test_section_items_joins_wrapped_lines():
         'первое продолжение (ТЗ)', 'второе (Jira: описание)']
 
 
+def test_section_keeps_prose_and_sublist_cuts_next_section():
+    body = '# T\n\n## Requirements\nПроза.\n\n- пункт\n  - подпункт\n\n## Next\n- чужое\n'
+    assert documents.section(body, 'Requirements') == 'Проза.\n\n- пункт\n  - подпункт\n\n'
+    assert documents.section(body, 'Absent') == ''
+
+
 def test_section_items_missing():
     assert documents.section_items('# T\n\n## Problem\n- x\n', 'Requirements') == []
 

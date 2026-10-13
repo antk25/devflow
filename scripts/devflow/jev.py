@@ -8,6 +8,7 @@ import urllib.request
 URL = 'https://openrouter.ai/api/alpha/decisions'
 MODEL = 'typesafe/jev-1.13'
 PLACEHOLDER = '[REDACTED]'
+INPUT_LIMIT = 60000
 
 EVIDENCE = ("The state holds the implementation changelog of a software task. Does the changelog contain concrete evidence "
             "that the acceptance criterion below is met: results of tests that cover it, a smoke or manual check with its "

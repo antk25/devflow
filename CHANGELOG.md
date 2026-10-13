@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — DF-26: оценка сложности отдельным модулем
+- Оценка сложности (`df complexity`, тень Jev, факты) переехала из `workflow.py` в `scripts/devflow/complexity.py`; `workflow.route` знает о ней только через `user_complexity`. Поиск секции документа — одна функция `documents.section`, `section_items` строится поверх неё; лимит входа Jev — `jev.INPUT_LIMIT`. Вывод `df route` и `df complexity` не изменился.
+
 ### Added — DF-24: дашборд задач
 - **`/board` на сервере `timesheet serve`** и `devflow board [--refresh]` — read-only таблица задач всех проектов реестра: стадия DevFlow и «висит N д» на гейте, статус Jira, PR, время и токены по задаче. Сначала ждущие решения, потом в работе, потом готовые за 7 дней; задачи без движения за 14 дней (события DevFlow, своя активность в транскриптах, открытый PR) свёрнуты в одну строку. Страница открывается из снимка `~/.claude/devflow/board/snapshot.json`, пересчёт — кнопкой.
 - **PR по всем аккаунтам `gh`** из `gh auth status`, без `gh api`; слитый PR переводит задачу в «готово». **Jira** — статус по ключу с кэшем 10 минут; новый ключ перезапрашивает кэш, сбой аккаунта оставляет прежние статусы и показывает ошибку.

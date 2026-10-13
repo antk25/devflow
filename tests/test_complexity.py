@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from devflow import cli, documents, jev, policy, workflow
+from devflow import cli, complexity, documents, jev, policy, workflow
 from devflow.documents import WorkflowError, context
 from devflow.storage import connect
 
@@ -64,14 +64,14 @@ def events(db, slug):
 
 
 def test_show_without_events(proj):
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x')
     assert out['slug'] == 'x' and out['user'] is None and out['jev'] is None and out['facts']['runs'] == 0
     assert workflow.route(proj['ctx'], proj['db'], 'x')['complexity'] is None
 
 
 def test_set_high_records_event_and_route_uses_it(proj, monkeypatch):
     monkeypatch.setattr(jev.urllib.request, 'urlopen', answers())
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research')
     assert out['user']['value'] == 'high' and out['user']['gate'] == 'research' and out['user']['at']
     assert out['jev']['choice'] == 'high' and out['jev']['applied'] is False
     assert events(proj['db'], 'x')[0] == {'value': 'high', 'gate': 'research', 'source': 'user', 'applied': True}
@@ -82,8 +82,8 @@ def test_set_high_records_event_and_route_uses_it(proj, monkeypatch):
 
 
 def test_second_set_appends_event(proj):
-    workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research', shadow=False)
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x', 'medium', 'plan', shadow=False)
+    complexity.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research', shadow=False)
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x', 'medium', 'plan', shadow=False)
     assert out['user']['value'] == 'medium' and out['user']['gate'] == 'plan'
     assert [e['value'] for e in events(proj['db'], 'x')] == ['high', 'medium']
     assert workflow.route(proj['ctx'], proj['db'], 'x')['launch']['claude']['effort'] == 'medium'
@@ -94,22 +94,22 @@ def test_route_ignores_non_user_events(proj):
     with transaction(proj['db']):
         event(proj['db'], 'complexity', 'x', value='high', gate='research', source='jev', applied=False)
     assert workflow.route(proj['ctx'], proj['db'], 'x')['complexity'] is None
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x')
     assert out['user'] is None and out['jev']['value'] == 'high'
 
 
 def test_set_validates_value_and_gate(proj):
     with pytest.raises(WorkflowError, match='Complexity'):
-        workflow.complexity(proj['ctx'], proj['db'], 'x', 'huge', 'research')
+        complexity.complexity(proj['ctx'], proj['db'], 'x', 'huge', 'research')
     with pytest.raises(WorkflowError, match='--gate'):
-        workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', None)
+        complexity.complexity(proj['ctx'], proj['db'], 'x', 'high', None)
     assert events(proj['db'], 'x') == []
 
 
 def test_shadow_writes_jev_event_and_masks_secrets(proj, monkeypatch):
     sent = []
     monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(sent=sent, extra={'confidence': 0.61}))
-    workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research')
+    complexity.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research')
     user, shadow = events(proj['db'], 'x')
     assert user['source'] == 'user' and user['applied'] is True
     assert shadow['source'] == 'jev' and shadow['applied'] is False and shadow['gate'] == 'research'
@@ -126,7 +126,7 @@ def test_shadow_writes_jev_event_and_masks_secrets(proj, monkeypatch):
 
 def test_confidence_falls_back_to_probabilities(proj, monkeypatch):
     monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(choice='low', extra={'probabilities': {'low': 0.55}}))
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x', 'low', 'plan')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x', 'low', 'plan')
     assert out['jev']['choice'] == 'low' and out['jev']['confidence'] == 0.55
 
 
@@ -157,12 +157,12 @@ def test_shadow_skips_and_errors_still_write_event(proj, monkeypatch, case):
         monkeypatch.setattr(jev.urllib.request, 'urlopen', boom)
     else:
         (vault / 'tz/x.md').write_text(TZ + 'слово ' * 12000)
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x', 'medium', 'research')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x', 'medium', 'research')
     expected = {'no_jev': 'jev не включён в AGENTS.md', 'no_docs': 'нет ни ТЗ, ни требований', 'http': 'HTTP 500'}
     shadow = events(proj['db'], 'x')[1]
     assert shadow['source'] == 'jev' and shadow['choice'] is None and out['jev']['error'] == shadow['error']
     if case == 'over_limit':
-        assert shadow['error'].startswith('вход больше лимита: ') and shadow['input_chars'] > workflow.PLAN_LIMIT
+        assert shadow['error'].startswith('вход больше лимита: ') and shadow['input_chars'] > jev.INPUT_LIMIT
     else:
         assert shadow['error'] == expected[case]
     assert workflow.route(proj['ctx'], proj['db'], 'x')['complexity']['value'] == 'medium'
@@ -177,7 +177,7 @@ def test_no_shadow_flag_skips_jev(proj, monkeypatch, capsys):
 
 def test_route_launch_never_from_jev(proj, monkeypatch):
     monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(choice='high'))
-    workflow.complexity(proj['ctx'], proj['db'], 'x', 'low', 'research')
+    complexity.complexity(proj['ctx'], proj['db'], 'x', 'low', 'research')
     route = workflow.route(proj['ctx'], proj['db'], 'x')
     assert route['complexity']['value'] == 'low' and route['launch']['claude']['effort'] != 'high'
 
@@ -217,14 +217,14 @@ def done_run(proj):
 
 
 def test_facts_without_plan(proj):
-    assert workflow.complexity_facts(proj['ctx'], proj['db'], 'x') == {
+    assert complexity.complexity_facts(proj['ctx'], proj['db'], 'x') == {
         'steps': 0, 'runs': 0, 'statuses': {}, 'research_revisions': 1, 'plan_revisions': 0}
 
 
 def test_facts_count_steps_runs_and_revisions(done_run):
-    facts = workflow.complexity_facts(done_run['ctx'], done_run['db'], 'x')
+    facts = complexity.complexity_facts(done_run['ctx'], done_run['db'], 'x')
     assert facts == {'steps': 2, 'runs': 1, 'statuses': {'done': 1}, 'research_revisions': 1, 'plan_revisions': 1}
-    assert workflow.complexity(done_run['ctx'], done_run['db'], 'x')['facts'] == facts
+    assert complexity.complexity(done_run['ctx'], done_run['db'], 'x')['facts'] == facts
 
 
 def test_backfill_gate_writes_only_shadow(done_run, monkeypatch, capsys):
@@ -240,9 +240,9 @@ def test_backfill_gate_writes_only_shadow(done_run, monkeypatch, capsys):
 
 
 def test_backfill_keeps_existing_user_value(proj, monkeypatch):
-    workflow.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research', shadow=False)
+    complexity.complexity(proj['ctx'], proj['db'], 'x', 'high', 'research', shadow=False)
     monkeypatch.setattr(jev.urllib.request, 'urlopen', answers(choice='low'))
-    out = workflow.complexity(proj['ctx'], proj['db'], 'x', None, 'backfill')
+    out = complexity.complexity(proj['ctx'], proj['db'], 'x', None, 'backfill')
     assert out['user']['value'] == 'high' and out['jev']['choice'] == 'low'
     assert [e['source'] for e in events(proj['db'], 'x')] == ['user', 'jev']
 

@@ -97,7 +97,7 @@ def test_plan_over_limit_skips(pp):
     plan.write_text(plan.read_text() + 'слово ' * 12000)
     out = run(pp)
     assert out['status'] == 'skipped' and out['reason'].startswith('план больше лимита: ')
-    assert int(out['reason'].split(': ')[1].split()[0]) > workflow.PLAN_LIMIT
+    assert int(out['reason'].split(': ')[1].split()[0]) > jev.INPUT_LIMIT
 
 
 def test_state_keys_full_plan_no_wish(pp, monkeypatch):
