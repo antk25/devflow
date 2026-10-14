@@ -1,7 +1,7 @@
 from datetime import date
 from pathlib import Path
 
-from devflow.timesheet import JiraError, Unavailable, Worklog, fetch_worklogs, load_rules, summary
+from devflow.timesheet import JiraError, Unavailable, Worklog, fetch_worklogs, load_rules, long_issues, summary
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'skills/timesheet/timesheet.example.json'
 RULES = load_rules(EXAMPLE, {'productsearch', 'resolventa'})
@@ -92,3 +92,43 @@ def test_unavailable_or_ambiguous_mirror_is_unresolved_not_missing():
     out = discrepancies(RULES, logs, two, WEEK)
     assert {(x['kind'], x['key']) for x in out} == {('unresolved', 'SE-2158'), ('unresolved', 'GS-1243')}
     assert 'зеркал несколько' in render_discrepancies(out)
+
+
+def test_long_issues_counts_only_my_time_and_skips_common_tasks():
+    def issue(key, sec, summary=''):
+        return {'key': key, 'fields': {'summary': summary or key.lower(), 'status': {'name': 'In Progress'},
+                                       'timespent': sec}}
+
+    def wl(author, sec):
+        return {'author': {'accountId': author}, 'timeSpentSeconds': sec}
+
+    mine = RULES.sheets['client'].author
+    worklogs = {'SE-2': [wl(mine, 8 * 3600), wl('other', 3600)], 'SE-3': [wl(mine, 5 * 3600), wl('other', 5 * 3600)]}
+
+    def call(script, *args):
+        if script == 'jira-raw.sh':
+            logs = worklogs[args[0].split('/')[0]]
+            return [{'worklogs': logs, 'total': len(logs)}]
+        if args[1] == 'resolventa':
+            raise JiraError('нет сети')
+        assert 'statusCategory != Done' in args[2]
+        return [issue('SE-1', 7 * 3600), issue('SE-2', 9 * 3600), issue('SE-3', 10 * 3600),
+                issue('SE-188', 900 * 3600), issue('XX-1', 20 * 3600)]
+
+    got = long_issues(RULES, call=call)
+    assert [(x['key'], x['seconds']) for x in got['client']] == [('SE-2', 8 * 3600)]
+    assert isinstance(got['employer'], Unavailable)
+
+
+def test_long_issues_skips_mirror_of_common_task():
+    def call(script, *args):
+        if script == 'jira-raw.sh':
+            return [{'worklogs': [{'author': {'accountId': RULES.sheets['employer'].author}, 'timeSpentSeconds': 99 * 3600}],
+                     'total': 1}]
+        if args[1] == 'productsearch':
+            return []
+        return [{'key': 'GS-1', 'fields': {'summary': 'SE-188 Common task', 'timespent': 99 * 3600}},
+                {'key': 'COM-1', 'fields': {'summary': 'общая', 'timespent': 99 * 3600}},
+                {'key': 'GS-11', 'fields': {'summary': 'SE-1 a', 'timespent': 99 * 3600}}]
+
+    assert [x['key'] for x in long_issues(RULES, call=call)['employer']] == ['GS-11']
