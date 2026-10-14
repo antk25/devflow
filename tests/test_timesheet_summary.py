@@ -94,16 +94,41 @@ def test_unavailable_or_ambiguous_mirror_is_unresolved_not_missing():
     assert 'зеркал несколько' in render_discrepancies(out)
 
 
-def test_long_issues_filters_by_sheet_projects_and_seven_hours():
-    def issue(key, sec):
-        return {'key': key, 'fields': {'summary': key.lower(), 'status': {'name': 'In Progress'}, 'timespent': sec}}
+def test_long_issues_counts_only_my_time_and_skips_common_tasks():
+    def issue(key, sec, summary=''):
+        return {'key': key, 'fields': {'summary': summary or key.lower(), 'status': {'name': 'In Progress'},
+                                       'timespent': sec}}
 
-    def call(script, flag, account, jql, fields, limit):
-        assert 'statusCategory != Done' in jql
-        if account == 'resolventa':
+    def wl(author, sec):
+        return {'author': {'accountId': author}, 'timeSpentSeconds': sec}
+
+    mine = RULES.sheets['client'].author
+    worklogs = {'SE-2': [wl(mine, 8 * 3600), wl('other', 3600)], 'SE-3': [wl(mine, 5 * 3600), wl('other', 5 * 3600)]}
+
+    def call(script, *args):
+        if script == 'jira-raw.sh':
+            logs = worklogs[args[0].split('/')[0]]
+            return [{'worklogs': logs, 'total': len(logs)}]
+        if args[1] == 'resolventa':
             raise JiraError('нет сети')
-        return [issue('SE-1', 7 * 3600), issue('SE-2', 9 * 3600), issue('SE-3', 8 * 3600), issue('XX-1', 20 * 3600)]
+        assert 'statusCategory != Done' in args[2]
+        return [issue('SE-1', 7 * 3600), issue('SE-2', 9 * 3600), issue('SE-3', 10 * 3600),
+                issue('SE-188', 900 * 3600), issue('XX-1', 20 * 3600)]
 
     got = long_issues(RULES, call=call)
-    assert [(x['key'], x['seconds']) for x in got['client']] == [('SE-2', 9 * 3600), ('SE-3', 8 * 3600)]
+    assert [(x['key'], x['seconds']) for x in got['client']] == [('SE-2', 8 * 3600)]
     assert isinstance(got['employer'], Unavailable)
+
+
+def test_long_issues_skips_mirror_of_common_task():
+    def call(script, *args):
+        if script == 'jira-raw.sh':
+            return [{'worklogs': [{'author': {'accountId': RULES.sheets['employer'].author}, 'timeSpentSeconds': 99 * 3600}],
+                     'total': 1}]
+        if args[1] == 'productsearch':
+            return []
+        return [{'key': 'GS-1', 'fields': {'summary': 'SE-188 Common task', 'timespent': 99 * 3600}},
+                {'key': 'COM-1', 'fields': {'summary': 'общая', 'timespent': 99 * 3600}},
+                {'key': 'GS-11', 'fields': {'summary': 'SE-1 a', 'timespent': 99 * 3600}}]
+
+    assert [x['key'] for x in long_issues(RULES, call=call)['employer']] == ['GS-11']

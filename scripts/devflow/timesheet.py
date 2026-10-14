@@ -269,28 +269,51 @@ def summary(rules: Rules, worklogs: dict, week: str) -> dict:
     return out
 
 
+def own_seconds(sheet: Sheet, key: str, call=jira) -> int:
+    total, at = 0, 0
+    while True:
+        page = call('jira-raw.sh', f'{key}/worklog', '.', f'startAt={at}&maxResults=1000')[0]
+        logs = page.get('worklogs') if isinstance(page, dict) else None
+        if not isinstance(logs, list):
+            raise JiraError(f'{key}/worklog: в ответе нет worklogs')
+        total += sum(int(w['timeSpentSeconds']) for w in logs
+                     if (w.get('author') or {}).get('accountId') == sheet.author)
+        at += len(logs)
+        if not logs or at >= page.get('total', 0):
+            return total
+
+
 def long_issues(rules: Rules, limit_hours: float = 7, call=jira) -> dict:
     jql = 'worklogAuthor = currentUser() AND statusCategory != Done ORDER BY timespent DESC'
+    common = {k for r in rules.projects for k in r.manual} | {r.issue for r in rules.projects if r.mode == 'bucket'}
+    limit = limit_hours * 3600
     out = {}
     for name, sheet in rules.sheets.items():
         try:
             issues = call('jira-jql.sh', '--account', sheet.account, jql, 'summary,status,timespent', '1000')
+            rows = []
+            for i in issues:
+                f = i.get('fields') or {}
+                summary_text = f.get('summary', '')
+                head = re.match(r'\W*([A-Z][A-Z0-9]*-\d+)', summary_text)
+                if i['key'] in common or (head and head.group(1) in common) or not rules.project_of(name, i['key']):
+                    continue
+                # чужое время входит в timespent, поэтому он только отсекает заведомо короткие задачи
+                if int(f.get('timespent') or 0) <= limit:
+                    continue
+                mine = own_seconds(sheet, i['key'], call)
+                if mine > limit:
+                    rows.append({'key': i['key'], 'summary': summary_text,
+                                 'status': (f.get('status') or {}).get('name', ''), 'seconds': mine})
         except JiraError as e:
             out[name] = Unavailable(str(e))
             continue
-        rows = []
-        for i in issues:
-            f = i.get('fields') or {}
-            spent = int(f.get('timespent') or 0)
-            if spent > limit_hours * 3600 and rules.project_of(name, i['key']):
-                rows.append({'key': i['key'], 'summary': f.get('summary', ''),
-                             'status': (f.get('status') or {}).get('name', ''), 'seconds': spent})
         out[name] = sorted(rows, key=lambda x: -x['seconds'])
     return out
 
 
 def render_long(items: dict, limit_hours: float = 7) -> str:
-    lines = [f'Задачи не в Done, где списано больше {hours(limit_hours * 3600)} ч за всё время']
+    lines = [f'Задачи не в Done, где моё время больше {hours(limit_hours * 3600)} ч, без общих задач']
     for name, rows in items.items():
         lines.append('')
         if isinstance(rows, Unavailable):

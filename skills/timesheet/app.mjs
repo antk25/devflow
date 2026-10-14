@@ -286,7 +286,7 @@ function LongIssues() {
   };
   useEffect(() => { load(false); }, []);
   if (!items && !error) return '';
-  return html`<div class="note"><p><b>Задачи не в Done, где списано больше 7 ч за всё время.</b>${' '}
+  return html`<div class="note"><p><b>Задачи не в Done, где моё время больше 7 ч, без общих задач.</b>${' '}
       <button class="btn" onClick=${() => load(true)}>↻ Обновить</button></p>
     ${error ? html`<p>Не удалось загрузить: ${error}</p>` : Object.entries(items).map(([n, rows]) => html`
       <div style="flex-basis:100%"><b>${n}</b>${rows.unavailable ? `: нет доступа (${rows.unavailable})`
