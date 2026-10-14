@@ -37,6 +37,7 @@ class Sheet:
     author: str
     day_hours: float
     week_hours: float
+    fit_to_norm: bool = False
 
 
 @dataclass
@@ -115,7 +116,8 @@ def load_rules(path: Path, accounts: set) -> Rules:
             raise RulesError(f'{name}.author: нужен accountId автора ворклогов')
         sheets[name] = Sheet(name, s['account'], s['author'],
                              _positive(s.get('day_hours'), f'{name}.day_hours'),
-                             _positive(s.get('week_hours'), f'{name}.week_hours'))
+                             _positive(s.get('week_hours'), f'{name}.week_hours'),
+                             bool(s.get('fit_to_norm', False)))
     if not sheets:
         raise RulesError(f'{path}: нет ни одного табеля в sheets')
     projects = []
@@ -439,6 +441,7 @@ def _manual_lines(manual: list, sheet: str, day: date, logged: list) -> list:
 def draft_client(rules: Rules, worklogs: dict, act: dict, manual: list, week: str, sheet: str = 'client') -> list:
     start, _ = week_range(week)
     norm = int(rules.sheets[sheet].day_hours * 3600)
+    fit = rules.sheets[sheet].fit_to_norm
     logs = worklogs.get(sheet)
     if isinstance(logs, Unavailable) or logs is None:
         return []
@@ -450,7 +453,7 @@ def draft_client(rules: Rules, worklogs: dict, act: dict, manual: list, week: st
         out += manual_lines
         manual_sec = sum(m.seconds for m in manual_lines if not m.sent_id)
         remaining = norm - manual_sec - sum(w.seconds for w in logged)
-        if remaining <= 0:
+        if fit and remaining <= 0:
             continue
         manual_keys = {k for r in owned for k in r.manual} | {m.key for m in manual_lines}
         weights = defaultdict(int)
@@ -458,11 +461,18 @@ def draft_client(rules: Rules, worklogs: dict, act: dict, manual: list, week: st
             if key and key not in manual_keys and any(r.project == project and r.owns(key) for r in owned):
                 weights[key] += sec
         if not weights:
-            out.append(DraftLine(sheet, day, '', 0, flags=['empty-day']))
+            if remaining > 0:
+                out.append(DraftLine(sheet, day, '', 0, flags=['empty-day']))
             continue
         per_key_logged = defaultdict(int)
         for w in logged:
             per_key_logged[w.key] += w.seconds
+        if not fit:
+            ideal = round_quarters(weights, _nearest_quarter(sum(weights.values())))
+            for key, sec in sorted(ideal.items(), key=lambda kv: -kv[1]):
+                if sec > per_key_logged[key]:
+                    out.append(DraftLine(sheet, day, key, sec - per_key_logged[key]))
+            continue
         ideal = round_quarters(weights, norm - manual_sec - sum(v for k, v in per_key_logged.items() if k in manual_keys))
         need = {k: max(0, v - per_key_logged[k]) for k, v in ideal.items()}
         for key, sec in sorted(round_quarters(need if any(need.values()) else weights, remaining).items(),
@@ -582,6 +592,7 @@ def draft_employer(rules: Rules, worklogs: dict, act: dict, manual: list, client
                    candidates: dict, sheet: str = 'employer', client: str = 'client') -> list:
     start, _ = week_range(week)
     norm = int(rules.sheets[sheet].day_hours * 3600)
+    fit = rules.sheets[sheet].fit_to_norm
     logs = worklogs.get(sheet)
     client_logs = worklogs.get(client)
     if isinstance(logs, Unavailable) or logs is None:
@@ -610,7 +621,7 @@ def draft_employer(rules: Rules, worklogs: dict, act: dict, manual: list, client
         out += manual_lines
         manual_unsent = sum(m.seconds for m in manual_lines if not m.sent_id)
         remaining = norm - manual_unsent - sum(per_key_logged.values())
-        if remaining <= 0:
+        if fit and remaining <= 0:
             continue
 
         proposed = []
@@ -649,12 +660,12 @@ def draft_employer(rules: Rules, worklogs: dict, act: dict, manual: list, client
         other_logged = sum(v for k, v in per_key_logged.items() if k not in parts)
         budget = norm - manual_unsent - other_logged - sum(x.seconds for x in proposed) \
             - sum(m.seconds for m in manual_lines if m.sent_id)
-        if budget < 0:
+        if fit and budget < 0:
             for x in proposed:
                 x.flags.append('overflow')
             budget = 0
         whole = sum(parts.values())
-        ideal = _cut_largest(parts, whole - budget, keep_slots) if whole > budget else dict(parts)
+        ideal = _cut_largest(parts, whole - budget, keep_slots) if fit and whole > budget else dict(parts)
         out += proposed
         for slot, sec in sorted(ideal.items(), key=lambda kv: -kv[1]):
             src, flags = info[slot]
