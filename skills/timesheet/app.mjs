@@ -272,6 +272,29 @@ function Discrepancies({ items }) {
     <ul style="margin:0;padding-left:1.2rem;flex-basis:100%">${items.map(line)}</ul></div>`;
 }
 
+function LongIssues() {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+  const load = async fresh => {
+    setError('');
+    try {
+      const r = await fetch(`/api/long${fresh ? '?fresh=1' : ''}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `сервер ответил ${r.status}`);
+      setItems(j);
+    } catch (e) { setError(e.message); }
+  };
+  useEffect(() => { load(false); }, []);
+  if (!items && !error) return '';
+  return html`<div class="note"><p><b>Задачи не в Done, где списано больше 7 ч за всё время.</b>${' '}
+      <button class="btn" onClick=${() => load(true)}>↻ Обновить</button></p>
+    ${error ? html`<p>Не удалось загрузить: ${error}</p>` : Object.entries(items).map(([n, rows]) => html`
+      <div style="flex-basis:100%"><b>${n}</b>${rows.unavailable ? `: нет доступа (${rows.unavailable})`
+        : !rows.length ? ': нет' : html`<ul style="margin:0;padding-left:1.2rem">${rows.map(x => html`
+          <li><b class="mono">${x.key}</b> ${hu(x.seconds)} · ${x.status} · ${x.summary}</li>`)}</ul>`}</div>`)}
+  </div>`;
+}
+
 function Skeleton() {
   return [0, 1].map(k => html`<section class="sheet" key=${k} aria-hidden="true">
     <div class="sh"><div class="sk" style="width:9rem;height:1.3rem"></div><div class="sk" style="width:16rem;height:1.3rem;margin-left:auto"></div></div>
@@ -792,6 +815,7 @@ function App() {
           : names.map(n => html`<${SheetPanel} key=${n} m=${model[n]} sel=${sel} today=${today} dim=${!!started}
               pend=${data.pending?.[n]?.days} canSend=${!busy && !loading} onOpen=${open} onAdd=${add}
               onSend=${(sh, d) => setPlanOpen({ initial: [`${sh}:${d}`] })} />`)}
+        <${LongIssues} />
       </main>
       ${sel && data && model[sel.sheet] && !model[sel.sheet].s.unavailable ? html`<${Drawer} sel=${sel} model=${model}
         hints=${data.hints || {}} locked=${!!started} act=${act} onClose=${close} />` : ''}

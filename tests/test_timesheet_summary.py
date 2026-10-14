@@ -1,7 +1,7 @@
 from datetime import date
 from pathlib import Path
 
-from devflow.timesheet import JiraError, Unavailable, Worklog, fetch_worklogs, load_rules, summary
+from devflow.timesheet import JiraError, Unavailable, Worklog, fetch_worklogs, load_rules, long_issues, summary
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'skills/timesheet/timesheet.example.json'
 RULES = load_rules(EXAMPLE, {'productsearch', 'resolventa'})
@@ -92,3 +92,18 @@ def test_unavailable_or_ambiguous_mirror_is_unresolved_not_missing():
     out = discrepancies(RULES, logs, two, WEEK)
     assert {(x['kind'], x['key']) for x in out} == {('unresolved', 'SE-2158'), ('unresolved', 'GS-1243')}
     assert 'зеркал несколько' in render_discrepancies(out)
+
+
+def test_long_issues_filters_by_sheet_projects_and_seven_hours():
+    def issue(key, sec):
+        return {'key': key, 'fields': {'summary': key.lower(), 'status': {'name': 'In Progress'}, 'timespent': sec}}
+
+    def call(script, flag, account, jql, fields, limit):
+        assert 'statusCategory != Done' in jql
+        if account == 'resolventa':
+            raise JiraError('нет сети')
+        return [issue('SE-1', 7 * 3600), issue('SE-2', 9 * 3600), issue('SE-3', 8 * 3600), issue('XX-1', 20 * 3600)]
+
+    got = long_issues(RULES, call=call)
+    assert [(x['key'], x['seconds']) for x in got['client']] == [('SE-2', 9 * 3600), ('SE-3', 8 * 3600)]
+    assert isinstance(got['employer'], Unavailable)

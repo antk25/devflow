@@ -269,6 +269,39 @@ def summary(rules: Rules, worklogs: dict, week: str) -> dict:
     return out
 
 
+def long_issues(rules: Rules, limit_hours: float = 7, call=jira) -> dict:
+    jql = 'worklogAuthor = currentUser() AND statusCategory != Done ORDER BY timespent DESC'
+    out = {}
+    for name, sheet in rules.sheets.items():
+        try:
+            issues = call('jira-jql.sh', '--account', sheet.account, jql, 'summary,status,timespent', '1000')
+        except JiraError as e:
+            out[name] = Unavailable(str(e))
+            continue
+        rows = []
+        for i in issues:
+            f = i.get('fields') or {}
+            spent = int(f.get('timespent') or 0)
+            if spent > limit_hours * 3600 and rules.project_of(name, i['key']):
+                rows.append({'key': i['key'], 'summary': f.get('summary', ''),
+                             'status': (f.get('status') or {}).get('name', ''), 'seconds': spent})
+        out[name] = sorted(rows, key=lambda x: -x['seconds'])
+    return out
+
+
+def render_long(items: dict, limit_hours: float = 7) -> str:
+    lines = [f'Задачи не в Done, где списано больше {hours(limit_hours * 3600)} ч за всё время']
+    for name, rows in items.items():
+        lines.append('')
+        if isinstance(rows, Unavailable):
+            lines.append(f'{name}: нет доступа ({rows.reason})')
+            continue
+        lines.append(f'{name}: {len(rows) or "нет"}')
+        for x in rows:
+            lines.append(f'  {x["key"]:<10} {hours(x["seconds"]):>6}  {x["status"]:<14} {x["summary"]}')
+    return '\n'.join(lines)
+
+
 def discrepancies(rules: Rules, worklogs: dict, candidates: dict, week: str,
                   client: str = 'client', sheet: str = 'employer') -> list:
     c_logs, e_logs = worklogs.get(client), worklogs.get(sheet)
@@ -974,6 +1007,9 @@ def main(argv=None) -> int:
     mir.add_argument('key')
     mir.add_argument('--rules', type=Path, default=RULES_PATH)
     mir.add_argument('--yes', action='store_true')
+    lng = sub.add_parser('long')
+    lng.add_argument('--hours', type=float, default=7)
+    lng.add_argument('--rules', type=Path, default=RULES_PATH)
     srv = sub.add_parser('serve')
     srv.add_argument('--port', type=int, default=8765)
     srv.add_argument('--rules', type=Path, default=RULES_PATH)
@@ -1015,6 +1051,9 @@ def main(argv=None) -> int:
         except JiraError as e:
             print(f'timesheet: {e}', file=sys.stderr)
             return 1
+        return 0
+    if args.cmd == 'long':
+        print(render_long(long_issues(rules, args.hours), args.hours))
         return 0
     if args.cmd == 'serve':
         return run_serve(rules, args.port)

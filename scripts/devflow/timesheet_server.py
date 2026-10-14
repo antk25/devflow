@@ -46,7 +46,7 @@ def _json_default(v):
 
 class App:
     def __init__(self, rules, state=ts.STATE_DIR, fetch=ts.fetch_worklogs, compute=None, run=subprocess.run,
-                 candidates=None):
+                 candidates=None, long=None):
         self.rules, self.state, self.fetch, self.run = rules, state, fetch, run
         self.candidates = candidates or (ts.week_candidates if fetch is ts.fetch_worklogs else lambda rules, logs: {})
         self.cands = {}
@@ -54,6 +54,16 @@ class App:
         self.compute = compute or (lambda rules, logs, week: ts.draft(
             rules, logs, ts.load_activity(rules, week), ts.load_manual(week, state), week))
         self.cache, self.lock = {}, threading.Lock()
+        self.long_fetch = long or (ts.long_issues if fetch is ts.fetch_worklogs else lambda rules: {})
+        self.long_cache = None
+
+    def long(self, fresh: bool = False) -> dict:
+        with self.lock:
+            if fresh or self.long_cache is None:
+                got = self.long_fetch(self.rules)
+                self.long_cache = {n: {'unavailable': v.reason} if isinstance(v, ts.Unavailable) else v
+                                   for n, v in got.items()}
+            return self.long_cache
 
     def _worklogs(self, week: str, fresh: bool = False) -> dict:
         with self.lock:
@@ -518,6 +528,11 @@ def make_handler(app: App, board_dir: Path | None = None):
                 return self._send(200, app.index(BOARD), 'text/html; charset=utf-8')
             if path in STATIC:
                 return self._send(200, STATIC[path].read_bytes(), 'text/javascript; charset=utf-8')
+            if path == '/api/long':
+                try:
+                    return self._json(200, app.long('fresh=1' in self.path.partition('?')[2]))
+                except Exception as e:
+                    return self._json(500, {'error': str(e)})
             self._route('GET')
 
         def do_POST(self):
