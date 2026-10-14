@@ -1,10 +1,12 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from devflow.timesheet import MSK, Worklog, activity, draft_client, draft_employer, load_rules, round_quarters
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'skills/timesheet/timesheet.example.json'
-RULES = load_rules(EXAMPLE, {'productsearch', 'resolventa'})
+AS_IS = load_rules(EXAMPLE, {'productsearch', 'resolventa'})
+RULES = replace(AS_IS, sheets={k: replace(v, fit_to_norm=True) for k, v in AS_IS.sheets.items()})
 WEEK = '2026-W39'
 MON, TUE, WED = date(2026, 9, 21), date(2026, 9, 22), date(2026, 9, 23)
 FULL = {'client': [Worklog('client', 'SE-1', d, 8 * 3600) for d in (date(2026, 9, 24), date(2026, 9, 25))]}
@@ -136,3 +138,23 @@ def test_manual_entry_marked_sent_follows_its_worklog_by_id():
     assert [x.sent_id for x in draft_client(RULES, edited, {}, manual, WEEK) if x.source == 'manual'] == ['42']
     gone = {'client': FULL['client']}
     assert [x.sent_id for x in draft_client(RULES, gone, {}, manual, WEEK) if x.source == 'manual'] == ['']
+
+
+def test_as_is_client_logs_activity_without_stretching_to_norm():
+    act = {WED: {('green', 'SE-1'): 3 * 3600 + 400, ('green', 'SE-2'): 3600}}
+    logs = {'client': FULL['client'] + [Worklog('client', 'SE-2', WED, 3600)]}
+    got = {x.key: x.seconds for x in lines_on(draft_client(AS_IS, logs, act, [], WEEK), WED)}
+    assert got == {'SE-1': 3 * 3600}
+
+
+def test_as_is_client_long_day_exceeds_norm():
+    act = {WED: {('green', 'SE-1'): 6 * 3600, ('green', 'SE-2'): 4 * 3600}}
+    got = {x.key: x.seconds for x in lines_on(draft_client(AS_IS, FULL, act, [], WEEK), WED)}
+    assert got == {'SE-1': 6 * 3600, 'SE-2': 4 * 3600}
+
+
+def test_as_is_employer_mirrors_client_without_cut():
+    client = [Worklog('client', 'SE-1', WED, 6 * 3600), Worklog('client', 'SE-2', WED, 3 * 3600)]
+    act = {WED: {('ai-pipeline', ''): 3600}}
+    got = emp(draft_employer(AS_IS, {'client': client, 'employer': []}, act, [], [], WEEK, CANDS), WED)
+    assert got == {'GS-11': 6 * 3600, 'GS-12': 3 * 3600, 'COM-1': 3600}
