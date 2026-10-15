@@ -171,7 +171,8 @@ def test_make_sandbox_single_base_commit_excludes_and_tz(sandbox_env):
     assert (repo / 'vendor/x.php').exists() and (repo / 'src/a.php').read_text() == '<?php // 2\n'
     agents = (repo / 'AGENTS.md').read_text()
     assert agents.startswith(f'---\nproject: bench\nvault: {sb["vault"]}\n---\n') and 'jev' not in agents
-    assert '`vendor/bin/phpunit tests/T.php`' in agents and '`fix: <описание>`' in agents and 'Jira нет' in agents
+    tests_line = f'`docker exec -w {repo} devflow-bench-php-cs-fixer__php-cs-fixer-8367__manual__r1 sh -c "vendor/bin/phpunit tests/T.php"`'
+    assert tests_line in agents and '`fix: <описание>`' in agents and 'Jira нет' in agents
     tz = (sb['vault'] / 'tz/bench-task.md').read_text()
     assert INSTANCE['problem_statement'] in tz and 'Jira' in tz
     assert all((sb['vault'] / d).is_dir() for d in ('tz', 'research', 'plans', 'changelog', 'notes'))
@@ -217,3 +218,204 @@ def test_sandbox_command_starts_the_task_container(sandbox_env, monkeypatch):
 def test_cli_bench_sandbox_wires_set_and_instance(monkeypatch):
     monkeypatch.setattr(bench, 'sandbox', lambda set_name, instance_id: {'set': set_name, 'instance': instance_id})
     assert cli.execute(cli.parser().parse_args(['bench', 'sandbox', 'php-pilot', 'x-1'])) == {'set': 'php-pilot', 'instance': 'x-1'}
+
+
+RESEARCH = '''---
+created: 2026-10-15
+project: bench
+type: research
+---
+
+# bench-task — Research
+
+## Findings
+- x
+
+## Open questions
+- [ ] один
+- [ ] два
+- [x] закрыт
+'''
+
+PLAN = '''---
+schema: 1
+research_revision: {rev}
+steps:
+  - {{id: one, n: 1, blocked_by: []}}
+---
+
+# bench-task — Plan
+
+## Steps
+
+### one: Правка
+- **Acceptance:** тесты
+'''
+
+
+def reply(model='claude-sonnet-5-5', **extra):
+    data = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'ok', 'duration_ms': 1000, 'num_turns': 2,
+            'total_cost_usd': 0.1, 'modelUsage': {model: {'inputTokens': 3, 'outputTokens': 4, 'costUSD': 0.1}}}
+    data.update(extra)
+    return data
+
+
+def fake_claude(sb, finish_implement=True, model='claude-sonnet-5-5'):
+    """A claude stand-in: research and plan write their documents, implement commits and records finish."""
+    from devflow import documents
+    calls = []
+
+    def execute(cmd, timeout):
+        phase, message = cmd[cmd.index('--agent') + 1], cmd[2]
+        calls.append((phase, message))
+        if phase == 'research':
+            (sb['vault'] / 'research/bench-task.md').write_text(RESEARCH)
+        elif phase == 'plan':
+            rev = documents.document(sb['vault'] / 'research/bench-task.md')['revision']
+            (sb['vault'] / 'plans/bench-task.md').write_text(PLAN.format(rev=rev))
+        elif finish_implement:
+            run_id = message.split('run_id: ')[1].split()[0]
+            (sb['repo'] / 'src/a.php').write_text('<?php // fixed\n')
+            subprocess.run(['git', '-C', str(sb['repo']), '-c', 'user.name=a', '-c', 'user.email=a@a', 'commit', '-qam', 'fix: a'], check=True)
+            log = sb['vault'] / 'changelog/2026-10-15-bench-task.md'
+            log.write_text(f'# x\n\n<!-- devflow-run: {run_id} -->\n## Шаг 1\n\n**Status:** done\n')
+            with bench.state_env(sb['state']):
+                cli.execute(cli.parser().parse_args(['--cwd', str(sb['repo']), 'finish', run_id, '--status', 'done', '--changelog', str(log)]))
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(reply(model)), '')
+    execute.calls = calls
+    return execute
+
+
+def test_pairs_interleave_tasks_and_count_replicas():
+    result = bench.pairs(['t1', 't2'], ['A', 'B', 'A'])
+    assert result == [{'task': 't1', 'combo': 'A', 'replica': 1}, {'task': 't1', 'combo': 'B', 'replica': 1},
+                      {'task': 't1', 'combo': 'A', 'replica': 2}, {'task': 't2', 'combo': 'A', 'replica': 1},
+                      {'task': 't2', 'combo': 'B', 'replica': 1}, {'task': 't2', 'combo': 'A', 'replica': 2}]
+    assert bench.pair_id(result[2]) == 't1__A__r2'
+
+
+def test_open_questions_counts_unchecked_items_of_the_section(tmp_path):
+    path = tmp_path / 'r.md'
+    path.write_text(RESEARCH)
+    assert bench.open_questions(path) == 2
+    path.write_text('# r\n\n## Findings\n- [ ] not a question\n')
+    assert bench.open_questions(path) == 0
+    assert bench.open_questions(tmp_path / 'missing.md') == 0
+
+
+def test_journal_append_and_read(tmp_path):
+    journal = tmp_path / 'runs/x/journal.jsonl'
+    assert bench.read(journal) == []
+    bench.append(journal, {'type': 'run_start', 'run': 'x'})
+    bench.append(journal, {'type': 'phase', 'tools': {'Bash': 1}, 'note': 'ё'})
+    assert bench.read(journal) == [{'type': 'run_start', 'run': 'x'}, {'type': 'phase', 'tools': {'Bash': 1}, 'note': 'ё'}]
+
+
+def test_extract_patch_takes_commits_edits_and_new_files_but_not_excluded(sandbox_env):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    repo = sb['repo']
+    (repo / 'src/a.php').write_text('<?php // committed\n')
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=a', '-c', 'user.email=a@a', 'commit', '-qam', 'fix: a'], check=True)
+    (repo / 'src/b.php').write_text('<?php // new\n')
+    (repo / '.gitignore').write_text('vendor/\n# edited\n')
+    (repo / 'AGENTS.md').write_text('changed\n')
+    (repo / '.devflow/extra.json').write_text('{}')
+    patch = bench.extract_patch(repo, sb['base'])
+    assert '// committed' in patch and 'src/b.php' in patch and '# edited' in patch
+    assert 'AGENTS.md' not in patch and '.devflow' not in patch and 'vendor' not in patch.split('.gitignore')[0]
+    assert not (repo / '.git/bench-index').exists()
+    assert subprocess.run(['git', '-C', str(repo), 'status', '--porcelain'], capture_output=True, text=True).stdout.startswith(' M')
+
+
+def test_drive_runs_the_pipeline_without_a_human(sandbox_env, tmp_path):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    execute = fake_claude(sb)
+    journal = tmp_path / 'journal.jsonl'
+    combo = bench.combos(['smoke'])[0]
+    result = bench.drive(sb, combo, execute, journal, {'timeout': 30})
+    assert result == {'outcome': 'completed', 'phases': 3, 'steps': 1, 'open_questions': 2, 'error_text': None}
+    assert [c[0] for c in execute.calls] == ['research', 'plan', 'implement']
+    assert 'run_id: ' in execute.calls[2][1] and 'step: one' in execute.calls[2][1] and 'tz: ' in execute.calls[0][1]
+    lines = bench.read(journal)
+    assert [l['type'] for l in lines] == ['phase'] * 3
+    assert [l['route_after'] for l in lines] == ['approval_required', 'approval_required', 'completed']
+    assert lines[2]['step'] == 'one' and lines[2]['runner'] == 'claude' and lines[2]['model_actual'] == 'claude-sonnet-5-5'
+    assert lines[2]['input'] == 3 and lines[2]['cost_usd'] == 0.1 and lines[2]['duration_s'] == 1.0 and lines[2]['pair'] == sb['pair']
+    assert lines[0]['model_req'] == 'claude-sonnet-5-5' and lines[0]['effort_req'] == 'low' and lines[0]['error'] is None
+    assert 'DEVFLOW_STATE_DIR' not in os.environ
+
+
+def test_drive_interrupts_a_step_that_did_not_finish(sandbox_env, tmp_path):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    execute = fake_claude(sb, finish_implement=False)
+    result = bench.drive(sb, bench.combos(['smoke'])[0], execute, tmp_path / 'j.jsonl')
+    assert result['outcome'] == 'blocked' and result['steps'] == 1 and [c[0] for c in execute.calls] == ['research', 'plan', 'implement']
+    with bench.state_env(sb['state']):
+        state = cli.execute(cli.parser().parse_args(['--cwd', str(sb['repo']), 'route', 'bench-task']))
+    assert state['state'] == 'blocked' and state['reason'] == bench.RUNNING_REASON
+
+
+def test_drive_stalls_when_a_phase_changes_nothing(sandbox_env, tmp_path):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    idle = lambda cmd, timeout: subprocess.CompletedProcess(cmd, 0, json.dumps(reply()), '')
+    result = bench.drive(sb, bench.combos(['smoke'])[0], idle, tmp_path / 'j.jsonl')
+    assert result['outcome'] == 'stalled' and result['phases'] == 2
+    assert [l['route_after'] for l in bench.read(tmp_path / 'j.jsonl')] == ['research', 'research']
+
+
+def test_drive_stops_on_model_mismatch_and_errors(sandbox_env, tmp_path):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    combo = bench.combos(['smoke'])[0]
+    wrong = fake_claude(sb, model='claude-opus-5-5')
+    result = bench.drive(sb, combo, wrong, tmp_path / 'j.jsonl')
+    assert result['outcome'] == 'model_mismatch' and 'claude-opus-5-5' in result['error_text'] and result['phases'] == 1
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    budget = lambda cmd, timeout: subprocess.CompletedProcess(cmd, 0, json.dumps(reply(subtype='error_max_budget_usd', is_error=True, result='over')), '')
+    assert bench.drive(sb, combo, budget, tmp_path / 'j2.jsonl')['outcome'] == 'budget'
+    api = lambda cmd, timeout: subprocess.CompletedProcess(cmd, 1, json.dumps(reply(is_error=True, result='Not logged in')), '')
+    result = bench.drive(sb, combo, api, tmp_path / 'j3.jsonl')
+    assert result['outcome'] == 'paused' and result['error_text'] == 'Not logged in'
+    assert bench.read(tmp_path / 'j3.jsonl')[0]['error'] == 'api'
+
+
+def test_run_writes_journal_patch_and_stops_the_container(sandbox_env, tmp_path, monkeypatch):
+    docker = []
+
+    def execute(cmd, timeout, cwd=None, env=None):
+        docker.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+    holder = {}
+    monkeypatch.setattr(bench.container, 'runner_executor', lambda name, cwd, env=None: holder.setdefault('exec', fake_claude(holder['sb'])))
+    real_make = bench.make_sandbox
+
+    def make(root, pair, instance, execute=None):
+        holder['sb'] = real_make(root, pair, instance, execute)
+        return holder['sb']
+    monkeypatch.setattr(bench, 'make_sandbox', make)
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'dataset': 'd', 'split': 'test', 'swebench': '5.0.2', 'instances': [INSTANCE['instance_id'], 'other']})
+    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE})
+    dry = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, root=sandbox_env / 'sb', journal_dir=tmp_path / 'runs/smoke-1')
+    assert dry['state'] == 'dry_run' and dry['pairs'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1'] and not (tmp_path / 'runs').exists()
+    result = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, yes=True, root=sandbox_env / 'sb',
+                       journal_dir=tmp_path / 'runs/smoke-1', execute=execute)
+    assert result['state'] == 'done' and result['outcomes'] == {'php-cs-fixer__php-cs-fixer-8367__smoke__r1': 'completed'}
+    lines = bench.read(tmp_path / 'runs/smoke-1/journal.jsonl')
+    assert [l['type'] for l in lines] == ['run_start', 'pair_start', 'phase', 'phase', 'phase', 'pair_end']
+    assert lines[0]['pairs'] == dry['pairs'] and set(lines[0]['agents_sha256']) == {'research', 'plan', 'implement'} and lines[0]['swebench'] == '5.0.2'
+    assert lines[1]['sandbox'] == str(sandbox_env / 'sb/smoke-1/php-cs-fixer__php-cs-fixer-8367__smoke__r1') and lines[1]['base'] == holder['sb']['base']
+    end = lines[-1]
+    assert end['outcome'] == 'completed' and end['steps'] == 1 and end['open_questions'] == 2 and end['patch_bytes'] > 0
+    patch = Path(end['patch']).read_text()
+    assert '// fixed' in patch and 'AGENTS.md' not in patch and '.devflow' not in patch
+    assert Path(end['patch']) == tmp_path / 'runs/smoke-1/patches/php-cs-fixer__php-cs-fixer-8367__smoke__r1.diff'
+    run_cmd = next(c for c in docker if c[:2] == ['docker', 'run'])
+    assert run_cmd[run_cmd.index('--name') + 1] == 'devflow-bench-php-cs-fixer__php-cs-fixer-8367__smoke__r1'
+    assert docker[-1] == ['docker', 'rm', '-f', 'devflow-bench-php-cs-fixer__php-cs-fixer-8367__smoke__r1']
+
+
+def test_cli_bench_run_wires_arguments(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(bench, 'run', lambda name, set_name, combo_names, tasks=None, yes=False, root=None: seen.update(locals()) or {'ok': True})
+    args = ['bench', 'run', '--name', 'pilot', '--set', 'php-pilot', '--combo', 'production', '--combo', 'impl-opus', '--combo', 'production', '--tasks', '8', '--yes']
+    assert cli.execute(cli.parser().parse_args(args)) == {'ok': True}
+    assert seen['name'] == 'pilot' and seen['combo_names'] == ['production', 'impl-opus', 'production'] and seen['tasks'] == 8 and seen['yes'] is True

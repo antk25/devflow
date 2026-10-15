@@ -1,0 +1,99 @@
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from devflow import bench_runners
+from devflow.documents import WorkflowError
+
+SPEC = {'runner': 'claude', 'model': 'claude-sonnet-5-5', 'effort': 'low'}
+REPLY = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'готово', 'session_id': 'sess-1',
+         'duration_ms': 12345, 'num_turns': 7, 'total_cost_usd': 0.42,
+         'modelUsage': {'claude-sonnet-5-5': {'inputTokens': 10, 'outputTokens': 200, 'cacheReadInputTokens': 3000,
+                                              'cacheCreationInputTokens': 400, 'thinkingTokens': 50, 'costUSD': 0.4},
+                        'claude-haiku-4-5': {'inputTokens': 5, 'outputTokens': 20, 'cacheReadInputTokens': 0,
+                                             'cacheCreationInputTokens': 0, 'thinkingTokens': 0, 'costUSD': 0.02}}}
+
+
+def assistant(model, effort, tools=()):
+    content = [{'type': 'text', 'text': 'x'}] + [{'type': 'tool_use', 'name': t, 'input': {}} for t in tools]
+    return {'type': 'assistant', 'effort': effort, 'message': {'role': 'assistant', 'model': model, 'content': content}}
+
+
+def write_transcript(home, cwd, session_id):
+    project = home / '.claude/projects' / str(cwd).replace('/', '-').replace('.', '-').replace('_', '-')
+    (project / session_id / 'subagents').mkdir(parents=True)
+    main = [{'type': 'user', 'message': {'role': 'user', 'content': 'hi'}},
+            assistant('claude-sonnet-5-5', 'low', ['Bash', 'Read']), 'not json',
+            assistant('claude-sonnet-5-5', 'low', ['Bash'])]
+    (project / f'{session_id}.jsonl').write_text('\n'.join(l if isinstance(l, str) else json.dumps(l) for l in main))
+    sub = [assistant('claude-haiku-4-5', 'medium', ['Grep'])]
+    (project / session_id / 'subagents/agent-1.jsonl').write_text('\n'.join(json.dumps(l) for l in sub))
+    return project
+
+
+def test_claude_command_argv():
+    cmd = bench_runners.claude_command('research', SPEC, 'u-1', 'DevFlow Phase — research.', 5.0, Path('/sb/home/agents-research.json'))
+    assert cmd[:3] == ['claude', '-p', 'DevFlow Phase — research.']
+    assert cmd[cmd.index('--agents') + 1] == '/sb/home/agents-research.json' and cmd[cmd.index('--agent') + 1] == 'research'
+    assert cmd[cmd.index('--model') + 1] == 'claude-sonnet-5-5' and cmd[cmd.index('--effort') + 1] == 'low'
+    assert cmd[cmd.index('--session-id') + 1] == 'u-1' and cmd[cmd.index('--output-format') + 1] == 'json'
+    assert cmd[cmd.index('--permission-mode') + 1] == 'bypassPermissions' and cmd[cmd.index('--max-budget-usd') + 1] == '5.0'
+    assert cmd[-len(bench_runners.CLAUDE_ISOLATION):] == bench_runners.CLAUDE_ISOLATION
+    assert '--max-budget-usd' not in bench_runners.claude_command('plan', SPEC, 'u', 'm', None, Path('a.json'))
+
+
+def test_claude_agent_comes_from_the_phase_agent_file():
+    agent = bench_runners.claude_agent('implement')['implement']
+    assert 'Bash' in agent['tools'] and 'Edit' in agent['tools'] and 'implement' in agent['prompt']
+    assert agent['description']
+    with pytest.raises(WorkflowError, match='Unknown phase'):
+        bench_runners.claude_agent('review')
+
+
+def test_claude_metrics_sums_usage_and_reads_the_transcript(tmp_path):
+    cwd = tmp_path / 'sb/a__b.c/repo'
+    write_transcript(tmp_path / 'home', cwd, 'sess-1')
+    m = bench_runners.claude_metrics(json.dumps(REPLY), tmp_path / 'home', cwd)
+    assert m['model_actual'] == 'claude-sonnet-5-5' and m['models'] == ['claude-haiku-4-5', 'claude-sonnet-5-5']
+    assert (m['input'], m['output'], m['reasoning'], m['cache_read'], m['cache_write']) == (15, 220, 50, 3000, 400)
+    assert m['cost_usd'] == 0.42 and m['cost_source'] == 'anthropic-list' and m['duration_s'] == 12.3 and m['turns'] == 7
+    assert m['effort_actual'] == 'low,medium' and m['tools'] == {'Bash': 2, 'Read': 1, 'Grep': 1}
+    assert m['session_id'] == 'sess-1' and m['is_error'] is False
+
+
+def test_claude_metrics_without_reply_or_transcript(tmp_path):
+    m = bench_runners.claude_metrics('', tmp_path, tmp_path / 'repo', 'nope')
+    assert m['model_actual'] is None and m['input'] == 0 and m['cost_usd'] == 0 and m['tools'] == {} and m['effort_actual'] is None
+
+
+def test_claude_error_classes():
+    proc = subprocess.CompletedProcess([], 0, '', '')
+    assert bench_runners.claude_error({'subtype': 'error_max_budget_usd', 'result': 'over'}, proc) == ('budget', 'over')
+    assert bench_runners.claude_error({'is_error': True, 'result': 'Not logged in'}, proc) == ('api', 'Not logged in')
+    assert bench_runners.claude_error({'is_error': False, 'subtype': 'success'}, proc) == (None, None)
+    assert bench_runners.claude_error(None, subprocess.CompletedProcess([], 1, '', 'boom')) == ('api', 'boom')
+
+
+def test_run_phase_claude(tmp_path):
+    sb = {'home': tmp_path / 'home', 'repo': tmp_path / 'repo'}
+    sb['home'].mkdir()
+    seen = []
+
+    def execute(cmd, timeout):
+        seen.append((cmd, timeout))
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(REPLY), '')
+    result = bench_runners.run_phase(execute, 'claude', 'plan', SPEC, 'msg', sb, 60, 5.0, home=tmp_path / 'home')
+    cmd, timeout = seen[0]
+    agents = json.loads(Path(cmd[cmd.index('--agents') + 1]).read_text())
+    assert set(agents) == {'plan'} and timeout == 60 and cmd[cmd.index('--agent') + 1] == 'plan'
+    assert result['error'] is None and result['report'] == 'готово' and result['metrics']['cost_usd'] == 0.42
+    assert result['metrics']['session_id'] == cmd[cmd.index('--session-id') + 1]
+
+    def slow(cmd, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    result = bench_runners.run_phase(slow, 'claude', 'plan', SPEC, 'msg', sb, 60, None, home=tmp_path / 'home')
+    assert result['error'] == 'timeout' and result['metrics']['duration_s'] == 60.0
+    with pytest.raises(WorkflowError, match='pi-runner'):
+        bench_runners.run_phase(execute, 'pi', 'plan', {**SPEC, 'runner': 'pi'}, 'msg', sb, 60, None)

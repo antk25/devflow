@@ -58,6 +58,8 @@ def parser():
     a = bench_commands.add_parser('combos'); a.add_argument('names', nargs='*'); a.add_argument('--probe', action='store_true')
     a = bench_commands.add_parser('doctor'); a.add_argument('instance'); a.add_argument('--keep', action='store_true')
     a = bench_commands.add_parser('sandbox'); a.add_argument('set'); a.add_argument('instance')
+    a = bench_commands.add_parser('run'); a.add_argument('--name', required=True); a.add_argument('--set', required=True)
+    a.add_argument('--combo', action='append', required=True); a.add_argument('--tasks', type=int); a.add_argument('--yes', action='store_true'); a.add_argument('--root')
     set_commands = bench_commands.add_parser('set').add_subparsers(dest='set_command', required=True)
     a = set_commands.add_parser('build'); a.add_argument('name'); a.add_argument('--dataset', required=True); a.add_argument('--split', default='test')
     a.add_argument('--language', required=True); a.add_argument('--per-repo', type=int, default=3); a.add_argument('--count', type=int); a.add_argument('--workers', type=int, default=1)
