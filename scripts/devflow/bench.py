@@ -450,13 +450,15 @@ def claude_limits():
     return limit, threshold
 
 
-def estimate(selected_pairs, combos_by_name, past, limits=None):
+def estimate(selected_pairs, combos_by_name, past, limits=None, frozen=None):
     """Pairs, phase calls, conditional $ per runner (median of past journals per runner/model/effort/phase, else
-    priors from research), time and the current Claude limit."""
+    priors from research), time and the current Claude limit. Frozen phases are not called."""
     cost, seconds, calls, sources = {}, 0.0, 0, set()
     for pair in selected_pairs:
         combo = combos_by_name[pair['combo']]
         for phase in PHASES:
+            if phase in (frozen or ()):
+                continue
             spec = combo[phase]
             calls += 1
             same = [r for r in past if (r.get('runner'), r.get('model_req'), r.get('effort_req'), r.get('phase'))
@@ -480,12 +482,14 @@ def estimate(selected_pairs, combos_by_name, past, limits=None):
             'claude_limit': None if limits is None else {'window': limits['window'], 'used_percentage': limits['used_percentage']}}
 
 
-def skipped_combos(selected, probe_execute=None):
-    """`{combo name: reason}` for combos with a failing probe of any phase."""
+def skipped_combos(selected, probe_execute=None, frozen=None):
+    """`{combo name: reason}` for combos with a failing probe of any phase that will be called."""
     probes = {(p['runner'], p['model'], p['effort']): p for p in probe_combos(selected, probe_execute)}
     skipped = {}
     for combo in selected:
         for phase in PHASES:
+            if phase in (frozen or ()):
+                continue
             spec = combo[phase]
             probe_result = probes[(spec['runner'], spec['model'], spec['effort'])]
             if not probe_result['ok']:
@@ -509,21 +513,77 @@ def uses_claude(combo):
     return any(combo[phase]['runner'] == 'claude' for phase in PHASES)
 
 
-def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None, attempt=1):
+def parse_source(text):
+    """`<run>:<combo>[:r<k>]` of `--from` → `{run, combo, replica}`."""
+    match = re.fullmatch(r'([^:]+):([^:]+)(?::r(\d+))?', text or '')
+    if not match:
+        raise WorkflowError(f'--from expects <run>:<combo>[:r<k>], got {text!r}')
+    return {'run': match.group(1), 'combo': match.group(2), 'replica': int(match.group(3) or 1)}
+
+
+def parse_freeze(text):
+    phases = [p for p in (text or '').split(',') if p]
+    if phases not in (['research'], ['research', 'plan']):
+        raise WorkflowError(f'--freeze expects research or research,plan, got {text!r}')
+    return phases
+
+
+def source_sandbox(runs_dir, source, task):
+    """Sandbox directory of the source pair (`pair_start` of the source run's journal), None when there is none."""
+    wanted = pair_id({'task': task, 'combo': source['combo'], 'replica': source['replica']})
+    starts = [r for r in read(Path(runs_dir) / source['run'] / 'journal.jsonl')
+              if r.get('type') == 'pair_start' and r.get('pair') == wanted]
+    return Path(starts[-1]['sandbox']) if starts else None
+
+
+def freeze_documents(sb, source_dir, phases):
+    """Copies the frozen research (and plan) of the source sandbox into the pair's vault and approves them as they
+    are. Returns the reason when a source document is missing; the pair is then skipped."""
+    folders = {'research': 'research', 'plan': 'plans'}
+    for phase in phases:
+        src = Path(source_dir) / 'vault' / folders[phase] / f'{TASK_SLUG}.md'
+        if not src.is_file():
+            return f'frozen {phase}: no {src}'
+        shutil.copy(src, sb['vault'] / folders[phase] / f'{TASK_SLUG}.md')
+    ctx = context(sb['repo'])
+    with state_env(sb['state']):
+        db = connect(ctx)
+        try:
+            for phase in phases:
+                current = route(ctx, db, TASK_SLUG)
+                if current['state'] != 'approval_required' or current['phase'] != phase:
+                    return f"frozen {phase}: sandbox is {current['state']} instead of approval_required"
+                approve(ctx, db, TASK_SLUG, phase, current['revision'])
+        finally:
+            db.close()
+    return None
+
+
+def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None, attempt=1, freeze=None, source_dir=None):
     """One pair end to end: sandbox, task container, autodriver, patch, `pair_start`/`pair_end` lines.
-    An API error leaves the pair open: `run_paused` instead of `pair_end`."""
+    An API error leaves the pair open: `run_paused` instead of `pair_end`. With `freeze` the research (and plan)
+    of `source_dir` are copied in and approved first, so the autodriver starts at implement; a missing source
+    document ends the pair as `skipped`."""
     execute = execute or container.docker_execute
     sb = make_sandbox(sb_root, pair, instance, execute)
     append(journal, {'type': 'pair_start', 'at': now(), 'pair': sb['pair'], 'attempt': attempt, 'task': pair['task'],
-                     'combo': combo['name'], 'replica': pair['replica'], 'sandbox': str(sb['dir']), 'base': sb['base']})
-    name = container_name(pair)
-    container.start(name, instance['image'], sb['dir'], execute=execute)
-    try:
-        runner = container.runner_executor(name, sb['repo'], {'DEVFLOW_STATE_DIR': str(sb['state'])})
-        outcome = drive(sb, combo, runner, journal, limits, attempt)
-        patch = extract_patch(sb['repo'], sb['base'])
-    finally:
-        container.stop(name, execute)
+                     'combo': combo['name'], 'replica': pair['replica'], 'sandbox': str(sb['dir']), 'base': sb['base'],
+                     **({'frozen': list(freeze), 'frozen_from': str(source_dir)} if freeze else {})})
+    skip = None
+    if freeze:
+        skip = 'frozen: no source pair' if source_dir is None else freeze_documents(sb, source_dir, freeze)
+    if skip:
+        outcome = {'outcome': 'skipped', 'phases': 0, 'steps': 0, 'open_questions': None, 'error_text': skip}
+        patch = ''
+    else:
+        name = container_name(pair)
+        container.start(name, instance['image'], sb['dir'], execute=execute)
+        try:
+            runner = container.runner_executor(name, sb['repo'], {'DEVFLOW_STATE_DIR': str(sb['state'])})
+            outcome = drive(sb, combo, runner, journal, limits, attempt)
+            patch = extract_patch(sb['repo'], sb['base'])
+        finally:
+            container.stop(name, execute)
     if outcome['outcome'] == 'paused':
         append(journal, {'type': 'run_paused', 'at': now(), 'pair': sb['pair'], 'attempt': attempt,
                          'reason': f"api: {outcome['error_text']}"})
@@ -560,9 +620,13 @@ def stop_on_sigint():
 
 
 def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_dir=None, execute=None, limits=None,
-        probe_execute=None, claude_limit=None):
+        probe_execute=None, claude_limit=None, freeze=None, source=None):
     """`devflow bench run`: without `yes` the estimate only; with `yes` every open pair in order until the end,
-    a pause (API error, Claude limit) or a stop (STOP file, Ctrl-C). Journal in the devflow vault."""
+    a pause (API error, Claude limit) or a stop (STOP file, Ctrl-C). Journal in the devflow vault.
+    `freeze` (phases) with `source` (`<run>:<combo>[:r<k>]`) runs only the later phases on that pair's documents."""
+    if bool(freeze) != bool(source):
+        raise WorkflowError('--freeze and --from go together')
+    source_text, source = source, parse_source(source) if source else None
     data = load_set(set_name)
     selected = combos(combo_names)
     by_name = {c['name']: c for c in selected}
@@ -573,12 +637,13 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
     limit, threshold = claude_limits() if claude_limit is None else claude_limit
     result = {'run': name, 'journal': str(journal), 'pairs': [pair_id(p) for p in selected_pairs]}
     if not yes:
-        return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit))
+        return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit, freeze))
     loaded = instances(data['dataset'], data['split'], task_ids)
     records = read(journal)
     if not records:
-        append(journal, run_start_record(name, data, selected, selected_pairs))
-    skipped = skipped_combos(selected, probe_execute)
+        append(journal, {**run_start_record(name, data, selected, selected_pairs),
+                         **({'frozen': list(freeze), 'frozen_from': source_text} if freeze else {})})
+    skipped = skipped_combos(selected, probe_execute, freeze)
     for combo_name, reason in skipped.items():
         append(journal, {'type': 'combo_skipped', 'at': now(), 'combo': combo_name, 'reason': reason})
     finished, attempts = progress(records)
@@ -597,7 +662,9 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
                 state = 'paused'
                 break
             attempt = attempts.get(pair_id(pair), 0) + 1
-            record = run_pair(pair, combo, loaded[pair['task']], sb_root, journal, execute, limits, attempt)
+            source_dir = source_sandbox(directory.parent, source, pair['task']) if source else None
+            record = run_pair(pair, combo, loaded[pair['task']], sb_root, journal, execute, limits, attempt,
+                              freeze=freeze, source_dir=source_dir)
             if record['outcome'] == 'paused':
                 state = 'paused'
                 break
@@ -682,7 +749,8 @@ def command(args):
     if args.bench_command == 'sandbox':
         return sandbox(args.set, args.instance)
     if args.bench_command == 'run':
-        return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root)
+        return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root,
+                   freeze=parse_freeze(args.freeze) if args.freeze else None, source=getattr(args, 'from'))
     if args.bench_command == 'eval':
         return eval_run(args.run, self_check=args.self_check, workers=args.workers, static=args.static)
     if args.bench_command == 'report':

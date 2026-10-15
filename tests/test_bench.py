@@ -424,10 +424,15 @@ def test_run_writes_journal_patch_and_stops_the_container(sandbox_env, tmp_path,
 
 def test_cli_bench_run_wires_arguments(monkeypatch):
     seen = {}
-    monkeypatch.setattr(bench, 'run', lambda name, set_name, combo_names, tasks=None, yes=False, root=None: seen.update(locals()) or {'ok': True})
+    monkeypatch.setattr(bench, 'run', lambda name, set_name, combo_names, tasks=None, yes=False, root=None, freeze=None, source=None: seen.update(locals()) or {'ok': True})
     args = ['bench', 'run', '--name', 'pilot', '--set', 'php-pilot', '--combo', 'production', '--combo', 'impl-opus', '--combo', 'production', '--tasks', '8', '--yes']
     assert cli.execute(cli.parser().parse_args(args)) == {'ok': True}
     assert seen['name'] == 'pilot' and seen['combo_names'] == ['production', 'impl-opus', 'production'] and seen['tasks'] == 8 and seen['yes'] is True
+    assert seen['freeze'] is None and seen['source'] is None
+    cli.execute(cli.parser().parse_args(args + ['--freeze', 'research,plan', '--from', 'smoke-1:smoke:r2']))
+    assert seen['freeze'] == ['research', 'plan'] and seen['source'] == 'smoke-1:smoke:r2'
+    with pytest.raises(WorkflowError):
+        cli.execute(cli.parser().parse_args(args + ['--freeze', 'plan', '--from', 'smoke-1:smoke']))
 
 
 def test_estimate_prefers_journal_medians_over_priors():
@@ -545,3 +550,40 @@ def test_run_skips_a_combo_whose_probe_fails(two_task_run):
     assert [p.split('__')[-2] for p in two_task_run['made']] == ['smoke', 'smoke']
     skipped = [l for l in bench.read(two_task_run['dir'] / 'journal.jsonl') if l['type'] == 'combo_skipped']
     assert len(skipped) == 1 and skipped[0]['combo'] == 'impl-opus'
+
+
+def test_run_frozen_copies_approved_documents_and_starts_at_implement(two_task_run, sandbox_env, tmp_path):
+    source = two_task_run['go'](tasks=1)
+    assert source['state'] == 'done'
+    result = two_task_run['go'](tasks=2, root=sandbox_env / 'sb2', journal_dir=tmp_path / 'runs/frz',
+                                freeze=['research', 'plan'], source='smoke-2:smoke')
+    assert result['state'] == 'done' and result['outcomes'] == {'php-cs-fixer__php-cs-fixer-8367__smoke__r1': 'completed',
+                                                                 'php-cs-fixer__php-cs-fixer-9999__smoke__r1': 'skipped'}
+    lines = bench.read(tmp_path / 'runs/frz/journal.jsonl')
+    assert [l['type'] for l in lines] == ['run_start', 'pair_start', 'phase', 'pair_end', 'pair_start', 'pair_end']
+    assert lines[0]['frozen'] == ['research', 'plan'] and lines[0]['frozen_from'] == 'smoke-2:smoke'
+    src = sandbox_env / 'sb/smoke-2/php-cs-fixer__php-cs-fixer-8367__smoke__r1'
+    assert lines[1]['frozen'] == ['research', 'plan'] and lines[1]['frozen_from'] == str(src)
+    assert lines[2]['phase'] == 'implement' and lines[2]['step'] == 'one'
+    assert lines[3]['outcome'] == 'completed' and lines[3]['steps'] == 1 and lines[3]['phases'] == 1
+    frozen = sandbox_env / 'sb2/smoke-2/php-cs-fixer__php-cs-fixer-8367__smoke__r1/vault'
+    assert (frozen / 'research/bench-task.md').read_text() == (src / 'vault/research/bench-task.md').read_text()
+    assert (frozen / 'plans/bench-task.md').read_text() == (src / 'vault/plans/bench-task.md').read_text()
+    assert lines[5]['outcome'] == 'skipped' and lines[5]['error_text'] == 'frozen: no source pair' and lines[5]['patch_bytes'] == 0
+
+
+def test_run_frozen_skips_a_pair_whose_source_has_no_plan(two_task_run, sandbox_env, tmp_path):
+    two_task_run['go'](tasks=1)
+    (sandbox_env / 'sb/smoke-2/php-cs-fixer__php-cs-fixer-8367__smoke__r1/vault/plans/bench-task.md').unlink()
+    result = two_task_run['go'](tasks=1, root=sandbox_env / 'sb2', journal_dir=tmp_path / 'runs/frz',
+                                freeze=['research', 'plan'], source='smoke-2:smoke')
+    assert result['outcomes'] == {'php-cs-fixer__php-cs-fixer-8367__smoke__r1': 'skipped'}
+    end = bench.read(tmp_path / 'runs/frz/journal.jsonl')[-1]
+    assert end['type'] == 'pair_end' and end['error_text'].startswith('frozen plan: no ')
+
+
+def test_run_frozen_dry_run_counts_only_implement_calls(two_task_run, sandbox_env, tmp_path):
+    result = two_task_run['go'](tasks=1, yes=False, freeze=['research', 'plan'], source='smoke-2:smoke')
+    assert result['state'] == 'dry_run' and result['estimate']['phase_calls'] == 1
+    with pytest.raises(WorkflowError):
+        two_task_run['go'](tasks=1, yes=False, freeze=['research', 'plan'])
