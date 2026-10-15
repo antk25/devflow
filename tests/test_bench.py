@@ -286,6 +286,11 @@ def fake_claude(sb, finish_implement=True, model='claude-sonnet-5-5'):
     return execute
 
 
+def probe_ok(cmd, timeout):
+    model = cmd[cmd.index('--model') + 1]
+    return subprocess.CompletedProcess(cmd, 0, json.dumps({'is_error': False, 'modelUsage': {model: {}}}), '')
+
+
 def test_pairs_interleave_tasks_and_count_replicas():
     result = bench.pairs(['t1', 't2'], ['A', 'B', 'A'])
     assert result == [{'task': 't1', 'combo': 'A', 'replica': 1}, {'task': 't1', 'combo': 'B', 'replica': 1},
@@ -394,11 +399,15 @@ def test_run_writes_journal_patch_and_stops_the_container(sandbox_env, tmp_path,
     monkeypatch.setattr(bench, 'make_sandbox', make)
     monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'dataset': 'd', 'split': 'test', 'swebench': '5.0.2', 'instances': [INSTANCE['instance_id'], 'other']})
     monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE})
-    dry = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, root=sandbox_env / 'sb', journal_dir=tmp_path / 'runs/smoke-1')
+    dry = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, root=sandbox_env / 'sb', journal_dir=tmp_path / 'runs/smoke-1',
+                    claude_limit=(None, 95))
     assert dry['state'] == 'dry_run' and dry['pairs'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1'] and not (tmp_path / 'runs').exists()
+    assert dry['estimate'] == {'pairs': 1, 'phase_calls': 3, 'cost_usd': {'claude': {'low': 4.9, 'high': 82.0}}, 'cost_source': ['prior'],
+                               'hours': 0.7, 'claude_limit': None}
     result = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, yes=True, root=sandbox_env / 'sb',
-                       journal_dir=tmp_path / 'runs/smoke-1', execute=execute)
+                       journal_dir=tmp_path / 'runs/smoke-1', execute=execute, probe_execute=probe_ok, claude_limit=(None, 95))
     assert result['state'] == 'done' and result['outcomes'] == {'php-cs-fixer__php-cs-fixer-8367__smoke__r1': 'completed'}
+    assert result['pairs_done'] == 1 and result['pairs_left'] == 0 and result['combos_skipped'] == {}
     lines = bench.read(tmp_path / 'runs/smoke-1/journal.jsonl')
     assert [l['type'] for l in lines] == ['run_start', 'pair_start', 'phase', 'phase', 'phase', 'pair_end']
     assert lines[0]['pairs'] == dry['pairs'] and set(lines[0]['agents_sha256']) == {'research', 'plan', 'implement'} and lines[0]['swebench'] == '5.0.2'
@@ -419,3 +428,120 @@ def test_cli_bench_run_wires_arguments(monkeypatch):
     args = ['bench', 'run', '--name', 'pilot', '--set', 'php-pilot', '--combo', 'production', '--combo', 'impl-opus', '--combo', 'production', '--tasks', '8', '--yes']
     assert cli.execute(cli.parser().parse_args(args)) == {'ok': True}
     assert seen['name'] == 'pilot' and seen['combo_names'] == ['production', 'impl-opus', 'production'] and seen['tasks'] == 8 and seen['yes'] is True
+
+
+def test_estimate_prefers_journal_medians_over_priors():
+    combo = {'name': 'smoke', **{phase: dict(PHASE) for phase in ('research', 'plan', 'implement')}}
+    past = [{'type': 'phase', 'runner': 'claude', 'model_req': 'claude-sonnet-5-5', 'effort_req': 'low', 'phase': 'research',
+             'cost_usd': cost, 'duration_s': 60, 'error': None} for cost in (0.1, 0.5, 9.0)]
+    past.append({'type': 'phase', 'runner': 'claude', 'model_req': 'claude-sonnet-5-5', 'effort_req': 'low', 'phase': 'plan',
+                 'cost_usd': 99, 'duration_s': 60, 'error': 'api'})
+    result = bench.estimate(bench.pairs(['t1', 't2'], ['smoke']), {'smoke': combo}, past,
+                            {'window': 'seven_day', 'used_percentage': 88})
+    assert result['pairs'] == 2 and result['phase_calls'] == 6 and result['cost_source'] == ['journal', 'prior']
+    assert result['cost_usd'] == {'claude': {'low': 2 * (0.5 + 0.3 + 4.0), 'high': 2 * (0.5 + 9.0 + 64.0)}}
+    assert result['hours'] == round(2 * (60 + 300 + 1800) / 3600, 1) and result['claude_limit'] == {'window': 'seven_day', 'used_percentage': 88}
+
+
+def test_history_reads_phase_lines_of_every_journal(tmp_path):
+    for name in ('a', 'b'):
+        bench.append(tmp_path / name / 'journal.jsonl', {'type': 'run_start'})
+        bench.append(tmp_path / name / 'journal.jsonl', {'type': 'phase', 'phase': 'plan', 'run': name})
+    assert [r['run'] for r in bench.history(tmp_path)] == ['a', 'b']
+
+
+@pytest.fixture
+def two_task_run(sandbox_env, tmp_path, monkeypatch):
+    """`run` over two tasks with fake docker, a claude stand-in per sandbox and no probes on the host."""
+    other = dict(INSTANCE, instance_id='php-cs-fixer__php-cs-fixer-9999')
+    holder = {}
+    monkeypatch.setattr(bench.container, 'runner_executor',
+                        lambda name, cwd, env=None: holder['make_claude'](holder['sb']))
+    real_make = bench.make_sandbox
+
+    def make(root, pair, instance, execute=None):
+        holder['sb'] = real_make(root, pair, instance, execute)
+        holder['made'].append(holder['sb']['pair'])
+        return holder['sb']
+    monkeypatch.setattr(bench, 'make_sandbox', make)
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'dataset': 'd', 'split': 'test', 'swebench': '5.0.2',
+                                                                         'instances': [INSTANCE['instance_id'], other['instance_id']]})
+    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE, other['instance_id']: other})
+    holder['made'] = []
+    holder['make_claude'] = fake_claude
+    directory = tmp_path / 'runs/smoke-2'
+
+    def go(combo_names=('smoke',), **kw):
+        args = dict(tasks=2, yes=True, root=sandbox_env / 'sb', journal_dir=directory, probe_execute=probe_ok, claude_limit=(None, 95),
+                    execute=lambda cmd, timeout, cwd=None, env=None: subprocess.CompletedProcess(cmd, 0, '', ''))
+        args.update(kw)
+        return bench.run('smoke-2', 'php-pilot', list(combo_names), **args)
+    holder['go'] = go
+    holder['dir'] = directory
+    return holder
+
+
+def test_run_stops_after_the_current_pair_and_resumes_without_rerunning(two_task_run):
+    directory = two_task_run['dir']
+    original = two_task_run['make_claude']
+
+    def touching(sb):
+        (directory / 'STOP').touch()
+        return original(sb)
+    two_task_run['make_claude'] = touching
+    first = two_task_run['go']()
+    assert first['state'] == 'stopped' and first['pairs_done'] == 1 and first['pairs_left'] == 1
+    assert two_task_run['made'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1']
+    (directory / 'STOP').unlink()
+    two_task_run['make_claude'] = original
+    second = two_task_run['go']()
+    assert second['state'] == 'done' and second['pairs_done'] == 2 and second['pairs_left'] == 0
+    assert two_task_run['made'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1', 'php-cs-fixer__php-cs-fixer-9999__smoke__r1']
+    lines = bench.read(directory / 'journal.jsonl')
+    assert [l['type'] for l in lines if l['type'] in ('run_start', 'pair_start', 'pair_end')] == ['run_start', 'pair_start', 'pair_end', 'pair_start', 'pair_end']
+    assert [l['attempt'] for l in lines if l['type'] == 'pair_end'] == [1, 1]
+
+
+def test_run_retries_an_unfinished_pair_as_a_new_attempt(two_task_run):
+    directory = two_task_run['dir']
+    bench.append(directory / 'journal.jsonl', {'type': 'run_start'})
+    bench.append(directory / 'journal.jsonl', {'type': 'pair_start', 'pair': 'php-cs-fixer__php-cs-fixer-8367__smoke__r1', 'attempt': 1})
+    bench.append(directory / 'journal.jsonl', {'type': 'pair_start', 'pair': 'php-cs-fixer__php-cs-fixer-9999__smoke__r1', 'attempt': 1})
+    bench.append(directory / 'journal.jsonl', {'type': 'pair_end', 'pair': 'php-cs-fixer__php-cs-fixer-9999__smoke__r1', 'attempt': 1, 'outcome': 'completed'})
+    result = two_task_run['go']()
+    assert result['state'] == 'done' and result['pairs_done'] == 2 and result['pairs_left'] == 0
+    assert two_task_run['made'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1']
+    starts = [(l['pair'], l['attempt']) for l in bench.read(directory / 'journal.jsonl') if l['type'] == 'pair_start']
+    assert starts[-1] == ('php-cs-fixer__php-cs-fixer-8367__smoke__r1', 2)
+
+
+def test_run_pauses_on_an_api_error_without_closing_the_pair(two_task_run):
+    def failing(sb):
+        return lambda cmd, timeout: subprocess.CompletedProcess(cmd, 0, json.dumps(reply(is_error=True, result='rate limited')), '')
+    two_task_run['make_claude'] = failing
+    result = two_task_run['go']()
+    assert result['state'] == 'paused' and result['pairs_done'] == 0 and result['pairs_left'] == 2
+    lines = bench.read(two_task_run['dir'] / 'journal.jsonl')
+    assert [l['type'] for l in lines] == ['run_start', 'pair_start', 'phase', 'run_paused']
+    assert lines[-1]['reason'].startswith('api: ') and 'rate limited' in lines[-1]['reason']
+    assert not (two_task_run['dir'] / 'patches').exists()
+
+
+def test_run_pauses_before_a_claude_pair_when_the_limit_is_blown(two_task_run):
+    result = two_task_run['go'](claude_limit=({'exhausted': True, 'window': 'seven_day', 'used_percentage': 97}, 95))
+    assert result['state'] == 'paused' and result['pairs_done'] == 0 and two_task_run['made'] == []
+    lines = bench.read(two_task_run['dir'] / 'journal.jsonl')
+    assert lines[-1]['type'] == 'run_paused' and lines[-1]['reason'] == 'claude limit seven_day 97% ≥ 95%'
+
+
+def test_run_skips_a_combo_whose_probe_fails(two_task_run):
+    def probe(cmd, timeout):
+        if cmd[cmd.index('--model') + 1] == 'claude-opus-5-5':
+            return subprocess.CompletedProcess(cmd, 1, '', 'model not available')
+        return probe_ok(cmd, timeout)
+    result = two_task_run['go'](['smoke', 'impl-opus'], probe_execute=probe)
+    assert result['state'] == 'done' and result['pairs_done'] == 2 and result['pairs_left'] == 0
+    assert list(result['combos_skipped']) == ['impl-opus'] and 'model not available' in result['combos_skipped']['impl-opus']
+    assert [p.split('__')[-2] for p in two_task_run['made']] == ['smoke', 'smoke']
+    skipped = [l for l in bench.read(two_task_run['dir'] / 'journal.jsonl') if l['type'] == 'combo_skipped']
+    assert len(skipped) == 1 and skipped[0]['combo'] == 'impl-opus'

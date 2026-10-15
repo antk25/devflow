@@ -5,7 +5,10 @@ import json
 import os
 import re
 import shutil
+import signal
+import statistics
 import subprocess
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from string import Template
@@ -16,6 +19,7 @@ from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, instan
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
 from .documents import WorkflowError, context
+from . import policy
 from .pi import task_message
 from .policy import PHASES
 from .storage import connect
@@ -31,6 +35,9 @@ BUDGET_USD = {'research': 5.0, 'plan': 5.0, 'implement': 25.0}
 PHASE_TIMEOUT = 3600
 MAX_PHASES = 40
 RUNNING_REASON = 'bench: шаг не записал finish'
+# Priors from research (per task, list prices): a range of conditional $ and a rough phase duration.
+PRIOR_USD = {'research': (0.6, 9.0), 'plan': (0.3, 9.0), 'implement': (4.0, 64.0)}
+PRIOR_S = {'research': 300, 'plan': 300, 'implement': 1800}
 GIT_IDENTITY = ['-c', 'user.name=bench', '-c', 'user.email=bench@devflow.local', '-c', 'commit.gpgsign=false']
 
 
@@ -424,8 +431,85 @@ def run_dir(name):
     return context(ROOT)['vault'] / 'bench/runs' / name
 
 
+def history(runs_dir):
+    """`phase` lines of every past journal under `runs_dir` (`bench/runs/*/journal.jsonl`)."""
+    records = []
+    for journal in sorted(Path(runs_dir).glob('*/journal.jsonl')):
+        records += [r for r in read(journal) if r.get('type') == 'phase']
+    return records
+
+
+def claude_limits():
+    """`(signal, threshold)` of the weekly Claude limit from `policy.limits`; signal is None when absent or stale."""
+    loaded = policy.load(policy.policy_path())
+    cfg = (loaded or {}).get('limits') or {}
+    threshold = cfg.get('threshold', 95)
+    limit = policy.limits(policy.limits_path(), threshold, cfg.get('max_age_min', 10), time.time()) if loaded else None
+    return limit, threshold
+
+
+def estimate(selected_pairs, combos_by_name, past, limits=None):
+    """Pairs, phase calls, conditional $ per runner (median of past journals per runner/model/effort/phase, else
+    priors from research), time and the current Claude limit."""
+    cost, seconds, calls, sources = {}, 0.0, 0, set()
+    for pair in selected_pairs:
+        combo = combos_by_name[pair['combo']]
+        for phase in PHASES:
+            spec = combo[phase]
+            calls += 1
+            same = [r for r in past if (r.get('runner'), r.get('model_req'), r.get('effort_req'), r.get('phase'))
+                    == (spec['runner'], spec['model'], spec['effort'], phase) and not r.get('error')]
+            if same:
+                usd = statistics.median(float(r.get('cost_usd') or 0) for r in same)
+                low, high = usd, usd
+                seconds += statistics.median(float(r.get('duration_s') or 0) for r in same)
+                sources.add('journal')
+            else:
+                low, high = PRIOR_USD[phase]
+                seconds += PRIOR_S[phase]
+                sources.add('prior')
+            runner = cost.setdefault(spec['runner'], {'low': 0.0, 'high': 0.0})
+            runner['low'] += low
+            runner['high'] += high
+    for runner in cost.values():
+        runner['low'], runner['high'] = round(runner['low'], 2), round(runner['high'], 2)
+    return {'pairs': len(selected_pairs), 'phase_calls': calls, 'cost_usd': cost, 'cost_source': sorted(sources),
+            'hours': round(seconds / 3600, 1),
+            'claude_limit': None if limits is None else {'window': limits['window'], 'used_percentage': limits['used_percentage']}}
+
+
+def skipped_combos(selected, probe_execute=None):
+    """`{combo name: reason}` for combos with a failing probe of any phase."""
+    probes = {(p['runner'], p['model'], p['effort']): p for p in probe_combos(selected, probe_execute)}
+    skipped = {}
+    for combo in selected:
+        for phase in PHASES:
+            spec = combo[phase]
+            probe_result = probes[(spec['runner'], spec['model'], spec['effort'])]
+            if not probe_result['ok']:
+                skipped[combo['name']] = f"{phase}: {spec['runner']} {spec['model']} {spec['effort']}: {probe_result['error_text']}"
+                break
+    return skipped
+
+
+def progress(records):
+    """From journal lines: pairs with `pair_end` and the last attempt of every started pair."""
+    attempts, finished = {}, set()
+    for r in records:
+        if r.get('type') == 'pair_start':
+            attempts[r['pair']] = max(attempts.get(r['pair'], 0), r.get('attempt', 1))
+        elif r.get('type') == 'pair_end':
+            finished.add(r['pair'])
+    return finished, attempts
+
+
+def uses_claude(combo):
+    return any(combo[phase]['runner'] == 'claude' for phase in PHASES)
+
+
 def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None, attempt=1):
-    """One pair end to end: sandbox, task container, autodriver, patch, `pair_start`/`pair_end` lines."""
+    """One pair end to end: sandbox, task container, autodriver, patch, `pair_start`/`pair_end` lines.
+    An API error leaves the pair open: `run_paused` instead of `pair_end`."""
     execute = execute or container.docker_execute
     sb = make_sandbox(sb_root, pair, instance, execute)
     append(journal, {'type': 'pair_start', 'at': now(), 'pair': sb['pair'], 'attempt': attempt, 'task': pair['task'],
@@ -438,6 +522,10 @@ def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None,
         patch = extract_patch(sb['repo'], sb['base'])
     finally:
         container.stop(name, execute)
+    if outcome['outcome'] == 'paused':
+        append(journal, {'type': 'run_paused', 'at': now(), 'pair': sb['pair'], 'attempt': attempt,
+                         'reason': f"api: {outcome['error_text']}"})
+        return {'pair': sb['pair'], 'attempt': attempt, 'outcome': 'paused', 'error_text': outcome['error_text']}
     patch_path = Path(journal).parent / 'patches' / f"{sb['pair']}.diff"
     patch_path.parent.mkdir(parents=True, exist_ok=True)
     patch_path.write_text(patch, encoding='utf-8')
@@ -447,8 +535,32 @@ def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None,
     return record
 
 
-def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_dir=None, execute=None, limits=None):
-    """`devflow bench run`: without `yes` only the pairs; with `yes` every pair in order, journal in the devflow vault."""
+@contextmanager
+def stop_on_sigint():
+    """The first Ctrl-C only raises the flag; the second one is the default interrupt again."""
+    flag = {'stop': False}
+    previous = signal.getsignal(signal.SIGINT)
+
+    def handler(signum, frame):
+        flag['stop'] = True
+        signal.signal(signal.SIGINT, previous)
+    try:
+        signal.signal(signal.SIGINT, handler)
+    except ValueError:
+        pass
+    try:
+        yield flag
+    finally:
+        try:
+            signal.signal(signal.SIGINT, previous)
+        except ValueError:
+            pass
+
+
+def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_dir=None, execute=None, limits=None,
+        probe_execute=None, claude_limit=None):
+    """`devflow bench run`: without `yes` the estimate only; with `yes` every open pair in order until the end,
+    a pause (API error, Claude limit) or a stop (STOP file, Ctrl-C). Journal in the devflow vault."""
     data = load_set(set_name)
     selected = combos(combo_names)
     by_name = {c['name']: c for c in selected}
@@ -456,17 +568,44 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
     selected_pairs = pairs(task_ids, [c['name'] for c in selected])
     directory = Path(journal_dir) if journal_dir else run_dir(name)
     journal = directory / 'journal.jsonl'
+    limit, threshold = claude_limits() if claude_limit is None else claude_limit
     result = {'run': name, 'journal': str(journal), 'pairs': [pair_id(p) for p in selected_pairs]}
     if not yes:
-        return dict(result, state='dry_run')
+        return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit))
     loaded = instances(data['dataset'], data['split'], task_ids)
-    if not read(journal):
+    records = read(journal)
+    if not records:
         append(journal, run_start_record(name, data, selected, selected_pairs))
+    skipped = skipped_combos(selected, probe_execute)
+    for combo_name, reason in skipped.items():
+        append(journal, {'type': 'combo_skipped', 'at': now(), 'combo': combo_name, 'reason': reason})
+    finished, attempts = progress(records)
+    queue = [p for p in selected_pairs if p['combo'] not in skipped and pair_id(p) not in finished]
     sb_root = Path(root or SANDBOX_ROOT) / name
-    done = []
-    for pair in selected_pairs:
-        done.append(run_pair(pair, by_name[pair['combo']], loaded[pair['task']], sb_root, journal, execute, limits))
-    return dict(result, state='done', pairs_done=len(done), outcomes={r['pair']: r['outcome'] for r in done})
+    done, state = [], 'done'
+    with stop_on_sigint() as flag:
+        for index, pair in enumerate(queue):
+            combo = by_name[pair['combo']]
+            if flag['stop'] or (directory / 'STOP').exists():
+                state = 'stopped'
+                break
+            if limit and uses_claude(combo) and (limit['used_percentage'] or 0) >= threshold:
+                append(journal, {'type': 'run_paused', 'at': now(), 'pair': pair_id(pair),
+                                 'reason': f"claude limit {limit['window']} {limit['used_percentage']}% ≥ {threshold}%"})
+                state = 'paused'
+                break
+            attempt = attempts.get(pair_id(pair), 0) + 1
+            record = run_pair(pair, combo, loaded[pair['task']], sb_root, journal, execute, limits, attempt)
+            if record['outcome'] == 'paused':
+                state = 'paused'
+                break
+            done.append(record)
+            if index + 1 < len(queue) and (flag['stop'] or (directory / 'STOP').exists()):
+                state = 'stopped'
+                break
+    pairs_done = len(finished) + len(done)
+    return dict(result, state=state, pairs_done=pairs_done, pairs_left=len(finished) + len(queue) - pairs_done,
+                combos_skipped=skipped, outcomes={r['pair']: r['outcome'] for r in done})
 
 
 def command(args):
