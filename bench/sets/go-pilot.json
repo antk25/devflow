@@ -1,0 +1,119 @@
+{
+  "name": "go-pilot",
+  "adapter": "swebench",
+  "dataset": "SWE-bench/SWE-bench_Multilingual",
+  "split": "test",
+  "language": "go",
+  "swebench": "5.0.2",
+  "built_at": "2026-10-15T12:16:18+00:00",
+  "instances": [
+    "prometheus__prometheus-15142",
+    "prometheus__prometheus-14861",
+    "prometheus__prometheus-13845",
+    "hashicorp__terraform-35611",
+    "hashicorp__terraform-35543",
+    "hashicorp__terraform-34900",
+    "gohugoio__hugo-12768",
+    "gohugoio__hugo-12579",
+    "gohugoio__hugo-12562",
+    "gin-gonic__gin-4003",
+    "gin-gonic__gin-3820",
+    "gin-gonic__gin-3741",
+    "caddyserver__caddy-6411",
+    "caddyserver__caddy-6370",
+    "caddyserver__caddy-6350"
+  ],
+  "details": {
+    "prometheus__prometheus-15142": {
+      "repo": "prometheus/prometheus",
+      "created_at": "2024-10-10 11:22:41",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-15142:latest",
+      "gold_resolved": true
+    },
+    "prometheus__prometheus-14861": {
+      "repo": "prometheus/prometheus",
+      "created_at": "2024-09-08 11:24:56",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-14861:latest",
+      "gold_resolved": true
+    },
+    "prometheus__prometheus-13845": {
+      "repo": "prometheus/prometheus",
+      "created_at": "2024-03-26 16:26:46",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-13845:latest",
+      "gold_resolved": true
+    },
+    "hashicorp__terraform-35611": {
+      "repo": "hashicorp/terraform",
+      "created_at": "2024-08-19 15:55:10",
+      "image": "swebench/sweb.eval.x86_64.hashicorp_1776_terraform-35611:latest",
+      "gold_resolved": true
+    },
+    "hashicorp__terraform-35543": {
+      "repo": "hashicorp/terraform",
+      "created_at": "2024-08-08 18:57:58",
+      "image": "swebench/sweb.eval.x86_64.hashicorp_1776_terraform-35543:latest",
+      "gold_resolved": true
+    },
+    "hashicorp__terraform-34900": {
+      "repo": "hashicorp/terraform",
+      "created_at": "2024-03-28 15:47:18",
+      "image": "swebench/sweb.eval.x86_64.hashicorp_1776_terraform-34900:latest",
+      "gold_resolved": true
+    },
+    "gohugoio__hugo-12768": {
+      "repo": "gohugoio/hugo",
+      "created_at": "2024-08-14 14:58:22",
+      "image": "swebench/sweb.eval.x86_64.gohugoio_1776_hugo-12768:latest",
+      "gold_resolved": true
+    },
+    "gohugoio__hugo-12579": {
+      "repo": "gohugoio/hugo",
+      "created_at": "2024-06-08 13:53:20",
+      "image": "swebench/sweb.eval.x86_64.gohugoio_1776_hugo-12579:latest",
+      "gold_resolved": true
+    },
+    "gohugoio__hugo-12562": {
+      "repo": "gohugoio/hugo",
+      "created_at": "2024-06-02 10:59:35",
+      "image": "swebench/sweb.eval.x86_64.gohugoio_1776_hugo-12562:latest",
+      "gold_resolved": true
+    },
+    "gin-gonic__gin-4003": {
+      "repo": "gin-gonic/gin",
+      "created_at": "2024-06-20 08:37:46",
+      "image": "swebench/sweb.eval.x86_64.gin-gonic_1776_gin-4003:latest",
+      "gold_resolved": true
+    },
+    "gin-gonic__gin-3820": {
+      "repo": "gin-gonic/gin",
+      "created_at": "2024-01-04 01:49:47",
+      "image": "swebench/sweb.eval.x86_64.gin-gonic_1776_gin-3820:latest",
+      "gold_resolved": true
+    },
+    "gin-gonic__gin-3741": {
+      "repo": "gin-gonic/gin",
+      "created_at": "2023-09-26 13:01:45",
+      "image": "swebench/sweb.eval.x86_64.gin-gonic_1776_gin-3741:latest",
+      "gold_resolved": true
+    },
+    "caddyserver__caddy-6411": {
+      "repo": "caddyserver/caddy",
+      "created_at": "2024-06-19 15:54:34",
+      "image": "swebench/sweb.eval.x86_64.caddyserver_1776_caddy-6411:latest",
+      "gold_resolved": true
+    },
+    "caddyserver__caddy-6370": {
+      "repo": "caddyserver/caddy",
+      "created_at": "2024-06-04 06:55:59",
+      "image": "swebench/sweb.eval.x86_64.caddyserver_1776_caddy-6370:latest",
+      "gold_resolved": true
+    },
+    "caddyserver__caddy-6350": {
+      "repo": "caddyserver/caddy",
+      "created_at": "2024-05-30 07:37:48",
+      "image": "swebench/sweb.eval.x86_64.caddyserver_1776_caddy-6350:latest",
+      "gold_resolved": true
+    }
+  },
+  "rejected": {}
+}

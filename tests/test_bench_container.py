@@ -45,6 +45,7 @@ def test_run_command_mounts_workdir_at_its_own_path_as_the_user():
     assert ['-e', 'CLAUDE_CODE_OAUTH_TOKEN'] == cmd[cmd.index('CLAUDE_CODE_OAUTH_TOKEN') - 1:cmd.index('CLAUDE_CODE_OAUTH_TOKEN') + 1]
     assert not any('=' in arg and arg.startswith('CLAUDE_CODE_OAUTH_TOKEN') for arg in cmd)
     assert cmd[-3:] == ['sleep', 'img:latest', 'infinity']
+    assert f'GOMODCACHE=/work/pair/{bench_container.GO_MOD_CACHE_COPY}' in cmd
 
 
 def test_executor_prefixes_docker_exec_and_stops_the_container_on_timeout():
@@ -114,6 +115,28 @@ def test_checkout_copies_testbed_from_a_throwaway_container(tmp_path):
     assert execute.calls[0] == ['docker', 'create', 'img:latest']
     assert execute.calls[1] == ['docker', 'cp', 'cid123:/testbed/.', str(dest)]
     assert execute.calls[2] == ['docker', 'rm', 'cid123']
+    copy = execute.calls[3]
+    assert copy[:3] == ['docker', 'run', '--rm'] and copy[copy.index('-v') + 1] == f'{tmp_path}:{tmp_path}'
+    assert copy[copy.index('--entrypoint') + 2] == 'img:latest'
+    script = copy[-1]
+    assert script.startswith(f'[ -d {bench_container.GO_MOD_CACHE} ] || exit 0')
+    assert f'cp -a {bench_container.GO_MOD_CACHE} {tmp_path / bench_container.GO_MOD_CACHE_COPY}' in script
+    assert f'chown -R {os.getuid()}:{os.getgid()} {tmp_path / "go"}' in script and 'chmod -R u+w' in script
+
+
+def test_checkout_replaces_a_stale_module_cache_copy_and_reports_a_failed_copy(tmp_path):
+    stale = tmp_path / bench_container.GO_MOD_CACHE_COPY / 'stale'
+    stale.mkdir(parents=True)
+    execute = fake_docker()
+    bench_container.checkout('img:latest', tmp_path / 'repo', execute)
+    assert not stale.exists()
+
+    def failing(cmd, timeout, cwd=None, env=None):
+        if cmd[:3] == ['docker', 'run', '--rm']:
+            return subprocess.CompletedProcess(cmd, 1, '', 'cp: cannot create')
+        return execute(cmd, timeout)
+    with pytest.raises(RuntimeError, match='go module cache copy'):
+        bench_container.checkout('img:latest', tmp_path / 'repo', failing)
 
 
 def test_claude_probe_argv_isolates_the_host_session():
@@ -158,7 +181,7 @@ def test_doctor_all_green(tmp_path, instance_lookup):
     assert {c['check'] for c in result['checks']} >= {'network', 'claude web tools', 'offline', 'gold',
                                                       'probe pi openai-codex/gpt-5.5 low', 'probe claude claude-fable-5-1 low'}
     assert instance_lookup == [INSTANCE['test_patch'], INSTANCE['patch']]
-    run = next(c for c in docker.calls if c[:2] == ['docker', 'run'])
+    run = next(c for c in docker.calls if c[:3] == ['docker', 'run', '-d'])
     assert run[run.index('--user') + 1] == f'{os.getuid()}:{os.getgid()}' and run[run.index('--network') + 1] == 'devflow-bench'
     execs = [c for c in docker.calls if c[:2] == ['docker', 'exec']]
     assert execs[0][-1] == INSTANCE['test_cmd'] and execs[0][3] == str(tmp_path / 'work/repo')
