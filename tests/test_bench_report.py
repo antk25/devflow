@@ -34,6 +34,9 @@ def journal(mismatch=False):
             if task != TASKS[2] or combo != 'smoke':
                 records.append({'type': 'eval', 'pair': pair, 'attempt': 1, 'task': task, 'resolved': resolved[TASKS.index(task)],
                                 'diff': {'size_ratio': 2.0}})
+            if combo == 'production':
+                records.append({'type': 'quality', 'pair': pair, 'attempt': 1, 'task': task, 'lint_errors': 1,
+                                'new_static_errors': -1 if task == TASKS[0] else None})
     return records
 
 
@@ -89,6 +92,8 @@ def test_report_writes_markdown(tmp_path):
     assert '## Не та модель' in text and 'requested m, got n' in text
     assert '`impl-codex`: пропущена — pi: probe failed' in text
     assert '| production | 2/3 |' in text and 'pi $' in text and 'research pi:m:low' in text
+    assert '| production | 2/3 | 3/3 | 3/-1 (1 пар) |' in text and '| smoke | 1/2 | 3/3 | — |' in text
+    assert '✓ completed · diff×2.0 · стат 1/-1 ·' in text and '· стат 1/— ·' in text and '· стат —/—' not in text
     assert '## Сравнение с базой `production`' in text and '## Шум A/A′' in text and 'разошлись по решённости: 1' in text
     with pytest.raises(WorkflowError):
         bench.report_run('none', journal_dir=tmp_path / 'runs' / 'none')

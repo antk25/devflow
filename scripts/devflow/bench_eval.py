@@ -1,6 +1,7 @@
 """SWE-bench set adapter: dataset instances, gold run in the harness, set building."""
 import json
 import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,17 +177,24 @@ def build_set(name, dataset, language, per_repo, count=None, split='test', execu
                 disk_bytes=size, disk=human_size(size))
 
 
-def diff_stats(patch, gold=None):
-    """Size of a patch from its text: files, added/removed lines, test files touched; `size_ratio` — lines changed
-    against the gold patch (None without a gold patch or when it changes nothing)."""
-    files, added, removed, tests = set(), 0, 0, set()
+def patch_files(patch):
+    """Paths touched by a patch, in order of their `diff --git` lines."""
+    files = []
     for line in (patch or '').splitlines():
         if line.startswith('diff --git '):
             path = line.split(' b/', 1)[-1]
-            files.add(path)
-            if re.search(r'(^|/)tests?/|Test\.php$|_test\.go$|\.test\.[jt]sx?$', path):
-                tests.add(path)
-        elif line.startswith('+') and not line.startswith('+++'):
+            files.append(path) if path not in files else None
+    return files
+
+
+def diff_stats(patch, gold=None):
+    """Size of a patch from its text: files, added/removed lines, test files touched; `size_ratio` — lines changed
+    against the gold patch (None without a gold patch or when it changes nothing)."""
+    files = patch_files(patch)
+    tests = {path for path in files if re.search(r'(^|/)tests?/|Test\.php$|_test\.go$|\.test\.[jt]sx?$', path)}
+    added, removed = 0, 0
+    for line in (patch or '').splitlines():
+        if line.startswith('+') and not line.startswith('+++'):
             added += 1
         elif line.startswith('-') and not line.startswith('---'):
             removed += 1
@@ -236,16 +244,16 @@ def run_predictions(dataset, split, predictions, run_id, execute, workers=2, har
     return reports
 
 
-def pending_pairs(records, self_check=False):
-    """Last `pair_end` of every pair without an `eval` line (`self_check` line for the self-check), with the pair's
-    `task` from its `pair_start`."""
-    kind = 'self_check' if self_check else 'eval'
+def pending_pairs(records, self_check=False, kind=None):
+    """Last `pair_end` of every pair without an `eval` line (`self_check` line for the self-check, `kind` for any
+    other result type), with the pair's `task`, `sandbox` and `base` from its `pair_start`."""
+    kind = kind or ('self_check' if self_check else 'eval')
     tasks, ends, done = {}, {}, set()
     for r in records:
         if r.get('type') == 'pair_start':
-            tasks[r['pair']] = r['task']
+            tasks[r['pair']] = {k: r.get(k) for k in ('task', 'sandbox', 'base')}
         elif r.get('type') == 'pair_end':
-            ends[r['pair']] = dict(r, task=tasks[r['pair']])
+            ends[r['pair']] = dict(r, **tasks[r['pair']])
         elif r.get('type') == kind:
             done.add(r['pair'])
     return [r for pair, r in ends.items() if pair not in done]
@@ -288,6 +296,72 @@ def evaluate(run, dataset, split, records, instances, execute, append, self_chec
     for record in results:
         append(record)
     return results
+
+
+PHPSTAN_BINARIES = ('vendor/bin/phpstan', 'dev-tools/vendor/bin/phpstan')
+PHPSTAN_CONFIGS = ('phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon')
+
+
+def parse_phpstan(text):
+    """Error count of `phpstan --error-format=json`: file errors plus the errors outside files; None when the output
+    is not its JSON (a crash, a missing config)."""
+    try:
+        totals = json.loads(text)['totals']
+        return int(totals['file_errors']) + int(totals['errors'])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def phpstan_tool(repo):
+    """`(binary, config)` of phpstan in the repository tree, None without either."""
+    repo = Path(repo)
+    binary = next((b for b in PHPSTAN_BINARIES if (repo / b).is_file()), None)
+    config = next((c for c in PHPSTAN_CONFIGS if (repo / c).is_file()), None)
+    return (binary, config) if binary and config else None
+
+
+def phpstan_errors(execute, binary, directory, files, timeout=900):
+    script = f'cd {shlex.quote(str(directory))} && exec {shlex.quote(binary)} analyse --error-format=json --no-progress ' \
+             f'--memory-limit=1G {" ".join(shlex.quote(f) for f in files)}'
+    proc = execute(['sh', '-c', script], timeout)
+    return parse_phpstan(proc.stdout), (proc.stderr or '').strip()[-500:]
+
+
+def static_check(execute, repo, base, files):
+    """Lint and static analysis of the patch's PHP files in the task container, `execute` bound to `repo`.
+    `lint_errors` — files `php -l` rejects after the patch; `new_static_errors` — phpstan errors after the patch minus
+    those on the base commit (a worktree next to `repo`), None with the `reason` when there is no phpstan or it crashed."""
+    repo = Path(repo)
+    php = [f for f in files if f.endswith('.php') and (repo / f).is_file()]
+    result = {'tool': None, 'files': len(php), 'lint_errors': 0, 'new_static_errors': None}
+    if not php:
+        return dict(result, reason='no php files in the patch')
+    result['tool'] = 'php -l'
+    for path in php:
+        if execute(['php', '-l', path], 120).returncode != 0:
+            result['lint_errors'] += 1
+    tool = phpstan_tool(repo)
+    if tool is None:
+        return dict(result, reason='no phpstan in the repository')
+    binary, config = tool
+    result['tool'] = f'php -l + {binary} ({config})'
+    base_dir = repo.parent / 'base'
+    worktree = subprocess.run(['git', '-C', str(repo), 'worktree', 'add', '--detach', '--force', str(base_dir), base],
+                              capture_output=True, text=True, timeout=600)
+    if worktree.returncode != 0:
+        return dict(result, reason=f'git worktree failed: {(worktree.stderr or "").strip()[-300:]}')
+    try:
+        for vendor in {Path(b).parent.parent for b in PHPSTAN_BINARIES}:  # ignored by git, so absent from the worktree
+            if (repo / vendor).is_dir() and not (base_dir / vendor).exists():
+                (base_dir / vendor).symlink_to(repo / vendor)
+        after, after_err = phpstan_errors(execute, binary, repo, php)
+        before_files = [f for f in php if (base_dir / f).is_file()]
+        before, before_err = phpstan_errors(execute, binary, base_dir, before_files) if before_files else (0, '')
+    finally:
+        subprocess.run(['git', '-C', str(repo), 'worktree', 'remove', '--force', str(base_dir)], capture_output=True, timeout=600)
+    if after is None or before is None:
+        return dict(result, reason=f'phpstan gave no report: {after_err or before_err}')
+    return dict(result, static_before=before, static_after=after, new_static_errors=after - before)
 
 
 def now():

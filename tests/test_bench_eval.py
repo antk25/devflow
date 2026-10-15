@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -294,3 +295,116 @@ def test_evaluate_reports_missing_report(journal, dirs):
     results = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, harness_dir=dirs['harness_dir'])
     assert {r['pair']: r.get('reason') for r in results} == {'a__b-2__smoke__r1': 'empty patch', 'a__b-1__smoke__r1': 'no harness report',
                                                               'a__b-1__smoke__r2': 'no harness report'}
+
+
+PHPSTAN_JSON = ('{"totals":{"errors":0,"file_errors":2},"files":{"/r/src/A.php":{"errors":2,"messages":[{"message":"x",'
+                '"line":3,"ignorable":true}]}},"errors":[]}')
+
+
+def test_patch_files_and_parse_phpstan():
+    assert bench_eval.patch_files(AGENT_PATCH + AGENT_PATCH) == bench_eval.patch_files(AGENT_PATCH)
+    assert bench_eval.patch_files('') == []
+    assert bench_eval.parse_phpstan(PHPSTAN_JSON) == 2
+    assert bench_eval.parse_phpstan('{"totals":{"errors":1,"file_errors":0},"files":{},"errors":["boom"]}') == 1
+    assert bench_eval.parse_phpstan('PHP Fatal error: out of memory') is None
+    assert bench_eval.parse_phpstan('') is None
+
+
+def php_repo(path, phpstan=True):
+    """A git repository with `src/A.php`, `src/B.php` on the base commit; the patch then changes A and adds C."""
+    (path / 'src').mkdir(parents=True)
+    (path / 'src/A.php').write_text('<?php\n', encoding='utf-8')
+    (path / 'src/B.php').write_text('<?php\n', encoding='utf-8')
+    if phpstan:
+        (path / 'vendor/bin').mkdir(parents=True)
+        (path / 'vendor/bin/phpstan').write_text('', encoding='utf-8')
+        (path / 'phpstan.neon.dist').write_text('', encoding='utf-8')
+        (path / '.gitignore').write_text('/vendor/\n', encoding='utf-8')
+    run = lambda *args: subprocess.run(['git', '-C', str(path), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                                       check=True, capture_output=True)
+    run('init', '-q'); run('add', '-A'); run('commit', '-q', '-m', 'base')
+    base = subprocess.run(['git', '-C', str(path), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    (path / 'src/A.php').write_text('<?php\nfunction f(): int { return 1; }\n', encoding='utf-8')
+    (path / 'src/C.php').write_text('<?php\n', encoding='utf-8')
+    return base
+
+
+class FakePhp:
+    """`execute` of the task container: `php -l` fails on `bad`; phpstan reports `errors[dir]` for the directory it
+    is run from (`sh -c 'cd <dir> && ...'`), or crashes when `errors[dir]` is None."""
+
+    def __init__(self, bad=(), errors=None):
+        self.bad, self.errors, self.calls = set(bad), errors or {}, []
+
+    def __call__(self, cmd, timeout):
+        if cmd[:2] == ['docker', 'exec']:  # through `container.executor`: `docker exec -w <cwd> <name> <cmd>`
+            cmd = cmd[5:]
+        self.calls.append(cmd)
+        if cmd[:2] == ['sh', '-c']:
+            directory, binary = cmd[2].split(' && exec ')[0].removeprefix('cd '), cmd[2].split(' && exec ')[1].split(' ')[0]
+            assert (Path(directory) / binary).is_file(), f'{binary} is missing in {directory}'
+        if cmd[:2] == ['php', '-l']:
+            ok = cmd[2] not in self.bad
+            return subprocess.CompletedProcess(cmd, 0 if ok else 255, f"{'No syntax errors' if ok else 'Errors parsing'} {cmd[2]}", '')
+        assert cmd[:2] == ['sh', '-c'] and '--error-format=json' in cmd[2]
+        directory = cmd[2].split(' && ', 1)[0].removeprefix('cd ')
+        n = self.errors.get(directory)
+        if n is None:
+            return subprocess.CompletedProcess(cmd, 255, '', 'PHP Fatal error: out of memory')
+        return subprocess.CompletedProcess(cmd, 1 if n else 0, f'{{"totals":{{"errors":0,"file_errors":{n}}},"files":{{}},"errors":[]}}', '')
+
+
+def test_static_check_lints_and_diffs_phpstan_against_base(tmp_path):
+    repo = tmp_path / 'repo'
+    base = php_repo(repo)
+    fake = FakePhp(bad={'src/C.php'}, errors={str(repo): 3, str(tmp_path / 'base'): 1})
+    result = bench_eval.static_check(fake, repo, base, ['src/A.php', 'src/C.php', 'src/gone.php', 'README.md'])
+    assert result == {'tool': 'php -l + vendor/bin/phpstan (phpstan.neon.dist)', 'files': 2, 'lint_errors': 1,
+                      'static_before': 1, 'static_after': 3, 'new_static_errors': 2}
+    assert [c[2] for c in fake.calls if c[0] == 'php'] == ['src/A.php', 'src/C.php']
+    stan = [c[2] for c in fake.calls if c[0] == 'sh']
+    assert stan[0].endswith(' src/A.php src/C.php') and stan[1].endswith(' src/A.php')  # C.php is not on the base
+    assert not (tmp_path / 'base').exists()
+    assert 'worktree' not in subprocess.run(['git', '-C', str(repo), 'worktree', 'list'], capture_output=True, text=True).stdout.splitlines()[1:]
+
+
+def test_static_check_without_php_files_or_phpstan(tmp_path):
+    repo = tmp_path / 'repo'
+    base = php_repo(repo, phpstan=False)
+    fake = FakePhp()
+    assert bench_eval.static_check(fake, repo, base, ['README.md']) == {
+        'tool': None, 'files': 0, 'lint_errors': 0, 'new_static_errors': None, 'reason': 'no php files in the patch'}
+    result = bench_eval.static_check(fake, repo, base, ['src/A.php'])
+    assert result == {'tool': 'php -l', 'files': 1, 'lint_errors': 0, 'new_static_errors': None, 'reason': 'no phpstan in the repository'}
+    assert fake.calls == [['php', '-l', 'src/A.php']]
+
+
+def test_static_check_reports_phpstan_crash(tmp_path):
+    repo = tmp_path / 'repo'
+    base = php_repo(repo)
+    result = bench_eval.static_check(FakePhp(errors={str(tmp_path / 'base'): 0}), repo, base, ['src/A.php'])
+    assert result['new_static_errors'] is None and result['reason'].startswith('phpstan gave no report: PHP Fatal error')
+    assert not (tmp_path / 'base').exists()
+
+
+def test_static_run_writes_quality_lines_per_pending_pair(tmp_path):
+    sb = tmp_path / 'sb' / 'a__b-1__smoke__r1'
+    base = php_repo(sb / 'repo')
+    patch = tmp_path / 'p.diff'
+    patch.write_text('diff --git a/src/A.php b/src/A.php\n+x\ndiff --git a/src/C.php b/src/C.php\n+y\n', encoding='utf-8')
+    gone = pair_end('a__b-2', 'smoke', 1, patch)
+    gone[0].update(sandbox=str(tmp_path / 'missing'), base='0' * 40)
+    records = [{'type': 'run_start', 'run': 'r', 'set': 's'},
+               dict(pair_end('a__b-1', 'smoke', 1, patch)[0], sandbox=str(sb), base=base), pair_end('a__b-1', 'smoke', 1, patch)[1],
+               *gone]
+    fake = FakePhp(errors={str(sb / 'repo'): 0, str(sb / 'base'): 0})
+    started = []
+    journal = tmp_path / 'journal.jsonl'
+    results = bench.static_run(records, {'a__b-1': {'image': 'img'}, 'a__b-2': {'image': 'img'}}, journal, execute=fake,
+                               start=lambda name, image, workdir, execute: started.append((name, image, str(workdir))),
+                               stop=lambda name, execute: started.append(('stop', name)))
+    assert [r['type'] for r in results] == ['quality', 'quality'] and len(bench.read(journal)) == 2
+    assert results[0]['pair'] == 'a__b-1__smoke__r1' and results[0]['lint_errors'] == 0 and results[0]['new_static_errors'] == 0
+    assert results[1]['reason'].startswith('no sandbox at') and results[1]['new_static_errors'] is None
+    assert started == [('devflow-bench-static-a__b-1__smoke__r1', 'img', str(sb)), ('stop', 'devflow-bench-static-a__b-1__smoke__r1')]
+    assert bench.static_run(records + results, {}, journal, execute=fake) == []

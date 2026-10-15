@@ -60,7 +60,7 @@ def parser():
     a = bench_commands.add_parser('sandbox'); a.add_argument('set'); a.add_argument('instance')
     a = bench_commands.add_parser('run'); a.add_argument('--name', required=True); a.add_argument('--set', required=True)
     a.add_argument('--combo', action='append', required=True); a.add_argument('--tasks', type=int); a.add_argument('--yes', action='store_true'); a.add_argument('--root')
-    a = bench_commands.add_parser('eval'); a.add_argument('run'); a.add_argument('--self-check', action='store_true'); a.add_argument('--workers', type=int, default=2)
+    a = bench_commands.add_parser('eval'); a.add_argument('run'); a.add_argument('--self-check', action='store_true'); a.add_argument('--workers', type=int, default=2); a.add_argument('--static', action='store_true')
     a = bench_commands.add_parser('report'); a.add_argument('run'); a.add_argument('--base', default='production')
     set_commands = bench_commands.add_parser('set').add_subparsers(dest='set_command', required=True)
     a = set_commands.add_parser('build'); a.add_argument('name'); a.add_argument('--dataset', required=True); a.add_argument('--split', default='test')

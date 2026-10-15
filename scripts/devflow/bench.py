@@ -610,9 +610,36 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
                 combos_skipped=skipped, outcomes={r['pair']: r['outcome'] for r in done})
 
 
-def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir=None, workers=2):
+def static_run(records, instances, journal, execute=None, start=None, stop=None, patch_text=None):
+    """`quality` lines — lint and static analysis of the patch's files — for every finished pair without one. The
+    check runs in the pair's task container over the sandbox repository; a sandbox that is gone gets a reason."""
+    execute = execute or container.docker_execute
+    start, stop = start or container.start, stop or container.stop
+    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8'))
+    results = []
+    for end in bench_eval.pending_pairs(records, kind='quality'):
+        record = {'type': 'quality', 'at': now(), 'pair': end['pair'], 'attempt': end.get('attempt', 1), 'task': end['task']}
+        files = bench_eval.patch_files(patch_text(end['patch']))
+        sb_dir = Path(end['sandbox'] or '')
+        if not (sb_dir / 'repo').is_dir():
+            record.update(tool=None, files=0, lint_errors=0, new_static_errors=None, reason=f'no sandbox at {sb_dir}')
+        else:
+            name = f"devflow-bench-static-{end['pair']}"
+            start(name, instances[end['task']]['image'], sb_dir, execute=execute)
+            try:
+                record.update(bench_eval.static_check(container.executor(name, sb_dir / 'repo', execute=execute),
+                                                      sb_dir / 'repo', end['base'], files))
+            finally:
+                stop(name, execute)
+        append(journal, record)
+        results.append(record)
+    return results
+
+
+def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir=None, workers=2, static=False):
     """`devflow bench eval <run>`: `eval` lines (`self_check` with `--self-check`) for every finished pair of the run
-    that has none yet; the set and its instances come from the `run_start` line."""
+    that has none yet; the set and its instances come from the `run_start` line. `--static` adds a `quality` line
+    per pair: lint errors and new static-analysis errors of the patch's files."""
     journal = (Path(journal_dir) if journal_dir else run_dir(name)) / 'journal.jsonl'
     records = read(journal)
     starts = [r for r in records if r.get('type') == 'run_start']
@@ -624,9 +651,14 @@ def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir
     kwargs = {'harness_dir': harness_dir} if harness_dir else {}
     results = evaluate(name, data['dataset'], data['split'], records, loaded, execute or bench_eval.host_execute,
                        lambda record: append(journal, record), self_check, workers=workers, **kwargs)
-    return {'run': name, 'journal': str(journal), 'self_check': self_check, 'evaluated': len(results),
-            'results': {r['pair']: {'resolved': r['resolved'], 'size_ratio': r['diff'].get('size_ratio'),
-                                    **({'reason': r['reason']} if r.get('reason') else {})} for r in results}}
+    result = {'run': name, 'journal': str(journal), 'self_check': self_check, 'evaluated': len(results),
+              'results': {r['pair']: {'resolved': r['resolved'], 'size_ratio': r['diff'].get('size_ratio'),
+                                      **({'reason': r['reason']} if r.get('reason') else {})} for r in results}}
+    if static:
+        quality = static_run(read(journal), loaded, journal)
+        result['quality'] = {r['pair']: {k: r.get(k) for k in ('lint_errors', 'new_static_errors', 'reason') if k in r}
+                             for r in quality}
+    return result
 
 
 def report_run(name, base='production', journal_dir=None):
@@ -652,7 +684,7 @@ def command(args):
     if args.bench_command == 'run':
         return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root)
     if args.bench_command == 'eval':
-        return eval_run(args.run, self_check=args.self_check, workers=args.workers)
+        return eval_run(args.run, self_check=args.self_check, workers=args.workers, static=args.static)
     if args.bench_command == 'report':
         return report_run(args.run, base=args.base)
     if args.bench_command == 'set' and args.set_command == 'build':

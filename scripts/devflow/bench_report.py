@@ -23,6 +23,7 @@ def summarize(records):
             ends[r['pair']] = r
     starts = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'pair_start'}
     evals = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'eval'}
+    quality = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'quality'}
     rows, specs, tasks, keys = {}, {}, [], []
     for pair, end in ends.items():
         attempt = end.get('attempt', 1)
@@ -32,9 +33,11 @@ def summarize(records):
         phases = [r for r in records if r.get('type') == 'phase' and r['pair'] == pair and r.get('attempt', 1) == attempt]
         specs.setdefault(key, {p['phase']: f"{p['runner']}:{p['model_req']}:{p['effort_req']}" for p in phases})
         ev = evals.get((pair, attempt))
+        q = quality.get((pair, attempt), {})
         row = {'pair': pair, 'task': task, 'combo': key, 'outcome': end.get('outcome'), 'error_text': end.get('error_text'),
                'resolved': None if ev is None else bool(ev.get('resolved')), 'reason': (ev or {}).get('reason'),
                'size_ratio': (ev or {}).get('diff', {}).get('size_ratio'), 'patch_bytes': end.get('patch_bytes'),
+               'lint_errors': q.get('lint_errors'), 'new_static_errors': q.get('new_static_errors'),
                'phases': end.get('phases'), 'steps': end.get('steps'), 'open_questions': end.get('open_questions'),
                'duration_s': round(sum(float(p.get('duration_s') or 0) for p in phases), 1),
                'tools': sum(sum((p.get('tools') or {}).values()) for p in phases),
@@ -125,6 +128,9 @@ def per_combo(summary):
         med = lambda pick: round(statistics.median(pick(r) for r in group), 1) if group else None
         out[key] = {'pairs': len(group), 'judged': len(judged), 'resolved': sum(1 for r in judged if r['resolved']),
                     'completed': sum(1 for r in group if r['outcome'] == 'completed'),
+                    'lint_errors': sum(r['lint_errors'] or 0 for r in group if r['lint_errors'] is not None),
+                    'new_static_errors': sum(r['new_static_errors'] for r in group if r['new_static_errors'] is not None),
+                    'static_judged': sum(1 for r in group if r['new_static_errors'] is not None),
                     'tokens': {k: {'sum': sum(r[k] for r in group), 'median': med(lambda r, k=k: r[k])} for k in TOKEN_KEYS},
                     'cost': {runner: {'sum': round(sum(r['cost'][runner] for r in group), 4),
                                       'median': round(statistics.median(r['cost'][runner] for r in group), 4) if group else None}
@@ -148,6 +154,13 @@ def money(row):
     return ' / '.join(f'{runner} ${row["cost"][runner]:.2f}' for runner in RUNNERS if row['cost'][runner])
 
 
+def static(row):
+    if row['lint_errors'] is None:
+        return '—'
+    new = row['new_static_errors']
+    return f"{row['lint_errors']}/{'—' if new is None else f'{new:+d}'}"
+
+
 def render(name, base, summary, stats, comparison, aa):
     rows, keys = summary['rows'], summary['combos']
     lines = [f'# Бенчмарк {name}', '', f'База: `{base}`' + ('' if comparison is not None else ' — в прогоне отсутствует, сравнения нет'),
@@ -163,19 +176,22 @@ def render(name, base, summary, stats, comparison, aa):
         for key in keys:
             r = rows.get((task, key))
             cells.append(mark(r) if r is None else f"{mark(r)} {r['outcome']} · diff×{r['size_ratio'] if r['size_ratio'] is not None else '—'} · "
-                         f"{r['input'] + r['cache_read'] + r['cache_write']}/{r['output']} ток · {money(r) or '$0'} · {r['duration_s']:.0f}с")
+                         f"стат {static(r)} · {r['input'] + r['cache_read'] + r['cache_write']}/{r['output']} ток · {money(r) or '$0'} · "
+                         f"{r['duration_s']:.0f}с")
         lines.append(f'| {task} | ' + ' | '.join(cells) + ' |')
-    lines += ['', 'Ячейка: решена (✓/✗/— без оценки/⚠ не та модель) · итог пары · diff к эталону · токены вход+кэш/выход · '
-              'стоимость по исполнителю · время.', '', '## Сводка по связкам', '',
-              '| связка | решено | завершено | токены вход (Σ/мед) | выход (Σ/мед) | кэш (Σ/мед) | claude $ (Σ/мед) | pi $ (Σ/мед) | '
-              'время с (Σ/мед) | инструменты (Σ/мед) | фаз | шагов | откр. вопросов |', '|---|' + '---|' * 12]
+    lines += ['', 'Ячейка: решена (✓/✗/— без оценки/⚠ не та модель) · итог пары · diff к эталону · статанализ (ошибок линтера/новых '
+              'ошибок phpstan, — без проверки) · токены вход+кэш/выход · стоимость по исполнителю · время.', '', '## Сводка по связкам', '',
+              '| связка | решено | завершено | статанализ (линт Σ/новых Σ) | токены вход (Σ/мед) | выход (Σ/мед) | кэш (Σ/мед) | '
+              'claude $ (Σ/мед) | pi $ (Σ/мед) | время с (Σ/мед) | инструменты (Σ/мед) | фаз | шагов | откр. вопросов |',
+              '|---|' + '---|' * 13]
     for key in keys:
         s = stats[key]
         t = s['tokens']
         cache = {'sum': t['cache_read']['sum'] + t['cache_write']['sum'],
                  'median': None if t['cache_read']['median'] is None else t['cache_read']['median'] + t['cache_write']['median']}
         fmt = lambda d, p='': f"{d['sum']}{p}/{d['median'] if d['median'] is not None else '—'}{p}"
-        lines.append(f"| {key} | {s['resolved']}/{s['judged']} | {s['completed']}/{s['pairs']} | {fmt(t['input'])} | {fmt(t['output'])} | "
+        static_cell = f"{s['lint_errors']}/{s['new_static_errors']:+d} ({s['static_judged']} пар)" if s['static_judged'] else '—'
+        lines.append(f"| {key} | {s['resolved']}/{s['judged']} | {s['completed']}/{s['pairs']} | {static_cell} | {fmt(t['input'])} | {fmt(t['output'])} | "
                      f"{fmt(cache)} | {fmt(s['cost']['claude'])} | {fmt(s['cost']['pi'])} | {fmt(s['time'])} | {fmt(s['tools'])} | "
                      f"{s['phases']} | {s['steps']} | {s['open_questions']} |")
     if comparison:
