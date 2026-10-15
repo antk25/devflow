@@ -183,6 +183,8 @@ def test_doctor_all_green(tmp_path, instance_lookup):
     assert instance_lookup == [INSTANCE['test_patch'], INSTANCE['patch']]
     run = next(c for c in docker.calls if c[:3] == ['docker', 'run', '-d'])
     assert run[run.index('--user') + 1] == f'{os.getuid()}:{os.getgid()}' and run[run.index('--network') + 1] == 'devflow-bench'
+    work = tmp_path / 'work'
+    assert run[run.index('-v') + 1] == f'{work}:{work}' and f'GOMODCACHE={work}/{bench_container.GO_MOD_CACHE_COPY}' in run
     execs = [c for c in docker.calls if c[:2] == ['docker', 'exec']]
     assert execs[0][-1] == INSTANCE['test_cmd'] and execs[0][3] == str(tmp_path / 'work/repo')
     assert docker.calls[-1] == ['docker', 'rm', '-f', 'devflow-bench-doctor-php-cs-fixer__php-cs-fixer-8367']

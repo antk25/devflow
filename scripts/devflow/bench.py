@@ -133,7 +133,7 @@ def gold_check(instance, workdir, execute, apply=None, timeout=1800):
     apply = apply or git_apply
     name = f'devflow-bench-doctor-{instance["instance_id"]}'
     repo = container.checkout(instance['image'], Path(workdir) / 'repo', execute)
-    container.start(name, instance['image'], repo, execute=execute)
+    container.start(name, instance['image'], workdir, execute=execute)
     try:
         run = container.executor(name, repo, execute=execute)
         apply(repo, instance['test_patch'])
@@ -180,7 +180,8 @@ def doctor(instance_id, execute=None, probe_execute=None, workdir=None, keep=Fal
                        'detail': f'github.com from the container: exit {offline.returncode} {(offline.stderr or "").strip()[-200:]}'})
         checks.append({'check': 'gold', 'ok': before.returncode != 0 and after.returncode == 0,
                        'detail': f'tests before gold: exit {before.returncode}; after gold: exit {after.returncode}; '
-                                 f'{(after.stdout or "").strip().splitlines()[-1:] or ""}'})
+                                 f'{(after.stdout or "").strip().splitlines()[-1:] or ""} '
+                                 f'{(after.stderr or "").strip()[-300:] if after.returncode else ""}'.rstrip()})
     finally:
         if not keep and workdir.exists():
             shutil.rmtree(workdir)
