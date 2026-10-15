@@ -15,7 +15,8 @@ from string import Template
 
 from . import bench_container as container
 from . import bench_runners as runners
-from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, instances
+from . import bench_eval
+from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, evaluate, instances
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
 from .documents import WorkflowError, context
@@ -608,6 +609,25 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
                 combos_skipped=skipped, outcomes={r['pair']: r['outcome'] for r in done})
 
 
+def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir=None, workers=2):
+    """`devflow bench eval <run>`: `eval` lines (`self_check` with `--self-check`) for every finished pair of the run
+    that has none yet; the set and its instances come from the `run_start` line."""
+    journal = (Path(journal_dir) if journal_dir else run_dir(name)) / 'journal.jsonl'
+    records = read(journal)
+    starts = [r for r in records if r.get('type') == 'run_start']
+    if not starts:
+        raise WorkflowError(f'run {name}: no journal at {journal}')
+    data = load_set(starts[0]['set'])
+    tasks = sorted({r['task'] for r in records if r.get('type') == 'pair_start'})
+    loaded = instances(data['dataset'], data['split'], tasks) if tasks else {}
+    kwargs = {'harness_dir': harness_dir} if harness_dir else {}
+    results = evaluate(name, data['dataset'], data['split'], records, loaded, execute or bench_eval.host_execute,
+                       lambda record: append(journal, record), self_check, workers=workers, **kwargs)
+    return {'run': name, 'journal': str(journal), 'self_check': self_check, 'evaluated': len(results),
+            'results': {r['pair']: {'resolved': r['resolved'], 'size_ratio': r['diff'].get('size_ratio'),
+                                    **({'reason': r['reason']} if r.get('reason') else {})} for r in results}}
+
+
 def command(args):
     if args.bench_command == 'combos':
         selected = combos(args.names)
@@ -621,6 +641,8 @@ def command(args):
         return sandbox(args.set, args.instance)
     if args.bench_command == 'run':
         return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root)
+    if args.bench_command == 'eval':
+        return eval_run(args.run, self_check=args.self_check, workers=args.workers)
     if args.bench_command == 'set' and args.set_command == 'build':
         return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
                          workers=args.workers)

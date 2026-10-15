@@ -174,3 +174,121 @@ def build_set(name, dataset, language, per_repo, count=None, split='test', execu
     path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return dict(result, path=str(path), harness_rounds=rounds, short_repos=sorted(exhausted),
                 disk_bytes=size, disk=human_size(size))
+
+
+def diff_stats(patch, gold=None):
+    """Size of a patch from its text: files, added/removed lines, test files touched; `size_ratio` — lines changed
+    against the gold patch (None without a gold patch or when it changes nothing)."""
+    files, added, removed, tests = set(), 0, 0, set()
+    for line in (patch or '').splitlines():
+        if line.startswith('diff --git '):
+            path = line.split(' b/', 1)[-1]
+            files.add(path)
+            if re.search(r'(^|/)tests?/|Test\.php$|_test\.go$|\.test\.[jt]sx?$', path):
+                tests.add(path)
+        elif line.startswith('+') and not line.startswith('+++'):
+            added += 1
+        elif line.startswith('-') and not line.startswith('---'):
+            removed += 1
+    stats = {'files': len(files), 'added': added, 'removed': removed, 'lines': added + removed, 'test_files': len(tests)}
+    if gold is not None:
+        gold_lines = diff_stats(gold)['lines']
+        stats['gold_lines'] = gold_lines
+        stats['size_ratio'] = round(stats['lines'] / gold_lines, 2) if gold_lines else None
+    return stats
+
+
+def parse_instance_report(text, instance_id):
+    """`report.json` of one instance: resolved, applied, FAIL_TO_PASS and PASS_TO_PASS counts."""
+    report = json.loads(text)[instance_id]
+    status = report.get('tests_status') or {}
+    counts = {}
+    for key, name in (('FAIL_TO_PASS', 'fail_to_pass'), ('PASS_TO_PASS', 'pass_to_pass')):
+        group = status.get(key) or {}
+        passed, failed = len(group.get('success') or []), len(group.get('failure') or [])
+        counts[name] = {'passed': passed, 'total': passed + failed}
+    return {'resolved': bool(report.get('resolved')), 'applied': bool(report.get('patch_successfully_applied')),
+            'infra_failure': bool(report.get('infra_failure')), **counts}
+
+
+def instance_report_path(harness_dir, run_id, model_name, instance_id):
+    return Path(harness_dir) / 'logs/run_evaluation' / run_id / model_name.replace('/', '__') / instance_id / 'report.json'
+
+
+def run_predictions(dataset, split, predictions, run_id, execute, workers=2, harness_dir=HARNESS_DIR, timeout=1800):
+    """`predictions` (`instance_id`, `model_name_or_path`, `model_patch`; one model name) through the harness;
+    returns the parsed instance reports by instance id."""
+    harness_dir = Path(harness_dir)
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    path = harness_dir / f'predictions.{run_id}.jsonl'
+    path.write_text(''.join(json.dumps(p, ensure_ascii=False) + '\n' for p in predictions), encoding='utf-8')
+    cmd = uv_command(['-m', 'swebench.harness.run_evaluation', '--dataset_name', dataset, '--split', split,
+                      '--predictions_path', str(path), '--run_id', run_id, '--max_workers', str(workers),
+                      '--timeout', str(timeout), '--report_dir', str(harness_dir)])
+    proc = execute(cmd, cwd=str(harness_dir), timeout=(timeout + 600) * len(predictions))
+    reports = {}
+    for p in predictions:
+        report = instance_report_path(harness_dir, run_id, p['model_name_or_path'], p['instance_id'])
+        if report.is_file():
+            reports[p['instance_id']] = parse_instance_report(report.read_text(encoding='utf-8'), p['instance_id'])
+    if proc.returncode != 0 and len(reports) < len(predictions):
+        raise WorkflowError(f'harness run {run_id} failed ({proc.returncode}): {(proc.stderr or "").strip()[-2000:]}')
+    return reports
+
+
+def pending_pairs(records, self_check=False):
+    """Last `pair_end` of every pair without an `eval` line (`self_check` line for the self-check), with the pair's
+    `task` from its `pair_start`."""
+    kind = 'self_check' if self_check else 'eval'
+    tasks, ends, done = {}, {}, set()
+    for r in records:
+        if r.get('type') == 'pair_start':
+            tasks[r['pair']] = r['task']
+        elif r.get('type') == 'pair_end':
+            ends[r['pair']] = dict(r, task=tasks[r['pair']])
+        elif r.get('type') == kind:
+            done.add(r['pair'])
+    return [r for pair, r in ends.items() if pair not in done]
+
+
+def evaluate(run, dataset, split, records, instances, execute, append, self_check=False, harness_dir=HARNESS_DIR,
+             workers=2, patch_text=None):
+    """`devflow bench eval`: hidden tests and diff size for every finished pair not yet evaluated. One harness call
+    per model name (`<combo>__r<replica>`) — the harness keys predictions by instance. With `self_check` the gold
+    patch stands in for the agent's; the result goes to `self_check` lines, not `eval`."""
+    kind = 'self_check' if self_check else 'eval'
+    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8'))
+    pending = pending_pairs(records, self_check)
+    rounds = len({r['harness_run_id'] for r in records if r.get('type') in ('eval', 'self_check') and r.get('harness_run_id')})
+    groups = {}
+    results = []
+    for end in pending:
+        instance = instances[end['task']]
+        patch = instance['patch'] if self_check else patch_text(end['patch'])
+        record = {'type': kind, 'at': now(), 'pair': end['pair'], 'attempt': end.get('attempt', 1), 'task': end['task'],
+                  'diff': diff_stats(patch, instance['patch'])}
+        if not patch.strip():
+            record.update(resolved=False, reason='empty patch', harness_run_id=None)
+            results.append(record)
+            continue
+        model = end['pair'][len(end['task']) + 2:]
+        groups.setdefault(model, []).append((record, {'instance_id': end['task'], 'model_name_or_path': model, 'model_patch': patch}))
+    for model, items in groups.items():
+        rounds += 1
+        run_id = f'{run}-eval-{rounds}'
+        reports = run_predictions(dataset, split, [pred for _, pred in items], run_id, execute, workers, harness_dir)
+        for record, pred in items:
+            report = reports.get(pred['instance_id'])
+            record['harness_run_id'] = run_id
+            if report is None:
+                record.update(resolved=False, reason='no harness report')
+            else:
+                record.update(report)
+            results.append(record)
+    for record in results:
+        append(record)
+    return results
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')

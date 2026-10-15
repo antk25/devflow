@@ -161,3 +161,136 @@ def test_load_set_validates(dirs):
         bench.load_set('bad', directory=dirs['sets_dir'])
     with pytest.raises(WorkflowError, match='unknown set'):
         bench.load_set('nope', directory=dirs['sets_dir'])
+
+
+AGENT_PATCH = """diff --git a/src/A.php b/src/A.php
+--- a/src/A.php
++++ b/src/A.php
+@@ -1,3 +1,4 @@
+ a
+-b
++c
++d
+diff --git a/tests/ATest.php b/tests/ATest.php
+--- a/tests/ATest.php
++++ b/tests/ATest.php
+@@ -1 +1,2 @@
+ x
++y
+"""
+GOLD_PATCH = """diff --git a/src/A.php b/src/A.php
+--- a/src/A.php
++++ b/src/A.php
+@@ -1,2 +1,2 @@
+-b
++c
+"""
+REPORT = {'patch_successfully_applied': True, 'resolved': False, 'infra_failure': False,
+          'tests_status': {'FAIL_TO_PASS': {'success': ['t1'], 'failure': ['t2']},
+                           'PASS_TO_PASS': {'success': ['p1', 'p2', 'p3'], 'failure': []}}}
+
+
+def test_diff_stats_counts_files_lines_and_ratio():
+    stats = bench_eval.diff_stats(AGENT_PATCH, GOLD_PATCH)
+    assert stats == {'files': 2, 'added': 3, 'removed': 1, 'lines': 4, 'test_files': 1, 'gold_lines': 2, 'size_ratio': 2.0}
+    assert bench_eval.diff_stats('', GOLD_PATCH)['size_ratio'] == 0.0
+    assert bench_eval.diff_stats(AGENT_PATCH, '')['size_ratio'] is None
+    assert 'size_ratio' not in bench_eval.diff_stats(AGENT_PATCH)
+
+
+def test_parse_instance_report_counts_tests():
+    got = bench_eval.parse_instance_report(json.dumps({'a__b-1': REPORT}), 'a__b-1')
+    assert got == {'resolved': False, 'applied': True, 'infra_failure': False,
+                   'fail_to_pass': {'passed': 1, 'total': 2}, 'pass_to_pass': {'passed': 3, 'total': 3}}
+
+
+class FakeHarness:
+    """Fake `execute` for `run_evaluation` with a predictions file: writes an instance report per prediction;
+    `resolved` for the ids in `resolves`."""
+
+    def __init__(self, harness_dir, resolves=(), silent=()):
+        self.harness_dir, self.resolves, self.silent, self.calls = harness_dir, set(resolves), set(silent), []
+
+    def __call__(self, cmd, cwd=None, timeout=None):
+        self.calls.append(cmd)
+        assert 'swebench.harness.run_evaluation' in cmd and cwd == str(self.harness_dir)
+        run_id = cmd[cmd.index('--run_id') + 1]
+        path = cmd[cmd.index('--predictions_path') + 1]
+        for line in open(path, encoding='utf-8'):
+            pred = json.loads(line)
+            if pred['instance_id'] in self.silent:
+                continue
+            report = dict(REPORT, resolved=pred['instance_id'] in self.resolves)
+            out = bench_eval.instance_report_path(self.harness_dir, run_id, pred['model_name_or_path'], pred['instance_id'])
+            out.parent.mkdir(parents=True)
+            out.write_text(json.dumps({pred['instance_id']: report}), encoding='utf-8')
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+
+
+def pair_end(task, combo, replica, patch_path):
+    """`pair_start` + `pair_end` as the journal writes them: the task is only on `pair_start`."""
+    pair = f'{task}__{combo}__r{replica}'
+    return [{'type': 'pair_start', 'pair': pair, 'attempt': 1, 'task': task, 'combo': combo, 'replica': replica},
+            {'type': 'pair_end', 'pair': pair, 'attempt': 1, 'outcome': 'completed', 'patch': str(patch_path)}]
+
+
+@pytest.fixture
+def journal(tmp_path):
+    patches = tmp_path / 'patches'
+    patches.mkdir()
+    (patches / 'full.diff').write_text(AGENT_PATCH, encoding='utf-8')
+    (patches / 'empty.diff').write_text('', encoding='utf-8')
+    records = [{'type': 'run_start', 'run': 'r', 'set': 's'},
+               *pair_end('a__b-1', 'smoke', 1, patches / 'full.diff'),
+               *pair_end('a__b-2', 'smoke', 1, patches / 'empty.diff'),
+               *pair_end('a__b-1', 'smoke', 2, patches / 'full.diff')]
+    loaded = {'a__b-1': dict(instance('a/b', 1, '2024-01-01 00:00:00'), patch=GOLD_PATCH),
+              'a__b-2': dict(instance('a/b', 2, '2024-01-01 00:00:00'), patch=GOLD_PATCH)}
+    return records, loaded
+
+
+def test_evaluate_runs_harness_per_model_name_and_skips_empty(journal, dirs):
+    records, loaded = journal
+    fake = FakeHarness(dirs['harness_dir'], resolves={'a__b-1'})
+    written = []
+    results = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, written.append, harness_dir=dirs['harness_dir'])
+    by_pair = {r['pair']: r for r in results}
+    assert written == results and all(r['type'] == 'eval' for r in results)
+    assert by_pair['a__b-2__smoke__r1'] == {**by_pair['a__b-2__smoke__r1'], 'resolved': False, 'reason': 'empty patch', 'harness_run_id': None}
+    assert by_pair['a__b-1__smoke__r1']['resolved'] and by_pair['a__b-1__smoke__r1']['fail_to_pass'] == {'passed': 1, 'total': 2}
+    assert by_pair['a__b-1__smoke__r1']['diff']['size_ratio'] == 2.0
+    assert by_pair['a__b-1__smoke__r1']['harness_run_id'] == 'r-eval-1'
+    assert by_pair['a__b-1__smoke__r2']['harness_run_id'] == 'r-eval-2'
+    assert len(fake.calls) == 2 and '--max_workers' in fake.calls[0] and fake.calls[0][fake.calls[0].index('--max_workers') + 1] == '2'
+    preds = [json.loads(line) for line in open(fake.calls[0][fake.calls[0].index('--predictions_path') + 1], encoding='utf-8')]
+    assert preds == [{'instance_id': 'a__b-1', 'model_name_or_path': 'smoke__r1', 'model_patch': AGENT_PATCH}]
+
+
+def test_evaluate_skips_already_evaluated_pairs(journal, dirs):
+    records, loaded = journal
+    fake = FakeHarness(dirs['harness_dir'])
+    first = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, harness_dir=dirs['harness_dir'])
+    records += first
+    records += pair_end('a__b-2', 'smoke', 1, dirs['harness_dir'].parent / 'patches/full.diff')  # a new attempt
+    second = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, harness_dir=dirs['harness_dir'])
+    assert [r['pair'] for r in second] == [] and len(fake.calls) == 2
+    records += pair_end('a__b-2', 'smoke', 2, dirs['harness_dir'].parent / 'patches/full.diff')
+    third = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, harness_dir=dirs['harness_dir'])
+    assert [r['pair'] for r in third] == ['a__b-2__smoke__r2'] and third[0]['harness_run_id'] == 'r-eval-3'
+
+
+def test_evaluate_self_check_uses_gold_patch_and_own_lines(journal, dirs):
+    records, loaded = journal
+    fake = FakeHarness(dirs['harness_dir'], resolves={'a__b-1', 'a__b-2'})
+    results = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, self_check=True, harness_dir=dirs['harness_dir'])
+    assert all(r['type'] == 'self_check' and r['resolved'] for r in results) and len(results) == 3
+    assert all(r['diff']['size_ratio'] == 1.0 for r in results)
+    assert bench_eval.pending_pairs(records + results) and not bench_eval.pending_pairs(records + results, self_check=True)
+
+
+def test_evaluate_reports_missing_report(journal, dirs):
+    records, loaded = journal
+    fake = FakeHarness(dirs['harness_dir'], silent={'a__b-1'})
+    results = bench_eval.evaluate('r', 'd', 'test', records, loaded, fake, lambda r: None, harness_dir=dirs['harness_dir'])
+    assert {r['pair']: r.get('reason') for r in results} == {'a__b-2__smoke__r1': 'empty patch', 'a__b-1__smoke__r1': 'no harness report',
+                                                              'a__b-1__smoke__r2': 'no harness report'}
