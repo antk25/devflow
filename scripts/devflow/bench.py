@@ -16,6 +16,7 @@ from string import Template
 from . import bench_container as container
 from . import bench_runners as runners
 from . import bench_eval
+from . import bench_report
 from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, evaluate, instances
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
@@ -628,6 +629,15 @@ def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir
                                     **({'reason': r['reason']} if r.get('reason') else {})} for r in results}}
 
 
+def report_run(name, base='production', journal_dir=None):
+    """`devflow bench report <run>`: `report.md` next to the journal."""
+    directory = Path(journal_dir) if journal_dir else run_dir(name)
+    records = read(directory / 'journal.jsonl')
+    if not any(r.get('type') == 'run_start' for r in records):
+        raise WorkflowError(f'run {name}: no journal at {directory / "journal.jsonl"}')
+    return bench_report.report(name, records, directory, base)
+
+
 def command(args):
     if args.bench_command == 'combos':
         selected = combos(args.names)
@@ -643,6 +653,8 @@ def command(args):
         return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root)
     if args.bench_command == 'eval':
         return eval_run(args.run, self_check=args.self_check, workers=args.workers)
+    if args.bench_command == 'report':
+        return report_run(args.run, base=args.base)
     if args.bench_command == 'set' and args.set_command == 'build':
         return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
                          workers=args.workers)
