@@ -121,8 +121,8 @@ def task_message(phase, ctx, state, step=None, run=None, note=None):
     return '\n'.join(lines) + '\n'
 
 
-def build_command(body_file, tools, model_arg, message):
-    return ['pi', '-p', '--no-session', '--append-system-prompt', str(body_file), '--tools', ','.join(tools),
+def build_command(body_file, tools, model_arg, message, options=('--no-session',)):
+    return ['pi', '-p', *options, '--append-system-prompt', str(body_file), '--tools', ','.join(tools),
             *(['--model', model_arg] if model_arg else []), message]
 
 

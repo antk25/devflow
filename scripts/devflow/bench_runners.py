@@ -3,10 +3,12 @@ import json
 import re
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
 from .documents import WorkflowError, document
+from .pi import agent_body, build_command
 from .policy import PHASES
 
 RUNNERS = ('claude', 'pi')
@@ -24,6 +26,9 @@ def host_execute(cmd, timeout):
 CLAUDE_ISOLATION = ['--setting-sources', 'project', '--strict-mcp-config', '--disable-slash-commands',
                     '--disallowedTools', 'WebFetch,WebSearch']
 WEB_TOOLS = ('WebFetch', 'WebSearch')
+# Host-side isolation of pi, the counterpart of CLAUDE_ISOLATION: no extensions (their tools and hooks), no AGENTS.md
+# auto-loading (claude does not load it either); the tool allowlist comes from the agent frontmatter.
+PI_ISOLATION = ['--no-extensions', '--no-context-files']
 
 
 def claude_probe_command(model, effort, output_format='json'):
@@ -44,7 +49,7 @@ def claude_init(stdout):
 
 
 def pi_probe_command(model, effort, session_dir):
-    return ['pi', '-p', '--no-extensions', '--no-context-files', '--session-dir', str(session_dir),
+    return ['pi', '-p', *PI_ISOLATION, '--session-dir', str(session_dir),
             '--model', f'{model}:{effort}', PROBE_MESSAGE]
 
 
@@ -57,17 +62,25 @@ def claude_result(stdout):
     return data if isinstance(data, dict) else None
 
 
-def pi_assistant_messages(session_dir):
-    messages = []
-    for path in sorted(Path(session_dir).glob('*.jsonl')):
+def pi_records(session_dir):
+    records = []
+    for path in sorted(Path(session_dir).rglob('*.jsonl')):
         for line in path.read_text(encoding='utf-8').splitlines():
             try:
                 record = json.loads(line)
             except ValueError:
                 continue
-            message = record.get('message') if record.get('type') == 'message' else None
-            if isinstance(message, dict) and message.get('role') == 'assistant':
-                messages.append(message)
+            if isinstance(record, dict):
+                records.append(record)
+    return records
+
+
+def pi_assistant_messages(session_dir):
+    messages = []
+    for record in pi_records(session_dir):
+        message = record.get('message') if record.get('type') == 'message' else None
+        if isinstance(message, dict) and message.get('role') == 'assistant':
+            messages.append(message)
     return messages
 
 
@@ -190,10 +203,83 @@ def claude_error(data, proc):
     return None, None
 
 
+def pi_command(phase, spec, session_dir, session_id, message, sb):
+    """pi argv of a phase: the agent body in a file under the sandbox (visible in the container), a session directory
+    of its own so that the metrics of one phase never include another's."""
+    body, tools = agent_body(phase)
+    body_file = Path(sb['dir']) / f'pi-agent-{phase}.md'
+    body_file.write_text(body, encoding='utf-8')
+    options = [*PI_ISOLATION, '--session-dir', str(session_dir), '--session-id', session_id]
+    return build_command(body_file, tools, f"{spec['model']}:{spec['effort']}", message, options)
+
+
+def pi_metrics(session_dir, duration_s):
+    """One phase record from the pi session: usage summed over assistant replies, cost from pi's catalog."""
+    records = pi_records(session_dir)
+    messages = [r['message'] for r in records if r.get('type') == 'message'
+                and isinstance(r.get('message'), dict) and r['message'].get('role') == 'assistant']
+    totals = {'input': 0, 'output': 0, 'reasoning': 0, 'cache_read': 0, 'cache_write': 0}
+    cost, tools, models, efforts = 0.0, {}, [], []
+    for message in messages:
+        usage = message.get('usage') or {}
+        totals['input'] += int(usage.get('input') or 0)
+        totals['output'] += int(usage.get('output') or 0)
+        totals['reasoning'] += int(usage.get('reasoning') or 0)
+        totals['cache_read'] += int(usage.get('cacheRead') or 0)
+        totals['cache_write'] += int(usage.get('cacheWrite') or 0)
+        cost += float((usage.get('cost') or {}).get('total') or 0)
+        if message.get('model'):
+            name = f"{message.get('provider')}/{message['model']}"
+            if name not in models:
+                models.append(name)
+        for block in message.get('content') or []:
+            if isinstance(block, dict) and block.get('type') == 'toolCall' and block.get('name'):
+                tools[block['name']] = tools.get(block['name'], 0) + 1
+    for record in records:
+        level = record.get('thinkingLevel') if record.get('type') == 'thinking_level_change' else None
+        if level and level not in efforts:
+            efforts.append(level)
+    last = messages[-1] if messages else {}
+    return {'runner': 'pi', 'model_actual': models[-1] if models else None, 'models': models,
+            'effort_actual': ','.join(efforts) or None, **totals, 'cost_usd': round(cost, 6), 'cost_source': 'pi-catalog',
+            'duration_s': round(float(duration_s), 1), 'turns': len(messages), 'tools': tools, 'session_id': None,
+            'is_error': last.get('stopReason') == 'error', 'subtype': last.get('stopReason'), 'result': None}
+
+
+def pi_error(metrics, messages, proc):
+    """`(error, error_text)` of a pi phase: `stopReason: error` is an API error whatever the exit code."""
+    if not messages:
+        return 'api', (proc.stderr or proc.stdout or 'pi wrote no assistant message').strip()[-500:]
+    last = messages[-1]
+    if metrics['is_error'] or proc.returncode:
+        return 'api', str(last.get('errorMessage') or proc.stderr or f'exit {proc.returncode}').strip()[-500:]
+    return None, None
+
+
+def run_pi_phase(execute, phase, spec, message, sb, timeout):
+    session_id = str(uuid.uuid4())
+    session_dir = Path(sb['home']) / 'pi-sessions' / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    cmd = pi_command(phase, spec, session_dir, session_id, message, sb)
+    started = time.monotonic()
+    try:
+        proc = execute(cmd, timeout)
+    except subprocess.TimeoutExpired:
+        metrics = pi_metrics(session_dir, timeout)
+        metrics['session_id'] = session_id
+        return {'metrics': metrics, 'report': '', 'error': 'timeout', 'error_text': f'timeout after {timeout}s'}
+    metrics = pi_metrics(session_dir, time.monotonic() - started)
+    metrics['session_id'] = session_id
+    error, error_text = pi_error(metrics, pi_assistant_messages(session_dir), proc)
+    return {'metrics': metrics, 'report': proc.stdout, 'error': error, 'error_text': error_text}
+
+
 def run_phase(execute, runner, phase, spec, message, sb, timeout, budget, home=None):
     """One phase by one runner: `{metrics, report, error: None|'api'|'budget'|'timeout', error_text}`."""
-    if runner != 'claude':
-        raise WorkflowError(f'runner {runner} is not wired yet (step pi-runner)')
+    if runner not in RUNNERS:
+        raise WorkflowError(f'unknown runner: {runner}')
+    if runner == 'pi':
+        return run_pi_phase(execute, phase, spec, message, sb, timeout)
     home = Path(home or Path.home())
     session_id = str(uuid.uuid4())
     agents_file = Path(sb['home']) / f'agents-{phase}.json'

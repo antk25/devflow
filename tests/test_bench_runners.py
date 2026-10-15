@@ -95,5 +95,85 @@ def test_run_phase_claude(tmp_path):
         raise subprocess.TimeoutExpired(cmd, timeout)
     result = bench_runners.run_phase(slow, 'claude', 'plan', SPEC, 'msg', sb, 60, None, home=tmp_path / 'home')
     assert result['error'] == 'timeout' and result['metrics']['duration_s'] == 60.0
-    with pytest.raises(WorkflowError, match='pi-runner'):
-        bench_runners.run_phase(execute, 'pi', 'plan', {**SPEC, 'runner': 'pi'}, 'msg', sb, 60, None)
+
+
+PI_SPEC = {'runner': 'pi', 'model': 'openai-codex/gpt-5.5', 'effort': 'low'}
+
+
+def pi_reply(stop='toolUse', tools=('bash',), usage=True, model='gpt-5.5', error=None):
+    content = [{'type': 'text', 'text': 'x'}] + [{'type': 'toolCall', 'name': t, 'arguments': {}} for t in tools]
+    u = {'input': 100, 'output': 20, 'cacheRead': 300, 'cacheWrite': 40, 'reasoning': 7, 'totalTokens': 467,
+         'cost': {'input': 0.001, 'output': 0.0002, 'cacheRead': 0, 'cacheWrite': 0, 'total': 0.0012}} if usage else None
+    return {'type': 'message', 'message': {'role': 'assistant', 'provider': 'openai-codex', 'model': model,
+                                           'stopReason': stop, 'usage': u, 'errorMessage': error, 'content': content}}
+
+
+def write_pi_session(session_dir, replies):
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lines = [{'type': 'session', 'version': 3, 'id': 'u-1', 'cwd': '/sb/repo'},
+             {'type': 'model_change', 'provider': 'openai-codex', 'modelId': 'gpt-5.5'},
+             {'type': 'thinking_level_change', 'thinkingLevel': 'low'}, 'not json',
+             {'type': 'message', 'message': {'role': 'user', 'content': 'hi'}}, *replies]
+    (session_dir / '2026-10-15T10-00-00-000Z_u-1.jsonl').write_text(
+        '\n'.join(l if isinstance(l, str) else json.dumps(l) for l in lines), encoding='utf-8')
+
+
+def test_pi_command_argv(tmp_path):
+    sb = {'dir': tmp_path, 'home': tmp_path / 'home', 'repo': tmp_path / 'repo'}
+    cmd = bench_runners.pi_command('implement', PI_SPEC, tmp_path / 'home/pi-sessions', 'u-1', 'DevFlow Phase — implement.', sb)
+    assert cmd[:2] == ['pi', '-p'] and cmd[-1] == 'DevFlow Phase — implement.'
+    assert '--no-session' not in cmd and '--no-extensions' in cmd and '--no-context-files' in cmd
+    assert cmd[cmd.index('--session-dir') + 1] == str(tmp_path / 'home/pi-sessions') and cmd[cmd.index('--session-id') + 1] == 'u-1'
+    assert cmd[cmd.index('--model') + 1] == 'openai-codex/gpt-5.5:low'
+    body = Path(cmd[cmd.index('--append-system-prompt') + 1])
+    assert body == tmp_path / 'pi-agent-implement.md' and 'implement' in body.read_text()
+    assert set(cmd[cmd.index('--tools') + 1].split(',')) == {'read', 'grep', 'find', 'ls', 'bash', 'write', 'edit'}
+    assert not any('claude' in a for a in cmd[:-1])
+
+
+def test_pi_metrics_sums_replies(tmp_path):
+    write_pi_session(tmp_path / 's', [pi_reply(tools=('bash', 'read')), pi_reply(stop='stop', tools=())])
+    m = bench_runners.pi_metrics(tmp_path / 's', 12.34)
+    assert m['runner'] == 'pi' and m['model_actual'] == 'openai-codex/gpt-5.5' and m['models'] == ['openai-codex/gpt-5.5']
+    assert (m['input'], m['output'], m['reasoning'], m['cache_read'], m['cache_write']) == (200, 40, 14, 600, 80)
+    assert m['cost_usd'] == 0.0024 and m['cost_source'] == 'pi-catalog' and m['duration_s'] == 12.3 and m['turns'] == 2
+    assert m['effort_actual'] == 'low' and m['tools'] == {'bash': 1, 'read': 1} and m['is_error'] is False
+    empty = bench_runners.pi_metrics(tmp_path / 'none', 1)
+    assert empty['model_actual'] is None and empty['input'] == 0 and empty['turns'] == 0 and empty['tools'] == {}
+
+
+def test_run_phase_pi(tmp_path):
+    sb = {'dir': tmp_path, 'home': tmp_path / 'home', 'repo': tmp_path / 'repo'}
+    sb['home'].mkdir()
+    seen = []
+
+    def execute(cmd, timeout):
+        seen.append((cmd, timeout))
+        write_pi_session(Path(cmd[cmd.index('--session-dir') + 1]), [pi_reply(), pi_reply(stop='stop', tools=())])
+        return subprocess.CompletedProcess(cmd, 0, 'готово', '')
+    result = bench_runners.run_phase(execute, 'pi', 'implement', PI_SPEC, 'msg', sb, 60, 5.0)
+    cmd, timeout = seen[0]
+    session_id = cmd[cmd.index('--session-id') + 1]
+    assert timeout == 60 and '--max-budget-usd' not in cmd
+    assert cmd[cmd.index('--session-dir') + 1] == str(sb['home'] / 'pi-sessions' / session_id)
+    assert result['error'] is None and result['report'] == 'готово'
+    assert result['metrics']['input'] == 200 and result['metrics']['session_id'] == session_id
+
+    def failing(cmd, timeout):
+        write_pi_session(Path(cmd[cmd.index('--session-dir') + 1]),
+                         [pi_reply(stop='error', tools=(), usage=False, model='gpt-6-astra', error="Codex error: The 'gpt-6-astra' model is not supported")])
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+    result = bench_runners.run_phase(failing, 'pi', 'plan', {**PI_SPEC, 'model': 'openai-codex/gpt-6-astra'}, 'msg', sb, 60, None)
+    assert result['error'] == 'api' and 'gpt-6-astra' in result['error_text'] and result['metrics']['input'] == 0
+
+    def silent(cmd, timeout):
+        return subprocess.CompletedProcess(cmd, 1, '', 'boom')
+    result = bench_runners.run_phase(silent, 'pi', 'plan', PI_SPEC, 'msg', sb, 60, None)
+    assert result['error'] == 'api' and result['error_text'] == 'boom'
+
+    def slow(cmd, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    result = bench_runners.run_phase(slow, 'pi', 'plan', PI_SPEC, 'msg', sb, 60, None)
+    assert result['error'] == 'timeout' and result['metrics']['duration_s'] == 60.0
+    with pytest.raises(WorkflowError, match='unknown runner'):
+        bench_runners.run_phase(execute, 'codex', 'plan', PI_SPEC, 'msg', sb, 60, None)
