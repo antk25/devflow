@@ -17,7 +17,8 @@ from . import bench_container as container
 from . import bench_runners as runners
 from . import bench_eval
 from . import bench_report
-from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, evaluate, set_instances, snapshot_references
+from .bench_eval import (CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, TASK_SLUG, build_set, evaluate, set_instances,
+                         snapshot_references)
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
 from .documents import WorkflowError, context
@@ -30,7 +31,6 @@ from .workflow import approve, interrupt, route, start
 ROOT = Path(__file__).resolve().parents[2]
 COMBOS_DIR = ROOT / 'bench/combos'
 AGENTS_TEMPLATE = ROOT / 'bench/AGENTS.bench.md'
-TASK_SLUG = 'bench-task'
 # Outside the home directory on purpose: claude picks up CLAUDE.md from every ancestor of its cwd.
 SANDBOX_ROOT = Path('/var/tmp/devflow-bench')
 BUDGET_USD = {'research': 5.0, 'plan': 5.0, 'implement': 25.0}
@@ -356,9 +356,10 @@ def fingerprint(state):
     return (state['state'], state.get('research_revision'), state.get('plan_revision'), state.get('run_id'), state.get('step'))
 
 
-def drive(sb, combo, execute, journal, limits=None, attempt=1):
+def drive(sb, combo, execute, journal, limits=None, attempt=1, phases=PHASES):
     """The autodriver of one pair: walks `route`, runs phases through `execute`, approves research and plan as they are,
-    starts implement steps. Writes only `phase` lines to the journal and nothing outside `sb`."""
+    starts implement steps. Writes only `phase` lines to the journal and nothing outside `sb`. Without `implement` in
+    `phases` the pair ends as `planned` once the plan is approved."""
     limits = dict(limits or {})
     budgets = {**BUDGET_USD, **(limits.get('budget') or {})}
     timeout = limits.get('timeout', PHASE_TIMEOUT)
@@ -384,6 +385,9 @@ def drive(sb, combo, execute, journal, limits=None, attempt=1):
                 continue
             if state in ('research', 'plan', 'plan_outdated'):
                 phase, run, step = current['phase'], None, None
+            elif state == 'ready' and 'implement' not in phases:
+                result['outcome'] = 'planned'
+                return result
             elif state == 'ready':
                 phase, step = 'implement', current['step']
                 run = start(ctx, db, TASK_SLUG, step, current['revision'])
@@ -535,6 +539,13 @@ def parse_source(text):
     return {'run': match.group(1), 'combo': match.group(2), 'replica': int(match.group(3) or 1)}
 
 
+def parse_phases(text):
+    phases = [p for p in (text or '').split(',') if p]
+    if phases not in (['research', 'plan'], list(PHASES)):
+        raise WorkflowError(f'--phases expects research,plan or research,plan,implement, got {text!r}')
+    return phases
+
+
 def parse_freeze(text):
     phases = [p for p in (text or '').split(',') if p]
     if phases not in (['research'], ['research', 'plan']):
@@ -573,7 +584,8 @@ def freeze_documents(sb, source_dir, phases):
     return None
 
 
-def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None, attempt=1, freeze=None, source_dir=None):
+def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None, attempt=1, freeze=None, source_dir=None,
+             phases=PHASES):
     """One pair end to end: sandbox, task container, autodriver, patch, `pair_start`/`pair_end` lines.
     An API error leaves the pair open: `run_paused` instead of `pair_end`. With `freeze` the research (and plan)
     of `source_dir` are copied in and approved first, so the autodriver starts at implement; a missing source
@@ -594,7 +606,7 @@ def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None,
         container.start(name, instance['image'], sb['dir'], execute=execute)
         try:
             runner = container.runner_executor(name, sb['repo'], {'DEVFLOW_STATE_DIR': str(sb['state'])})
-            outcome = drive(sb, combo, runner, journal, limits, attempt)
+            outcome = drive(sb, combo, runner, journal, limits, attempt, phases)
             patch = extract_patch(sb['repo'], sb['base'])
         finally:
             container.stop(name, execute)
@@ -634,12 +646,15 @@ def stop_on_sigint():
 
 
 def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_dir=None, execute=None, limits=None,
-        probe_execute=None, claude_limit=None, freeze=None, source=None):
+        probe_execute=None, claude_limit=None, freeze=None, source=None, phases=None):
     """`devflow bench run`: without `yes` the estimate only; with `yes` every open pair in order until the end,
     a pause (API error, Claude limit) or a stop (STOP file, Ctrl-C). Journal in the devflow vault.
-    `freeze` (phases) with `source` (`<run>:<combo>[:r<k>]`) runs only the later phases on that pair's documents."""
+    `freeze` (phases) with `source` (`<run>:<combo>[:r<k>]`) runs only the later phases on that pair's documents;
+    `phases` without `implement` stops every pair after the approved plan."""
     if bool(freeze) != bool(source):
         raise WorkflowError('--freeze and --from go together')
+    phases = list(phases or PHASES)
+    not_called = [p for p in PHASES if p in (freeze or ()) or p not in phases]
     source_text, source = source, parse_source(source) if source else None
     data = load_set(set_name)
     selected = combos(combo_names)
@@ -651,13 +666,13 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
     limit, threshold = claude_limits() if claude_limit is None else claude_limit
     result = {'run': name, 'journal': str(journal), 'pairs': [pair_id(p) for p in selected_pairs]}
     if not yes:
-        return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit, freeze))
+        return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit, not_called))
     loaded = set_instances(data, task_ids)
     records = read(journal)
     if not records:
-        append(journal, {**run_start_record(name, data, selected, selected_pairs),
+        append(journal, {**run_start_record(name, data, selected, selected_pairs), 'phases': phases,
                          **({'frozen': list(freeze), 'frozen_from': source_text} if freeze else {})})
-    skipped = skipped_combos(selected, probe_execute, freeze)
+    skipped = skipped_combos(selected, probe_execute, not_called)
     for combo_name, reason in skipped.items():
         append(journal, {'type': 'combo_skipped', 'at': now(), 'combo': combo_name, 'reason': reason})
     finished, attempts = progress(records)
@@ -678,7 +693,7 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
             attempt = attempts.get(pair_id(pair), 0) + 1
             source_dir = source_sandbox(directory.parent, source, pair['task']) if source else None
             record = run_pair(pair, combo, loaded[pair['task']], sb_root, journal, execute, limits, attempt,
-                              freeze=freeze, source_dir=source_dir)
+                              freeze=freeze, source_dir=source_dir, phases=phases)
             if record['outcome'] == 'paused':
                 state = 'paused'
                 break
@@ -720,7 +735,8 @@ def static_run(records, instances, journal, execute=None, start=None, stop=None,
 def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir=None, workers=2, static=False):
     """`devflow bench eval <run>`: `eval` lines (`self_check` with `--self-check`) for every finished pair of the run
     that has none yet; the set and its instances come from the `run_start` line. `--static` adds a `quality` line
-    per pair: lint errors and new static-analysis errors of the patch's files."""
+    per pair: lint errors and new static-analysis errors of the patch's files. A `references` set has no hidden
+    tests: its pairs get `judge` lines (plan validation, Jev coverage, reference-against-candidate judge) instead."""
     journal = (Path(journal_dir) if journal_dir else run_dir(name)) / 'journal.jsonl'
     records = read(journal)
     starts = [r for r in records if r.get('type') == 'run_start']
@@ -729,6 +745,12 @@ def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir
     data = load_set(starts[0]['set'])
     tasks = sorted({r['task'] for r in records if r.get('type') == 'pair_start'})
     loaded = set_instances(data, tasks) if tasks else {}
+    if data.get('adapter') == 'references':
+        judged = bench_eval.judge_run(records, loaded, lambda record: append(journal, record))
+        return {'run': name, 'journal': str(journal), 'judged': len(judged),
+                'results': {r['pair']: {'validate': (r['validate'] or {}).get('ok'), 'coverage_min': (r['coverage'] or {}).get('min'),
+                                        'judge': (r['judge'] or {}).get('noul'),
+                                        **({'reason': r['reason']} if r.get('reason') else {})} for r in judged}}
     kwargs = {'harness_dir': harness_dir} if harness_dir else {}
     results = evaluate(name, data['dataset'], data['split'], records, loaded, execute or bench_eval.host_execute,
                        lambda record: append(journal, record), self_check, workers=workers, **kwargs)
@@ -775,7 +797,8 @@ def command(args):
         return sandbox(args.set, args.instance)
     if args.bench_command == 'run':
         return run(args.name, args.set, args.combo, tasks=args.tasks, yes=args.yes, root=args.root,
-                   freeze=parse_freeze(args.freeze) if args.freeze else None, source=getattr(args, 'from'))
+                   freeze=parse_freeze(args.freeze) if args.freeze else None, source=getattr(args, 'from'),
+                   phases=parse_phases(args.phases) if args.phases else None)
     if args.bench_command == 'eval':
         return eval_run(args.run, self_check=args.self_check, workers=args.workers, static=args.static)
     if args.bench_command == 'report':

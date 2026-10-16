@@ -1,6 +1,7 @@
 """Set adapters: `swebench` (dataset instances, gold run in the harness, set building) and `references`
 (closed devflow tasks: spec, approved research and plan, the commit the task started from)."""
 import json
+import os
 import re
 import shlex
 import sqlite3
@@ -8,8 +9,10 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .documents import WorkflowError, artifact
+from . import jev
+from .documents import WorkflowError, artifact, context, document, plan_steps
 from .storage import db_path
+from .workflow import plan_coverage
 
 ROOT = Path(__file__).resolve().parents[2]
 SETS_DIR = ROOT / 'bench/sets'
@@ -21,6 +24,8 @@ SWEBENCH_VERSION = '5.0.2'
 REFERENCES_DIR = CACHE_DIR / 'references'
 # The common runner image of reference tasks: python + git, no SWE-bench image behind them.
 REFERENCES_IMAGE = 'python:3.12-bookworm'
+TASK_SLUG = 'bench-task'
+JUDGE_TIMEOUT = 60
 REFERENCES_TEST_CMD = '.venv/bin/python -m pytest -q'
 REFERENCE_SLUGS = ('df-10-project-init-sync', 'df-12-jev-coverage-check', 'df-13-jev-plan-check', 'df-14-bash-guard',
                    'df-15-side-fixes', 'df-16-timesheet', 'df-17-jira-accounts')
@@ -402,6 +407,73 @@ def evaluate(run, dataset, split, records, instances, execute, append, self_chec
             results.append(record)
     for record in results:
         append(record)
+    return results
+
+
+def validate_plan(path):
+    """`devflow validate` of the candidate plan: ok with its step count, or the error text."""
+    try:
+        return {'ok': True, 'steps': len(plan_steps(document(path))), 'error': None}
+    except WorkflowError as exc:
+        return {'ok': False, 'steps': None, 'error': str(exc)}
+
+
+def judge_context(sandbox):
+    """A copy of the sandbox context with `jev: true`, next to the vault, never in the task repository."""
+    cwd = Path(sandbox) / 'judge'
+    cwd.mkdir(exist_ok=True)
+    (cwd / 'AGENTS.md').write_text(f"---\nproject: bench\nvault: {Path(sandbox) / 'vault'}\njev: true\n---\n", encoding='utf-8')
+    return context(cwd)
+
+
+def coverage(sandbox, threshold):
+    """Jev `check_plan` of the candidate: `noul` per research requirement, without a journal event."""
+    result = plan_coverage(judge_context(sandbox), TASK_SLUG, threshold)
+    noul = [r['noul'] for r in result['requirements']]
+    return {'status': result['status'], 'reason': result['reason'], 'model': result['model'], 'noul': noul,
+            'flagged': sum(1 for r in result['requirements'] if r['flagged']), 'min': min(noul) if noul else None}
+
+
+def judge(reference, candidate):
+    """The approved plan against the candidate plan with three `noul` questions; `reason` instead of `noul` when Jev
+    cannot answer. Only the plans go in: the three questions are about the plan, and two research documents on top
+    would push most reference tasks over the Jev input limit."""
+    state = {'reference': jev.mask(reference['plan']['content']), 'candidate': jev.mask(candidate['plan'])}
+    questions = jev.judge_questions()
+    size = len(json.dumps({'state': state, 'questions': questions}, ensure_ascii=False))
+    if size > jev.INPUT_LIMIT:
+        return {'model': None, 'noul': None, 'reason': f'документы больше лимита: {size} символов'}
+    out = jev.decide(state, questions, timeout=JUDGE_TIMEOUT)
+    if 'error' in out:
+        return {'model': None, 'noul': None, 'reason': out['error']}
+    noul = {q['key']: (out['answers'].get(q['key']) or {}).get('noul') for q in questions}
+    missing = [k for k, v in noul.items() if not isinstance(v, (int, float))]
+    if missing:
+        return {'model': out['model'], 'noul': None, 'reason': f"в ответе нет noul для {', '.join(missing)}"}
+    return {'model': out['model'], 'noul': noul, 'reason': None}
+
+
+def judge_run(records, instances, append, threshold=None):
+    """`judge` lines for every finished pair of a references run without one: `validate` of the candidate plan,
+    Jev coverage of the candidate's own research by its plan, and the reference-against-candidate judge."""
+    threshold = float(os.environ.get('DEVFLOW_JEV_PLAN_THRESHOLD', '0.95')) if threshold is None else threshold
+    results = []
+    for end in pending_pairs(records, kind='judge'):
+        record = {'type': 'judge', 'at': now(), 'pair': end['pair'], 'attempt': end.get('attempt', 1), 'task': end['task'],
+                  'validate': None, 'coverage': None, 'judge': None, 'reason': None}
+        vault = Path(end['sandbox'] or '') / 'vault'
+        plan_path = vault / 'plans' / f'{TASK_SLUG}.md'
+        reference = instances[end['task']].get('reference')
+        if not plan_path.is_file():
+            record['reason'] = f'no plan at {plan_path}'
+        elif not reference:
+            record['reason'] = f"{end['task']}: no reference documents"
+        else:
+            record['validate'] = validate_plan(plan_path)
+            record['coverage'] = coverage(vault.parent, threshold)
+            record['judge'] = judge(reference, {'plan': plan_path.read_text(encoding='utf-8')})
+        append(record)
+        results.append(record)
     return results
 
 

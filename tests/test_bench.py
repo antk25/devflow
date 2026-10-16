@@ -424,11 +424,13 @@ def test_run_writes_journal_patch_and_stops_the_container(sandbox_env, tmp_path,
 
 def test_cli_bench_run_wires_arguments(monkeypatch):
     seen = {}
-    monkeypatch.setattr(bench, 'run', lambda name, set_name, combo_names, tasks=None, yes=False, root=None, freeze=None, source=None: seen.update(locals()) or {'ok': True})
+    monkeypatch.setattr(bench, 'run', lambda name, set_name, combo_names, tasks=None, yes=False, root=None, freeze=None, source=None, phases=None: seen.update(locals()) or {'ok': True})
     args = ['bench', 'run', '--name', 'pilot', '--set', 'php-pilot', '--combo', 'production', '--combo', 'impl-opus', '--combo', 'production', '--tasks', '8', '--yes']
     assert cli.execute(cli.parser().parse_args(args)) == {'ok': True}
     assert seen['name'] == 'pilot' and seen['combo_names'] == ['production', 'impl-opus', 'production'] and seen['tasks'] == 8 and seen['yes'] is True
-    assert seen['freeze'] is None and seen['source'] is None
+    assert seen['freeze'] is None and seen['source'] is None and seen['phases'] is None
+    cli.execute(cli.parser().parse_args(args + ['--phases', 'research,plan']))
+    assert seen['phases'] == ['research', 'plan']
     cli.execute(cli.parser().parse_args(args + ['--freeze', 'research,plan', '--from', 'smoke-1:smoke:r2']))
     assert seen['freeze'] == ['research', 'plan'] and seen['source'] == 'smoke-1:smoke:r2'
     with pytest.raises(WorkflowError):
@@ -604,3 +606,46 @@ def test_make_sandbox_from_a_source_commit_without_docker(sandbox_env):
     assert log.splitlines() == [f'{sb["base"][:7]} base']
     assert not list((sb['vault'] / 'research').iterdir()) and not list((sb['vault'] / 'plans').iterdir())
     assert 'secret' not in (sb['vault'] / 'tz/bench-task.md').read_text()
+
+
+def test_drive_stops_after_the_approved_plan_without_implement(sandbox_env, tmp_path):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    execute = fake_claude(sb)
+    journal = tmp_path / 'journal.jsonl'
+    result = bench.drive(sb, bench.combos(['smoke'])[0], execute, journal, {'timeout': 30}, phases=['research', 'plan'])
+    assert result == {'outcome': 'planned', 'phases': 2, 'steps': 0, 'open_questions': 2, 'error_text': None}
+    assert [c[0] for c in execute.calls] == ['research', 'plan']
+    assert [l['route_after'] for l in bench.read(journal)] == ['approval_required', 'approval_required']
+    with bench.state_env(sb['state']):
+        state = cli.execute(cli.parser().parse_args(['--cwd', str(sb['repo']), 'route', 'bench-task']))
+    assert state['state'] == 'ready' and state['step'] == 'one'
+
+
+def test_run_with_phases_records_them_and_counts_two_calls(two_task_run):
+    dry = two_task_run['go'](tasks=1, yes=False, phases=['research', 'plan'])
+    assert dry['estimate']['phase_calls'] == 2
+    result = two_task_run['go'](tasks=1, phases=['research', 'plan'])
+    assert result['outcomes'] == {'php-cs-fixer__php-cs-fixer-8367__smoke__r1': 'planned'}
+    lines = bench.read(two_task_run['dir'] / 'journal.jsonl')
+    assert lines[0]['phases'] == ['research', 'plan'] and [l['type'] for l in lines] == ['run_start', 'pair_start', 'phase', 'phase', 'pair_end']
+    assert lines[-1]['outcome'] == 'planned' and lines[-1]['patch_bytes'] == 0
+    with pytest.raises(WorkflowError):
+        bench.parse_phases('plan')
+    assert bench.parse_phases('research,plan,implement') == ['research', 'plan', 'implement']
+
+
+def test_eval_run_judges_a_references_run(tmp_path, monkeypatch):
+    directory = tmp_path / 'runs/refs-1'
+    directory.mkdir(parents=True)
+    sandbox = tmp_path / 'sb'
+    (sandbox / 'vault/plans').mkdir(parents=True)
+    journal = directory / 'journal.jsonl'
+    bench.append(journal, {'type': 'run_start', 'run': 'refs-1', 'set': 'devflow-refs'})
+    bench.append(journal, {'type': 'pair_start', 'pair': 'df-1__smoke__r1', 'attempt': 1, 'task': 'df-1', 'combo': 'smoke', 'replica': 1, 'sandbox': str(sandbox), 'base': 'b'})
+    bench.append(journal, {'type': 'pair_end', 'pair': 'df-1__smoke__r1', 'attempt': 1, 'outcome': 'planned', 'patch': str(tmp_path / 'p.diff')})
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'adapter': 'references', 'dataset': name, 'split': 'references', 'instances': ['df-1']})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {'df-1': {'instance_id': 'df-1', 'reference': {'plan': {'content': 'x'}}}})
+    result = bench.eval_run('refs-1', journal_dir=directory)
+    assert result['judged'] == 1 and result['results']['df-1__smoke__r1']['reason'].startswith('no plan at')
+    assert result['results']['df-1__smoke__r1'] == {'validate': None, 'coverage_min': None, 'judge': None, 'reason': result['results']['df-1__smoke__r1']['reason']}
+    assert bench.read(journal)[-1]['type'] == 'judge'

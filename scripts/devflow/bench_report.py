@@ -7,6 +7,7 @@ from .policy import PHASES
 
 TOKEN_KEYS = ('input', 'output', 'cache_read', 'cache_write')
 RUNNERS = ('claude', 'pi')
+JUDGE_KEYS = ('same_requirements', 'no_extra_steps', 'boundaries')
 
 
 def combo_key(combo, replica):
@@ -16,7 +17,8 @@ def combo_key(combo, replica):
 def summarize(records):
     """Pairs by their last finished attempt. `rows[(task, key)]` carries outcome, resolved, diff, tokens, cost per runner,
     time, tool calls, phases, steps, open questions; `specs[key]` — runner/model/effort per phase; mismatches and
-    skipped combos are kept aside."""
+    skipped combos are kept aside. `mode` is `judge` when the run was scored by `judge` lines (references set) and
+    `tests` otherwise."""
     ends = {}
     for r in records:
         if r.get('type') == 'pair_end' and r.get('attempt', 1) >= ends.get(r['pair'], {}).get('attempt', 0):
@@ -24,6 +26,7 @@ def summarize(records):
     starts = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'pair_start'}
     evals = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'eval'}
     quality = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'quality'}
+    judges = {(r['pair'], r.get('attempt', 1)): r for r in records if r.get('type') == 'judge'}
     rows, specs, tasks, keys = {}, {}, [], []
     for pair, end in ends.items():
         attempt = end.get('attempt', 1)
@@ -34,7 +37,9 @@ def summarize(records):
         specs.setdefault(key, {p['phase']: f"{p['runner']}:{p['model_req']}:{p['effort_req']}" for p in phases})
         ev = evals.get((pair, attempt))
         q = quality.get((pair, attempt), {})
-        row = {'pair': pair, 'task': task, 'combo': key, 'outcome': end.get('outcome'), 'error_text': end.get('error_text'),
+        j = judges.get((pair, attempt))
+        row = {'judge': None if j is None else judge_scores(j),
+               'pair': pair, 'task': task, 'combo': key, 'outcome': end.get('outcome'), 'error_text': end.get('error_text'),
                'resolved': None if ev is None else bool(ev.get('resolved')), 'reason': (ev or {}).get('reason'),
                'size_ratio': (ev or {}).get('diff', {}).get('size_ratio'), 'patch_bytes': end.get('patch_bytes'),
                'lint_errors': q.get('lint_errors'), 'new_static_errors': q.get('new_static_errors'),
@@ -50,7 +55,17 @@ def summarize(records):
         keys.append(key) if key not in keys else None
     skipped = {r['combo']: r['reason'] for r in records if r.get('type') == 'combo_skipped'}
     paused = [r for r in records if r.get('type') == 'run_paused']
-    return {'tasks': tasks, 'combos': keys, 'rows': rows, 'specs': specs, 'skipped': skipped, 'paused': paused}
+    return {'tasks': tasks, 'combos': keys, 'rows': rows, 'specs': specs, 'skipped': skipped, 'paused': paused,
+            'mode': 'judge' if judges else 'tests'}
+
+
+def judge_scores(record):
+    """The judge line flattened: plan validity, the lowest Jev coverage `noul` with the flagged count, the three judge
+    `noul` values; None where the check gave no number."""
+    validate, cover, verdict = record.get('validate') or {}, record.get('coverage') or {}, record.get('judge') or {}
+    return {'valid': validate.get('ok'), 'coverage_min': cover.get('min'), 'flagged': cover.get('flagged'),
+            **{key: (verdict.get('noul') or {}).get(key) for key in JUDGE_KEYS},
+            'reason': record.get('reason') or cover.get('reason') or verdict.get('reason')}
 
 
 def mcnemar(b, c):
@@ -127,7 +142,7 @@ def per_combo(summary):
         judged = [r for r in group if r['resolved'] is not None]
         med = lambda pick: round(statistics.median(pick(r) for r in group), 1) if group else None
         out[key] = {'pairs': len(group), 'judged': len(judged), 'resolved': sum(1 for r in judged if r['resolved']),
-                    'completed': sum(1 for r in group if r['outcome'] == 'completed'),
+                    'completed': sum(1 for r in group if r['outcome'] in ('completed', 'planned')),
                     'lint_errors': sum(r['lint_errors'] or 0 for r in group if r['lint_errors'] is not None),
                     'new_static_errors': sum(r['new_static_errors'] for r in group if r['new_static_errors'] is not None),
                     'static_judged': sum(1 for r in group if r['new_static_errors'] is not None),
@@ -139,6 +154,11 @@ def per_combo(summary):
                     'tools': {'sum': sum(r['tools'] for r in group), 'median': med(lambda r: r['tools'])},
                     'phases': med(lambda r: r['phases'] or 0), 'steps': med(lambda r: r['steps'] or 0),
                     'open_questions': med(lambda r: r['open_questions'] or 0)}
+        if summary.get('mode') == 'judge':
+            scored = [r['judge'] for r in group if r['judge'] is not None and r['judge']['valid'] is not None]
+            median = lambda key: (lambda xs: round(statistics.median(xs), 2) if xs else None)([s[key] for s in scored if s[key] is not None])
+            out[key]['judge'] = {'scored': len(scored), 'valid': sum(1 for s in scored if s['valid']),
+                                 'coverage_min': median('coverage_min'), **{k: median(k) for k in JUDGE_KEYS}}
     return out
 
 
@@ -147,7 +167,22 @@ def mark(row):
         return '—'
     if row['outcome'] == 'model_mismatch':
         return '⚠'
+    if row['judge'] is not None:
+        return {True: '✓', False: '✗', None: '—'}[row['judge']['valid']]
     return {True: '✓', False: '✗', None: '—'}[row['resolved']]
+
+
+def score(value):
+    return '—' if value is None else f'{value:.2f}'
+
+
+def judged(row):
+    """The judge part of a matrix cell: validity, lowest coverage with flags, the three judge scores."""
+    j = row['judge']
+    if j is None:
+        return 'судья —'
+    flags = '' if j['flagged'] is None else f" ({j['flagged']}⚑)"
+    return f"покрытие {score(j['coverage_min'])}{flags} · судья {'/'.join(score(j[k]) for k in JUDGE_KEYS)}"
 
 
 def money(row):
@@ -163,6 +198,7 @@ def static(row):
 
 def render(name, base, summary, stats, comparison, aa):
     rows, keys = summary['rows'], summary['combos']
+    by_judge = summary.get('mode') == 'judge'
     lines = [f'# Бенчмарк {name}', '', f'База: `{base}`' + ('' if comparison is not None else ' — в прогоне отсутствует, сравнения нет'),
              '', '## Связки', '']
     for key in keys:
@@ -175,23 +211,40 @@ def render(name, base, summary, stats, comparison, aa):
         cells = []
         for key in keys:
             r = rows.get((task, key))
-            cells.append(mark(r) if r is None else f"{mark(r)} {r['outcome']} · diff×{r['size_ratio'] if r['size_ratio'] is not None else '—'} · "
-                         f"стат {static(r)} · {r['input'] + r['cache_read'] + r['cache_write']}/{r['output']} ток · {money(r) or '$0'} · "
-                         f"{r['duration_s']:.0f}с")
+            if r is None:
+                cells.append(mark(r))
+                continue
+            quality = judged(r) if by_judge else f"diff×{r['size_ratio'] if r['size_ratio'] is not None else '—'} · стат {static(r)}"
+            cells.append(f"{mark(r)} {r['outcome']} · {quality} · {r['input'] + r['cache_read'] + r['cache_write']}/{r['output']} ток · "
+                         f"{money(r) or '$0'} · {r['duration_s']:.0f}с")
         lines.append(f'| {task} | ' + ' | '.join(cells) + ' |')
-    lines += ['', 'Ячейка: решена (✓/✗/— без оценки/⚠ не та модель) · итог пары · diff к эталону · статанализ (ошибок линтера/новых '
-              'ошибок phpstan, — без проверки) · токены вход+кэш/выход · стоимость по исполнителю · время.', '', '## Сводка по связкам', '',
-              '| связка | решено | завершено | статанализ (линт Σ/новых Σ) | токены вход (Σ/мед) | выход (Σ/мед) | кэш (Σ/мед) | '
+    if by_judge:
+        legend = ('Ячейка: план валиден (✓/✗/— без оценки/⚠ не та модель) · итог пары · покрытие — наименьший noul Jev по требованиям '
+                  'research кандидата (⚑ ниже порога) · судья — noul «те же требования / нет лишних шагов / границы архитектуры» '
+                  'эталона против кандидата · токены вход+кэш/выход · стоимость по исполнителю · время.')
+        first = '| связка | валидно | завершено (planned) | покрытие мед | судья мед (треб/шаги/границы) |'
+    else:
+        legend = ('Ячейка: решена (✓/✗/— без оценки/⚠ не та модель) · итог пары · diff к эталону · статанализ (ошибок линтера/новых '
+                  'ошибок phpstan, — без проверки) · токены вход+кэш/выход · стоимость по исполнителю · время.')
+        first = '| связка | решено | завершено | статанализ (линт Σ/новых Σ) |'
+    lines += ['', legend, '', '## Сводка по связкам', '',
+              first + ' токены вход (Σ/мед) | выход (Σ/мед) | кэш (Σ/мед) | '
               'claude $ (Σ/мед) | pi $ (Σ/мед) | время с (Σ/мед) | инструменты (Σ/мед) | фаз | шагов | откр. вопросов |',
-              '|---|' + '---|' * 13]
+              '|---|' + '---|' * (14 if by_judge else 13)]
     for key in keys:
         s = stats[key]
         t = s['tokens']
         cache = {'sum': t['cache_read']['sum'] + t['cache_write']['sum'],
                  'median': None if t['cache_read']['median'] is None else t['cache_read']['median'] + t['cache_write']['median']}
         fmt = lambda d, p='': f"{d['sum']}{p}/{d['median'] if d['median'] is not None else '—'}{p}"
-        static_cell = f"{s['lint_errors']}/{s['new_static_errors']:+d} ({s['static_judged']} пар)" if s['static_judged'] else '—'
-        lines.append(f"| {key} | {s['resolved']}/{s['judged']} | {s['completed']}/{s['pairs']} | {static_cell} | {fmt(t['input'])} | {fmt(t['output'])} | "
+        if by_judge:
+            j = s['judge']
+            head = (f"| {key} | {j['valid']}/{j['scored']} | {s['completed']}/{s['pairs']} | {score(j['coverage_min'])} | "
+                    f"{'/'.join(score(j[k]) for k in JUDGE_KEYS)} |")
+        else:
+            static_cell = f"{s['lint_errors']}/{s['new_static_errors']:+d} ({s['static_judged']} пар)" if s['static_judged'] else '—'
+            head = f"| {key} | {s['resolved']}/{s['judged']} | {s['completed']}/{s['pairs']} | {static_cell} |"
+        lines.append(f"{head} {fmt(t['input'])} | {fmt(t['output'])} | "
                      f"{fmt(cache)} | {fmt(s['cost']['claude'])} | {fmt(s['cost']['pi'])} | {fmt(s['time'])} | {fmt(s['tools'])} | "
                      f"{s['phases']} | {s['steps']} | {s['open_questions']} |")
     if comparison:
@@ -226,5 +279,7 @@ def report(name, records, directory, base='production'):
     path = Path(directory) / 'report.md'
     path.write_text(render(name, base, summary, stats, comparison, aa), encoding='utf-8')
     return {'run': name, 'report': str(path), 'base': base, 'combos': summary['combos'], 'tasks': len(summary['tasks']),
+            'mode': summary['mode'],
             'resolved': {k: f"{s['resolved']}/{s['judged']}" for k, s in stats.items()},
+            **({'judge': {k: s['judge'] for k, s in stats.items()}} if summary['mode'] == 'judge' else {}),
             'comparison': comparison, 'noise': aa, 'skipped': summary['skipped']}

@@ -514,3 +514,132 @@ def test_parse_commits():
     assert bench.parse_commits(['a=1', 'b=2']) == {'a': '1', 'b': '2'} and bench.parse_commits(None) == {}
     with pytest.raises(WorkflowError, match='--commit expects'):
         bench.parse_commits(['a'])
+
+
+class JudgeResp:
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def jev_answers(sent, coverage=(0.99, 0.4), verdict=(0.9, 0.7, 0.8)):
+    """Fake `urlopen`: coverage answers for `addr_n`/`cov_n`, judge answers for the three judge keys."""
+    def ok(req, timeout):
+        body = json.loads(req.data)
+        sent.append(body)
+        answers = {}
+        if 'addr_1' in body['questions']:
+            for n, v in enumerate(coverage, 1):
+                answers[f'addr_{n}'] = {'type': 'noul', 'noul': v}
+                answers[f'cov_{n}'] = {'type': 'choice', 'choice': 'covered' if v > 0.5 else 'not_covered'}
+        else:
+            answers = {k: {'type': 'noul', 'noul': v} for k, v in zip(('same_requirements', 'no_extra_steps', 'boundaries'), verdict)}
+        return JudgeResp(json.dumps({'model': 'typesafe/jev-1.13-x', 'answers': answers}).encode())
+    return ok
+
+
+CANDIDATE_RESEARCH = '---\nproject: bench\ntype: research\n---\n\n# bench-task — Research\n\n## Requirements\n- шаг один (ТЗ)\n- шаг два (ТЗ)\n'
+CANDIDATE_PLAN = '''---
+schema: 1
+research_revision: {rev}
+steps:
+  - {{id: one, n: 1, blocked_by: []}}
+  - {{id: two, n: 2, blocked_by: [one]}}
+---
+
+# bench-task — Plan
+
+## Steps
+
+### one: Первый
+- **Acceptance:** тесты
+
+### two: Второй
+- **Acceptance:** тесты
+'''
+
+
+def judge_sandbox(root, plan=True):
+    from devflow import documents
+    sb = root
+    for folder in ('tz', 'research', 'plans', 'changelog', 'notes'):
+        (sb / 'vault' / folder).mkdir(parents=True)
+    (sb / 'vault/research/bench-task.md').write_text(CANDIDATE_RESEARCH, encoding='utf-8')
+    if plan:
+        rev = documents.document(sb / 'vault/research/bench-task.md')['revision']
+        (sb / 'vault/plans/bench-task.md').write_text(CANDIDATE_PLAN.format(rev=rev), encoding='utf-8')
+    return sb
+
+
+def judge_records(tmp_path, *pairs):
+    records = [{'type': 'run_start', 'run': 'refs-1', 'set': 'devflow-refs'}]
+    for task, sandbox in pairs:
+        pair = f'{task}__smoke__r1'
+        records += [{'type': 'pair_start', 'pair': pair, 'attempt': 1, 'task': task, 'combo': 'smoke', 'replica': 1, 'sandbox': str(sandbox), 'base': 'b'},
+                    {'type': 'pair_end', 'pair': pair, 'attempt': 1, 'outcome': 'planned', 'patch': str(tmp_path / 'none.diff')}]
+    return records
+
+
+REFERENCE = {'research': {'revision': 'r', 'approved_at': 't', 'content': '# research\n'},
+             'plan': {'revision': 'p', 'approved_at': 't', 'content': '# plan эталон key=sk-abcdefghijklmnopqrstuvwxyz0123456789\n'}}
+
+
+def test_judge_run_validates_covers_and_judges_the_candidate(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'k')
+    monkeypatch.delenv('DEVFLOW_JEV_PLAN_THRESHOLD', raising=False)
+    sent = []
+    monkeypatch.setattr(bench_eval.jev.urllib.request, 'urlopen', jev_answers(sent))
+    good, empty = judge_sandbox(tmp_path / 'good'), judge_sandbox(tmp_path / 'empty', plan=False)
+    records = judge_records(tmp_path, ('df-1-one', good), ('df-2-two', empty))
+    instances = {'df-1-one': {'instance_id': 'df-1-one', 'reference': REFERENCE}, 'df-2-two': {'instance_id': 'df-2-two', 'reference': REFERENCE}}
+    written = []
+    results = bench_eval.judge_run(records, instances, written.append)
+    assert written == results and [r['type'] for r in results] == ['judge', 'judge']
+    first, second = results
+    assert first['pair'] == 'df-1-one__smoke__r1' and first['reason'] is None
+    assert first['validate'] == {'ok': True, 'steps': 2, 'error': None}
+    assert first['coverage'] == {'status': 'ok', 'reason': None, 'model': 'typesafe/jev-1.13-x', 'noul': [0.99, 0.4], 'flagged': 1, 'min': 0.4}
+    assert first['judge'] == {'model': 'typesafe/jev-1.13-x', 'noul': {'same_requirements': 0.9, 'no_extra_steps': 0.7, 'boundaries': 0.8}, 'reason': None}
+    assert second['reason'].startswith('no plan at') and second['validate'] is None and second['judge'] is None
+    assert len(sent) == 2
+    assert 'шаг один' in sent[0]['state']['ticket'] and '### two: Второй' in sent[0]['state']['plan']
+    judge_body = sent[1]
+    assert set(judge_body['questions']) == {'same_requirements', 'no_extra_steps', 'boundaries'}
+    assert all(q['type'] == 'noul' for q in judge_body['questions'].values())
+    assert '# plan эталон' in judge_body['state']['reference'] and 'sk-abcdef' not in judge_body['state']['reference']
+    assert '### two: Второй' in judge_body['state']['candidate'] and 'research' not in judge_body['state']
+    assert 'jev: true' in (good / 'judge/AGENTS.md').read_text() and not list((good / 'vault/changelog').iterdir())
+    assert sorted(p.name for p in (good / 'vault').rglob('*.md')) == ['bench-task.md', 'bench-task.md']
+    assert bench_eval.judge_run(records + results, instances, lambda r: None) == []
+
+
+def test_judge_run_without_key_or_reference_and_invalid_plan(tmp_path, monkeypatch):
+    monkeypatch.delenv('OPENROUTER_API_KEY', raising=False)
+    sb = judge_sandbox(tmp_path / 'sb')
+    (sb / 'vault/plans/bench-task.md').write_text('---\nschema: 1\n---\n# нет шагов\n', encoding='utf-8')
+    records = judge_records(tmp_path, ('df-1-one', sb), ('df-3-three', judge_sandbox(tmp_path / 'noref')))
+    instances = {'df-1-one': {'instance_id': 'df-1-one', 'reference': REFERENCE}, 'df-3-three': {'instance_id': 'df-3-three'}}
+    results = bench_eval.judge_run(records, instances, lambda r: None, threshold=0.5)
+    first, third = results
+    assert first['validate']['ok'] is False and 'research_revision' in first['validate']['error']
+    assert first['coverage']['status'] == 'skipped' and first['coverage']['reason'] == 'OPENROUTER_API_KEY не задан' and first['coverage']['min'] is None
+    assert first['judge'] == {'model': None, 'noul': None, 'reason': 'OPENROUTER_API_KEY не задан'}
+    assert third['reason'] == 'df-3-three: no reference documents' and third['judge'] is None
+
+
+def test_judge_skips_documents_over_the_limit_and_missing_noul(monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'k')
+    big = {'plan': {'content': 'x' * (bench_eval.jev.INPUT_LIMIT + 1)}}
+    assert bench_eval.judge(big, {'plan': ''})['reason'].startswith('документы больше лимита')
+    monkeypatch.setattr(bench_eval.jev.urllib.request, 'urlopen',
+                        lambda req, timeout: JudgeResp(json.dumps({'model': 'm', 'answers': {'boundaries': {'noul': 0.5}}}).encode()))
+    out = bench_eval.judge({'plan': {'content': 'a'}}, {'plan': 'b'})
+    assert out == {'model': 'm', 'noul': None, 'reason': 'в ответе нет noul для same_requirements, no_extra_steps'}

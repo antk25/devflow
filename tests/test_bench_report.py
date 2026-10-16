@@ -97,3 +97,43 @@ def test_report_writes_markdown(tmp_path):
     assert '## Сравнение с базой `production`' in text and '## Шум A/A′' in text and 'разошлись по решённости: 1' in text
     with pytest.raises(WorkflowError):
         bench.report_run('none', journal_dir=tmp_path / 'runs' / 'none')
+
+
+def judge_journal():
+    records = [{'type': 'run_start', 'run': 'refs', 'set': 'devflow-refs', 'combos': ['production', 'smoke'], 'phases': ['research', 'plan']}]
+    scores = {('df-1', 'production'): (0.9, 0.95, 0.8, 0.7), ('df-1', 'smoke'): (0.4, 0.5, 0.6, 0.3), ('df-2', 'production'): (0.8, 0.9, 0.9, 0.9)}
+    for (task, combo), (cover, *verdict) in scores.items():
+        pair = f'{task}__{combo}__r1'
+        records.append({'type': 'pair_start', 'pair': pair, 'attempt': 1, 'task': task, 'combo': combo, 'replica': 1})
+        records += [phase(pair, p, 'claude', 0.5, 60) for p in ('research', 'plan')]
+        records.append({'type': 'pair_end', 'pair': pair, 'attempt': 1, 'outcome': 'planned', 'phases': 2, 'steps': 0, 'open_questions': 1, 'patch_bytes': 0})
+        records.append({'type': 'judge', 'pair': pair, 'attempt': 1, 'task': task, 'reason': None,
+                        'validate': {'ok': combo == 'production', 'steps': 3, 'error': None},
+                        'coverage': {'status': 'ok', 'reason': None, 'model': 'j', 'noul': [cover, 0.99], 'flagged': int(cover < 0.95), 'min': cover},
+                        'judge': {'model': 'j', 'noul': dict(zip(bench_report.JUDGE_KEYS, verdict)), 'reason': None}})
+    pair = 'df-2__smoke__r1'
+    records.append({'type': 'pair_start', 'pair': pair, 'attempt': 1, 'task': 'df-2', 'combo': 'smoke', 'replica': 1})
+    records.append({'type': 'pair_end', 'pair': pair, 'attempt': 1, 'outcome': 'planned', 'phases': 2, 'steps': 0, 'open_questions': 0, 'patch_bytes': 0})
+    records.append({'type': 'judge', 'pair': pair, 'attempt': 1, 'task': 'df-2', 'reason': 'no plan at x', 'validate': None, 'coverage': None, 'judge': None})
+    return records
+
+
+def test_report_in_judge_mode_shows_judge_columns_instead_of_resolved(tmp_path):
+    directory = tmp_path / 'runs' / 'refs'
+    directory.mkdir(parents=True)
+    (directory / 'journal.jsonl').write_text('\n'.join(json.dumps(r) for r in judge_journal()) + '\n', encoding='utf-8')
+    summary = bench_report.summarize(judge_journal())
+    assert summary['mode'] == 'judge'
+    assert summary['rows'][('df-1', 'smoke')]['judge'] == {'valid': False, 'coverage_min': 0.4, 'flagged': 1, 'same_requirements': 0.5,
+                                                           'no_extra_steps': 0.6, 'boundaries': 0.3, 'reason': None}
+    assert summary['rows'][('df-2', 'smoke')]['judge']['valid'] is None and summary['rows'][('df-2', 'smoke')]['judge']['reason'] == 'no plan at x'
+    result = bench.report_run('refs', journal_dir=directory)
+    text = (directory / 'report.md').read_text(encoding='utf-8')
+    assert result['mode'] == 'judge' and result['judge']['production'] == {'scored': 2, 'valid': 2, 'coverage_min': 0.85, 'same_requirements': 0.93,
+                                                                            'no_extra_steps': 0.85, 'boundaries': 0.8}
+    assert '| df-1 | ✓ planned · покрытие 0.90 (1⚑) · судья 0.95/0.80/0.70 ·' in text
+    assert '✗ planned · покрытие 0.40 (1⚑) · судья 0.50/0.60/0.30' in text and '— planned · покрытие — · судья —/—/—' in text
+    assert '| связка | валидно | завершено (planned) | покрытие мед | судья мед (треб/шаги/границы) |' in text
+    assert '| production | 2/2 | 2/2 | 0.85 | 0.93/0.85/0.80 |' in text and '| smoke | 0/1 | 2/2 | 0.40 | 0.50/0.60/0.30 |' in text
+    assert 'diff×' not in text and 'решена' not in text
+    assert 'summary' not in result and bench_report.summarize(journal())['mode'] == 'tests'
