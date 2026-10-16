@@ -5,7 +5,8 @@ import json
 import sys
 
 FIELDS = ('instance_id', 'repo', 'version', 'base_commit', 'created_at', 'problem_statement', 'hints_text',
-          'patch', 'test_patch', 'FAIL_TO_PASS', 'PASS_TO_PASS', 'image', 'eval_script', 'log_parser', 'eval_type')
+          'patch', 'test_patch', 'FAIL_TO_PASS', 'PASS_TO_PASS', 'image', 'eval_script', 'log_parser', 'eval_type',
+          'image_assets')
 
 
 def main(argv=None):
@@ -22,7 +23,7 @@ def main(argv=None):
     instances = []
     for row in rows:
         item = {k: row.get(k) for k in FIELDS}
-        for key in ('FAIL_TO_PASS', 'PASS_TO_PASS'):
+        for key in ('FAIL_TO_PASS', 'PASS_TO_PASS', 'image_assets'):
             if isinstance(item[key], str):
                 item[key] = json.loads(item[key])
         instances.append(item)

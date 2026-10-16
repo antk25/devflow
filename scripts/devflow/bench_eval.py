@@ -29,7 +29,10 @@ JUDGE_TIMEOUT = 60
 REFERENCES_TEST_CMD = '.venv/bin/python -m pytest -q'
 REFERENCE_SLUGS = ('df-10-project-init-sync', 'df-12-jev-coverage-check', 'df-13-jev-plan-check', 'df-14-bash-guard',
                    'df-15-side-fixes', 'df-16-timesheet', 'df-17-jira-accounts')
-LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',), 'ts': ('parse_log_vitest', 'parse_log_jest')}
+LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',), 'ts': ('parse_log_vitest', 'parse_log_jest'),
+                    'js': ('parse_log_calypso', 'parse_log_chart_js', 'parse_log_p5js', 'parse_log_marked', 'parse_log_react_pdf')}
+# Screenshots of Multimodal issues stay links in the task text: the sandbox network is closed, nobody fetches them.
+IMAGE_LIMITATION = 'скриншоты из issue — только ссылки в тексте ТЗ; сеть к ним из песочницы закрыта'
 TEST_OUTPUT = re.compile(r"^: '>>>>> Start Test Output'\n(.*?)\n: '>>>>> End Test Output'", re.S | re.M)
 PRE_TEST = re.compile(r"^EOF_\d+\n(.*?)^: '>>>>> Start Test Output'", re.S | re.M)
 
@@ -188,6 +191,14 @@ def by_language(items, language):
     return [item for item in items if item.get('log_parser') in parsers]
 
 
+def image_links(item):
+    """Screenshot links of the issue text (Multimodal `image_assets`), empty for the other datasets."""
+    assets = item.get('image_assets') or {}
+    if isinstance(assets, str):
+        assets = json.loads(assets)
+    return list(assets.get('problem_statement') or [])
+
+
 def has_agent_files(image, execute):
     """True when the task repository at the base commit carries its own AGENTS.md or CLAUDE.md (pulls the image)."""
     cmd = ['docker', 'run', '--rm', '--entrypoint', 'sh', image, '-c',
@@ -274,12 +285,16 @@ def build_set(name, dataset, language, per_repo, count=None, split='test', execu
         picked = picked[:count]
     images = [item['image'] for item in picked]
     size = image_bytes(images, execute)
+    screenshots = {item['instance_id']: len(image_links(item)) for item in picked}
     result = {'name': name, 'adapter': 'swebench', 'dataset': dataset, 'split': split, 'language': language,
               'swebench': data.get('swebench', SWEBENCH_VERSION),
               'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+              'limitations': [IMAGE_LIMITATION] if any(screenshots.values()) else [],
               'instances': [item['instance_id'] for item in picked],
               'details': {item['instance_id']: {'repo': item['repo'], 'created_at': item['created_at'],
-                                                'image': item['image'], 'gold_resolved': True} for item in picked},
+                                                'image': item['image'], 'gold_resolved': True,
+                                                **({'screenshots': screenshots[item['instance_id']]}
+                                                   if screenshots[item['instance_id']] else {})} for item in picked},
               'rejected': rejected}
     sets_dir = Path(sets_dir)
     sets_dir.mkdir(parents=True, exist_ok=True)

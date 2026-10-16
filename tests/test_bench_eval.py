@@ -161,6 +161,32 @@ def test_by_language_ts_takes_vitest_and_jest():
     assert [i['instance_id'] for i in bench_eval.by_language(items, 'ts')] == ['vuejs__core-1', 'babel__babel-1']
 
 
+def test_by_language_js_takes_multimodal_parsers():
+    items = [instance('chartjs/Chart.js', 1, '2023-06-15T15:45:37Z', parser='parse_log_chart_js'),
+             instance('markedjs/marked', 1, '2023-05-21T16:06:49Z', parser='parse_log_marked'),
+             instance('vuejs/core', 1, '2024-08-01 00:00:00', parser='parse_log_vitest')]
+    assert [i['instance_id'] for i in bench_eval.by_language(items, 'js')] == ['chartjs__Chart.js-1', 'markedjs__marked-1']
+
+
+def test_build_set_records_screenshot_limitation(dirs):
+    items = [instance('markedjs/marked', 1, '2023-05-21T16:06:49Z', parser='parse_log_marked'),
+             instance('markedjs/marked', 2, '2023-06-21T16:06:49Z', parser='parse_log_marked')]
+    items[0]['image_assets'] = {'problem_statement': ['https://x/a.png', 'https://x/b.png'], 'patch': [], 'test_patch': []}
+    items[1]['image_assets'] = json.dumps({'problem_statement': [], 'patch': [], 'test_patch': []})
+    write_dataset(dirs['datasets_dir'], items, dataset='SWE-bench/SWE-bench_Multimodal', split='dev')
+    result = bench_eval.build_set('design', 'SWE-bench/SWE-bench_Multimodal', 'js', 3, split='dev', execute=FakeDocker(dirs['harness_dir']), **dirs)
+    assert result['limitations'] == [bench_eval.IMAGE_LIMITATION]
+    assert result['details']['markedjs__marked-1']['screenshots'] == 2
+    assert 'screenshots' not in result['details']['markedjs__marked-2']
+    assert result['instances'] == ['markedjs__marked-2', 'markedjs__marked-1']
+
+
+def test_build_set_without_screenshots_has_no_limitations(dirs):
+    write_dataset(dirs['datasets_dir'], [instance('a/b', 1, '2024-01-01 00:00:00')])
+    result = bench_eval.build_set('s', 'SWE-bench/SWE-bench_Multilingual', 'php', 3, execute=FakeDocker(dirs['harness_dir']), **dirs)
+    assert result['limitations'] == [] and 'screenshots' not in result['details']['a__b-1']
+
+
 def test_run_gold_fails_without_report(dirs):
     def harness(cmd, cwd=None, timeout=None):
         assert cwd == str(dirs['harness_dir'])
