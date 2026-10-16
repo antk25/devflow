@@ -15,8 +15,9 @@ CACHE_DIR = Path('~/.local/share/devflow/bench').expanduser()
 DATASETS_DIR = CACHE_DIR / 'datasets'
 HARNESS_DIR = CACHE_DIR / 'harness'
 SWEBENCH_VERSION = '5.0.2'
-LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',)}
+LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',), 'ts': ('parse_log_vitest', 'parse_log_jest')}
 TEST_OUTPUT = re.compile(r"^: '>>>>> Start Test Output'\n(.*?)\n: '>>>>> End Test Output'", re.S | re.M)
+PRE_TEST = re.compile(r"^EOF_\d+\n(.*?)^: '>>>>> Start Test Output'", re.S | re.M)
 
 
 def host_execute(cmd, cwd=None, timeout=None):
@@ -28,17 +29,20 @@ def uv_command(script_args):
 
 
 def test_cmd(eval_script):
-    """The test command of a harness eval script: the lines between the test-output markers, without the `| cat`."""
+    """The test command of a harness eval script: the lines between the test-output markers, without the `| cat`,
+    preceded by the build lines some scripts run between the test patch and the tests (`make build` and the like)."""
     match = TEST_OUTPUT.search(eval_script or '')
     if not match:
         return None
+    pre = PRE_TEST.search(eval_script)
+    build = [line.strip() for line in (pre.group(1) if pre else '').splitlines() if line.strip()]
     lines = []
     for line in match.group(1).splitlines():
         line = re.sub(r'\s*\|\s*cat$', '', line.strip())
         if line.startswith('(') and line.endswith(')'):
             line = line[1:-1]
         lines.append(line)
-    return '\n'.join(lines)
+    return ' && '.join(build + ['\n'.join(lines)])
 
 
 def dataset_file(dataset, split, directory=DATASETS_DIR):

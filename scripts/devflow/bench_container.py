@@ -15,9 +15,12 @@ from pathlib import Path
 NETWORK = 'devflow-bench'
 RUNNER_MODE = 'host'
 CONTAINER_HOME = '/tmp/devflow-home'
-# Go images keep the module cache under /root, unreadable by the host uid; it is copied next to the repository.
-GO_MOD_CACHE = '/root/go/pkg/mod'
-GO_MOD_CACHE_COPY = 'go/pkg/mod'
+# Images keep tool caches under /root, unreadable by the host uid; each is copied next to the repository
+# and pointed at through its variable: (path in the image, copy relative to the work directory, variable).
+ROOT_CACHES = (('/root/go/pkg/mod', 'go/pkg/mod', 'GOMODCACHE'),
+               ('/root/.cache/node/corepack', 'node/corepack', 'COREPACK_HOME'),
+               ('/root/.yarn/berry', 'yarn/berry', 'YARN_GLOBAL_FOLDER'))
+GO_MOD_CACHE, GO_MOD_CACHE_COPY = ROOT_CACHES[0][:2]
 
 
 def docker_execute(cmd, timeout, cwd=None, env=None):
@@ -38,7 +41,7 @@ def ensure_network(execute=docker_execute):
 
 def checkout(image, dest, execute=docker_execute, source='/testbed'):
     """A copy of the task repository from the image in `dest` (replaced when it exists), owned by the caller;
-    the Go module cache of the image, when there is one, goes to `GO_MOD_CACHE_COPY` beside `dest`."""
+    the root caches of the image (`ROOT_CACHES`), when present, go beside `dest`."""
     dest = Path(dest)
     if dest.exists():
         shutil.rmtree(dest)
@@ -53,24 +56,35 @@ def checkout(image, dest, execute=docker_execute, source='/testbed'):
             raise RuntimeError(f'docker cp {source} failed: {(proc.stderr or "").strip()}')
     finally:
         execute(['docker', 'rm', cid], 60)
-    copy_go_mod_cache(image, dest.parent, execute)
+    copy_root_caches(image, dest.parent, execute)
     return dest
 
 
-def copy_go_mod_cache(image, workdir, execute=docker_execute):
-    """The module cache of a Go image into `<workdir>/go/pkg/mod`, writable and owned by the host user.
+def cache_env(workdir):
+    return [f'{var}={workdir}/{copy}' for _, copy, var in ROOT_CACHES]
+
+
+def copy_root_caches(image, workdir, execute=docker_execute):
+    """The `ROOT_CACHES` of the image into `<workdir>`, writable and owned by the host user.
     `docker cp` cannot do it: the cache directories are read-only and the copy stops at the second file."""
-    target = Path(workdir) / GO_MOD_CACHE_COPY
-    if target.parent.parent.exists():
-        shutil.rmtree(target.parent.parent)
-    script = (f'[ -d {GO_MOD_CACHE} ] || exit 0; mkdir -p {shlex.quote(str(target.parent))} && '
-              f'cp -a {GO_MOD_CACHE} {shlex.quote(str(target))} && chmod -R u+w {shlex.quote(str(target.parent.parent))} && '
-              f'chown -R {os.getuid()}:{os.getgid()} {shlex.quote(str(target.parent.parent))}')
+    workdir = Path(workdir)
+    tops = sorted({Path(copy).parts[0] for _, copy, _ in ROOT_CACHES})
+    for top in tops:
+        if (workdir / top).exists():
+            shutil.rmtree(workdir / top)
+    steps = []
+    for source, copy, _ in ROOT_CACHES:
+        target = workdir / copy
+        steps.append(f'if [ -d {source} ]; then mkdir -p {shlex.quote(str(target.parent))} && '
+                     f'cp -a {source} {shlex.quote(str(target))} || exit 1; fi')
+    owned = ' '.join(shlex.quote(str(workdir / top)) for top in tops)
+    script = '\n'.join(steps + [f'for d in {owned}; do [ -d "$d" ] && chmod -R u+w "$d" && '
+                                 f'chown -R {os.getuid()}:{os.getgid()} "$d"; done; exit 0'])
     proc = execute(['docker', 'run', '--rm', '--network', 'none', '-v', f'{workdir}:{workdir}', '--entrypoint', 'sh',
                     image, '-c', script], 1800)
     if proc.returncode != 0:
-        raise RuntimeError(f'go module cache copy from {image} failed: {(proc.stderr or "").strip()}')
-    return target if target.exists() else None
+        raise RuntimeError(f'root cache copy from {image} failed: {(proc.stderr or "").strip()}')
+    return [workdir / copy for _, copy, _ in ROOT_CACHES if (workdir / copy).exists()]
 
 
 def run_command(name, image, workdir, env_names=()):
@@ -78,7 +92,9 @@ def run_command(name, image, workdir, env_names=()):
     variable name only, no network except the internal one."""
     workdir = str(workdir)
     cmd = ['docker', 'run', '-d', '--name', name, '--network', NETWORK, '--user', f'{os.getuid()}:{os.getgid()}',
-           '-e', f'HOME={CONTAINER_HOME}', '-e', f'GOMODCACHE={workdir}/{GO_MOD_CACHE_COPY}']
+           '-e', f'HOME={CONTAINER_HOME}']
+    for pair in cache_env(workdir):
+        cmd += ['-e', pair]
     for env_name in env_names:
         cmd += ['-e', env_name]
     cmd += ['-v', f'{workdir}:{workdir}', '-w', workdir, '--entrypoint', 'sleep', image, 'infinity']

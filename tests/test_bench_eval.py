@@ -70,6 +70,11 @@ def test_test_cmd_strips_markers_and_cat():
     assert bench_eval.test_cmd('echo no markers') is None
 
 
+def test_test_cmd_keeps_the_build_lines_before_the_tests():
+    script = EVAL_SCRIPT.replace("EOF_1\n: '>>>>>", "EOF_1\nmake build\n: '>>>>>")
+    assert bench_eval.test_cmd(script) == 'make build && vendor/bin/phpunit --testdox --colors=never tests/RoundTest.php'
+
+
 def test_instances_from_cache_without_helper(dirs):
     items = [instance('a/b', 1, '2024-01-01 00:00:00')]
     write_dataset(dirs['datasets_dir'], items)
@@ -145,6 +150,13 @@ def test_build_set_rejects_unknown_language_and_empty(dirs):
         bench_eval.build_set('s', 'SWE-bench/SWE-bench_Multilingual', 'rust', 3, execute=FakeDocker(dirs['harness_dir']), **dirs)
     with pytest.raises(WorkflowError, match='no php instances'):
         bench_eval.build_set('s', 'SWE-bench/SWE-bench_Multilingual', 'php', 3, execute=FakeDocker(dirs['harness_dir']), **dirs)
+
+
+def test_by_language_ts_takes_vitest_and_jest():
+    items = [instance('vuejs/core', 1, '2024-08-01 00:00:00', parser='parse_log_vitest'),
+             instance('babel/babel', 1, '2023-01-01 00:00:00', parser='parse_log_jest'),
+             instance('gin-gonic/gin', 1, '2024-01-01 00:00:00', parser='parse_log_gotest')]
+    assert [i['instance_id'] for i in bench_eval.by_language(items, 'ts')] == ['vuejs__core-1', 'babel__babel-1']
 
 
 def test_run_gold_fails_without_report(dirs):
