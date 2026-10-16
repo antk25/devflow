@@ -205,7 +205,7 @@ def test_sandbox_command_starts_the_task_container(sandbox_env, monkeypatch):
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0, '', '')
     monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'dataset': 'd', 'split': 'test', 'instances': [INSTANCE['instance_id']]})
-    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {INSTANCE['instance_id']: INSTANCE})
     result = bench.sandbox('php-pilot', INSTANCE['instance_id'], root=sandbox_env / 'sb', execute=execute)
     run = next(c for c in calls if c[:2] == ['docker', 'run'])
     assert result['container'] == 'devflow-bench-php-cs-fixer__php-cs-fixer-8367__manual__r1'
@@ -398,7 +398,7 @@ def test_run_writes_journal_patch_and_stops_the_container(sandbox_env, tmp_path,
         return holder['sb']
     monkeypatch.setattr(bench, 'make_sandbox', make)
     monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'dataset': 'd', 'split': 'test', 'swebench': '5.0.2', 'instances': [INSTANCE['instance_id'], 'other']})
-    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {INSTANCE['instance_id']: INSTANCE})
     dry = bench.run('smoke-1', 'php-pilot', ['smoke'], tasks=1, root=sandbox_env / 'sb', journal_dir=tmp_path / 'runs/smoke-1',
                     claude_limit=(None, 95))
     assert dry['state'] == 'dry_run' and dry['pairs'] == ['php-cs-fixer__php-cs-fixer-8367__smoke__r1'] and not (tmp_path / 'runs').exists()
@@ -471,7 +471,7 @@ def two_task_run(sandbox_env, tmp_path, monkeypatch):
     monkeypatch.setattr(bench, 'make_sandbox', make)
     monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'dataset': 'd', 'split': 'test', 'swebench': '5.0.2',
                                                                          'instances': [INSTANCE['instance_id'], other['instance_id']]})
-    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {INSTANCE['instance_id']: INSTANCE, other['instance_id']: other})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {INSTANCE['instance_id']: INSTANCE, other['instance_id']: other})
     holder['made'] = []
     holder['make_claude'] = fake_claude
     directory = tmp_path / 'runs/smoke-2'
@@ -587,3 +587,20 @@ def test_run_frozen_dry_run_counts_only_implement_calls(two_task_run, sandbox_en
     assert result['state'] == 'dry_run' and result['estimate']['phase_calls'] == 1
     with pytest.raises(WorkflowError):
         two_task_run['go'](tasks=1, yes=False, freeze=['research', 'plan'])
+
+
+def test_make_sandbox_from_a_source_commit_without_docker(sandbox_env):
+    source = sandbox_env / 'source'
+    fake_checkout(None, source)
+    first = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD~2'], capture_output=True, text=True).stdout.strip()
+    instance = {'instance_id': 'df-1-one', 'repo': 'devflow', 'source': str(source), 'base_commit': first,
+                'problem_statement': 'Суть.', 'test_cmd': 'pytest -q', 'image': 'python:3.12-bookworm',
+                'reference': {'research': {'content': 'secret'}, 'plan': {'content': 'secret'}}}
+    calls = []
+    sb = bench.make_sandbox(sandbox_env / 'run', {'task': 'df-1-one', 'combo': 'smoke', 'replica': 1}, instance,
+                            execute=lambda cmd, timeout: calls.append(cmd))
+    assert calls == [] and (sb['repo'] / 'src/a.php').read_text() == '<?php // 0\n'
+    log = subprocess.run(['git', '-C', str(sb['repo']), 'log', '--oneline'], capture_output=True, text=True).stdout
+    assert log.splitlines() == [f'{sb["base"][:7]} base']
+    assert not list((sb['vault'] / 'research').iterdir()) and not list((sb['vault'] / 'plans').iterdir())
+    assert 'secret' not in (sb['vault'] / 'tz/bench-task.md').read_text()

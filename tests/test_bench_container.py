@@ -168,7 +168,7 @@ def doctor_probe_execute(tools=('Bash', 'Read', 'Edit')):
 
 @pytest.fixture
 def instance_lookup(monkeypatch):
-    monkeypatch.setattr(bench, 'instances', lambda dataset, split, ids: {ids[0]: dict(INSTANCE, instance_id=ids[0])})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {ids[0]: dict(INSTANCE, instance_id=ids[0])})
     applied = []
     monkeypatch.setattr(bench, 'git_apply', lambda repo, patch: applied.append(patch))
     return applied

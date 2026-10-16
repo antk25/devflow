@@ -1,11 +1,13 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from devflow import bench, bench_eval
-from devflow.documents import WorkflowError
+from devflow.documents import WorkflowError, context
+from devflow.storage import connect
 
 EVAL_SCRIPT = """#!/bin/bash
 set -uxo pipefail
@@ -420,3 +422,95 @@ def test_static_run_writes_quality_lines_per_pending_pair(tmp_path):
     assert results[1]['reason'].startswith('no sandbox at') and results[1]['new_static_errors'] is None
     assert started == [('devflow-bench-static-a__b-1__smoke__r1', 'img', str(sb)), ('stop', 'devflow-bench-static-a__b-1__smoke__r1')]
     assert bench.static_run(records + results, {}, journal, execute=fake) == []
+
+
+def git_repo(path, dates):
+    """A repository with one commit per ISO date (author and committer dates), on `main`."""
+    path.mkdir(parents=True)
+    git = ['git', '-C', str(path), '-c', 'user.name=t', '-c', 'user.email=t@t']
+    subprocess.run(git + ['init', '-q', '-b', 'main'], check=True)
+    shas = []
+    for n, date in enumerate(dates):
+        (path / 'file.txt').write_text(f'{n}\n')
+        subprocess.run(git + ['add', '-A'], check=True)
+        subprocess.run(git + ['commit', '-q', '-m', f'c{n}'], check=True,
+                       env={**os.environ, 'GIT_AUTHOR_DATE': date, 'GIT_COMMITTER_DATE': date})
+        shas.append(subprocess.run(git + ['rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip())
+    return shas
+
+
+@pytest.fixture
+def reference_project(tmp_path, monkeypatch):
+    """A project with its own state root: tz documents in the vault, approved research and plan in the database."""
+    monkeypatch.setenv('DEVFLOW_STATE_DIR', str(tmp_path / 'state'))
+    repo = tmp_path / 'repo'
+    shas = git_repo(repo, ['2026-09-20T10:00:00+00:00', '2026-09-22T10:00:00+00:00', '2026-09-24T10:00:00+00:00'])
+    vault = tmp_path / 'vault'
+    for folder in ('tz', 'research', 'plans', 'changelog'):
+        (vault / folder).mkdir(parents=True)
+    (repo / 'AGENTS.md').write_text(f'---\nproject: p\nvault: {vault}\n---\n', encoding='utf-8')
+    (vault / 'tz/DF-1-one.md').write_text('---\ntask: DF-1\n---\n\n# DF-1 One\n\nСуть задачи.\n', encoding='utf-8')
+    (vault / 'tz/DF-2-two.md').write_text('# DF-2 Two\n', encoding='utf-8')
+    ctx = context(repo)
+    db = connect(ctx, create=True)
+    rows = [('df-1-one', 'research', 'r1', '2026-09-23T08:00:00+00:00', '# research 1'),
+            ('df-1-one', 'plan', 'p1', '2026-09-23T09:00:00+00:00', '# plan 1'),
+            ('df-1-one', 'plan', 'p2', '2026-09-23T11:00:00+00:00', '# plan 2'),
+            ('df-2-two', 'research', 'r2', '2026-09-25T08:00:00+00:00', '# research 2')]
+    for slug, phase, revision, at, content in rows:
+        db.execute('INSERT INTO artifacts VALUES (?,?,?,?)', (slug, phase, revision, content))
+        db.execute('INSERT INTO approvals VALUES (?,?,?,?)', (slug, phase, revision, at))
+    db.execute('INSERT INTO artifacts VALUES (?,?,?,?)', ('df-1-one', 'plan', 'p3', '# plan 3, never approved'))
+    db.close()
+    return {'ctx': ctx, 'shas': shas, 'sets_dir': tmp_path / 'sets', 'references_dir': tmp_path / 'refs', 'tmp': tmp_path}
+
+
+def test_snapshot_references_takes_latest_approved_and_commit_before_research(reference_project):
+    p = reference_project
+    before = (p['tmp'] / 'state').rglob('*')
+    stat = {f: f.stat().st_mtime_ns for f in before if f.is_file()}
+    result = bench_eval.snapshot_references('refs', p['ctx'], slugs=('df-1-one',), sets_dir=p['sets_dir'],
+                                            references_dir=p['references_dir'])
+    assert result['adapter'] == 'references' and result['instances'] == ['df-1-one'] and result['swebench'] is None
+    detail = result['details']['df-1-one']
+    assert detail['commit'] == p['shas'][1] and detail['commit_source'] == 'git log --until'
+    assert detail['research_revision'] == 'r1' and detail['plan_revision'] == 'p2'
+    saved = json.loads((p['references_dir'] / 'refs/df-1-one.json').read_text(encoding='utf-8'))
+    assert saved['plan']['content'] == '# plan 2' and saved['research']['content'] == '# research 1'
+    assert saved['tz'].startswith('---\ntask: DF-1') and saved['commit'] == p['shas'][1]
+    data = bench.load_set('refs', directory=p['sets_dir'])
+    assert data['dataset'] == 'refs' and data['details']['df-1-one']['plan_approved_at'] == '2026-09-23T11:00:00+00:00'
+    assert {f: f.stat().st_mtime_ns for f in (p['tmp'] / 'state').rglob('*') if f.is_file()} == stat
+    assert not (Path.home() / '.local/share/devflow/bench/references/refs').exists()
+
+
+def test_snapshot_references_manual_commit_and_missing_documents(reference_project):
+    p = reference_project
+    result = bench_eval.snapshot_references('refs', p['ctx'], slugs=('df-1-one',), commits={'df-1-one': 'abc123'},
+                                            sets_dir=p['sets_dir'], references_dir=p['references_dir'])
+    assert result['details']['df-1-one'] == {**result['details']['df-1-one'], 'commit': 'abc123', 'commit_source': 'manual'}
+    with pytest.raises(WorkflowError, match='df-2-two: no approved plan'):
+        bench_eval.snapshot_references('refs', p['ctx'], slugs=('df-2-two',), sets_dir=p['sets_dir'], references_dir=p['references_dir'])
+    with pytest.raises(WorkflowError, match='df-3-three: no tz document'):
+        bench_eval.snapshot_references('refs', p['ctx'], slugs=('df-3-three',), sets_dir=p['sets_dir'], references_dir=p['references_dir'])
+
+
+def test_reference_instances_schema_and_set_dispatch(reference_project):
+    p = reference_project
+    bench_eval.snapshot_references('refs', p['ctx'], slugs=('df-1-one',), sets_dir=p['sets_dir'], references_dir=p['references_dir'])
+    data = bench.load_set('refs', directory=p['sets_dir'])
+    loaded = bench_eval.set_instances(data, ['df-1-one'], references_dir=p['references_dir'])
+    item = loaded['df-1-one']
+    assert item['instance_id'] == 'df-1-one' and item['base_commit'] == p['shas'][1] and item['source'] == str(p['ctx']['cwd'])
+    assert item['problem_statement'] == '\n# DF-1 One\n\nСуть задачи.\n' and item['test_cmd'] == bench_eval.REFERENCES_TEST_CMD
+    assert item['image'] == bench_eval.REFERENCES_IMAGE and item['reference']['plan']['revision'] == 'p2'
+    with pytest.raises(WorkflowError, match='no reference snapshot for df-9'):
+        bench_eval.set_instances(data, ['df-9'], references_dir=p['references_dir'])
+    with pytest.raises(WorkflowError, match="unknown adapter 'x'"):
+        bench_eval.set_instances({'name': 's', 'adapter': 'x'}, [])
+
+
+def test_parse_commits():
+    assert bench.parse_commits(['a=1', 'b=2']) == {'a': '1', 'b': '2'} and bench.parse_commits(None) == {}
+    with pytest.raises(WorkflowError, match='--commit expects'):
+        bench.parse_commits(['a'])

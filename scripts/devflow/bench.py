@@ -17,7 +17,7 @@ from . import bench_container as container
 from . import bench_runners as runners
 from . import bench_eval
 from . import bench_report
-from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, evaluate, instances
+from .bench_eval import CACHE_DIR, SETS_DIR, SWEBENCH_VERSION, build_set, evaluate, set_instances, snapshot_references
 from .bench_runners import (CLAUDE_ISOLATION, PROBE_TIMEOUT, RUNNERS, WEB_TOOLS, claude_init, claude_probe_command,
                             host_execute, probe)
 from .documents import WorkflowError, context
@@ -151,7 +151,7 @@ def doctor(instance_id, execute=None, probe_execute=None, workdir=None, keep=Fal
     execute = execute or container.docker_execute
     probe_execute = probe_execute or host_execute
     data = set_of_instance(instance_id)
-    instance = instances(data['dataset'], data['split'], [instance_id])[instance_id]
+    instance = set_instances(data, [instance_id])[instance_id]
     checks = []
     try:
         internal = container.ensure_network(execute)
@@ -231,6 +231,16 @@ def container_name(pair):
     return f'devflow-bench-{pair_id(pair)}'
 
 
+def checkout_commit(source, commit, dest):
+    """The tree of `commit` from the git repository `source` in `dest` (reference tasks: no image behind them)."""
+    dest = Path(dest)
+    dest.mkdir(parents=True)
+    archive = subprocess.run(['git', '-C', str(source), 'archive', '--format=tar', commit], capture_output=True, timeout=600)
+    if archive.returncode != 0:
+        raise WorkflowError(f'git archive {commit} failed in {source}: {archive.stderr.decode(errors="replace").strip()[-500:]}')
+    subprocess.run(['tar', '-x', '-C', str(dest)], input=archive.stdout, check=True, timeout=600)
+
+
 def make_sandbox(root, pair, instance, execute=None):
     """`<root>/<pair_id>/` with `repo/` (the image's /testbed on a single base commit), `vault/`, `state/`, `home/`;
     an existing directory is replaced. Returns the paths and `base`, the sha of the base commit."""
@@ -240,7 +250,10 @@ def make_sandbox(root, pair, instance, execute=None):
         shutil.rmtree(sb_dir)
     sb = {'dir': sb_dir, 'repo': sb_dir / 'repo', 'vault': sb_dir / 'vault', 'state': sb_dir / 'state', 'home': sb_dir / 'home',
           'pair': pair_id(pair)}
-    container.checkout(instance['image'], sb['repo'], execute)
+    if instance.get('source'):
+        checkout_commit(instance['source'], instance['base_commit'], sb['repo'])
+    else:
+        container.checkout(instance['image'], sb['repo'], execute)
     for folder in ('tz', 'research', 'plans', 'changelog', 'notes'):
         (sb['vault'] / folder).mkdir(parents=True)
     sb['state'].mkdir()
@@ -269,7 +282,7 @@ def sandbox(set_name, instance_id, root=None, execute=None):
     data = load_set(set_name)
     if instance_id not in data['instances']:
         raise WorkflowError(f'instance {instance_id} is not in set {set_name}')
-    instance = instances(data['dataset'], data['split'], [instance_id])[instance_id]
+    instance = set_instances(data, [instance_id])[instance_id]
     pair = {'task': instance_id, 'combo': 'manual', 'replica': 1}
     sb = make_sandbox(Path(root or SANDBOX_ROOT / 'sandbox'), pair, instance, execute)
     name = container_name(pair)
@@ -639,7 +652,7 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
     result = {'run': name, 'journal': str(journal), 'pairs': [pair_id(p) for p in selected_pairs]}
     if not yes:
         return dict(result, state='dry_run', estimate=estimate(selected_pairs, by_name, history(directory.parent), limit, freeze))
-    loaded = instances(data['dataset'], data['split'], task_ids)
+    loaded = set_instances(data, task_ids)
     records = read(journal)
     if not records:
         append(journal, {**run_start_record(name, data, selected, selected_pairs),
@@ -715,7 +728,7 @@ def eval_run(name, self_check=False, journal_dir=None, execute=None, harness_dir
         raise WorkflowError(f'run {name}: no journal at {journal}')
     data = load_set(starts[0]['set'])
     tasks = sorted({r['task'] for r in records if r.get('type') == 'pair_start'})
-    loaded = instances(data['dataset'], data['split'], tasks) if tasks else {}
+    loaded = set_instances(data, tasks) if tasks else {}
     kwargs = {'harness_dir': harness_dir} if harness_dir else {}
     results = evaluate(name, data['dataset'], data['split'], records, loaded, execute or bench_eval.host_execute,
                        lambda record: append(journal, record), self_check, workers=workers, **kwargs)
@@ -736,6 +749,17 @@ def report_run(name, base='production', journal_dir=None):
     if not any(r.get('type') == 'run_start' for r in records):
         raise WorkflowError(f'run {name}: no journal at {directory / "journal.jsonl"}')
     return bench_report.report(name, records, directory, base)
+
+
+def parse_commits(items):
+    """`--commit <slug>=<sha>` pairs as a dict."""
+    commits = {}
+    for item in items or ():
+        slug, sep, sha = item.partition('=')
+        if not sep or not slug or not sha:
+            raise WorkflowError(f'--commit expects <slug>=<sha>, got {item!r}')
+        commits[slug] = sha
+    return commits
 
 
 def command(args):
@@ -759,4 +783,7 @@ def command(args):
     if args.bench_command == 'set' and args.set_command == 'build':
         return build_set(args.name, args.dataset, args.language, args.per_repo, count=args.count, split=args.split,
                          workers=args.workers)
+    if args.bench_command == 'set' and args.set_command == 'snapshot':
+        return snapshot_references(args.name, context(args.cwd), slugs=tuple(args.slug) if args.slug else bench_eval.REFERENCE_SLUGS,
+                                   commits=parse_commits(args.commit), branch=args.branch)
     raise WorkflowError(f'unknown bench command: {args.bench_command}')

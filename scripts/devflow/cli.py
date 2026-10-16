@@ -65,6 +65,7 @@ def parser():
     set_commands = bench_commands.add_parser('set').add_subparsers(dest='set_command', required=True)
     a = set_commands.add_parser('build'); a.add_argument('name'); a.add_argument('--dataset', required=True); a.add_argument('--split', default='test')
     a.add_argument('--language', required=True); a.add_argument('--per-repo', type=int, default=3); a.add_argument('--count', type=int); a.add_argument('--workers', type=int, default=1)
+    a = set_commands.add_parser('snapshot'); a.add_argument('name'); a.add_argument('--slug', action='append'); a.add_argument('--commit', action='append'); a.add_argument('--branch', default='main')
     project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')

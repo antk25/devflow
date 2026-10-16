@@ -1,12 +1,15 @@
-"""SWE-bench set adapter: dataset instances, gold run in the harness, set building."""
+"""Set adapters: `swebench` (dataset instances, gold run in the harness, set building) and `references`
+(closed devflow tasks: spec, approved research and plan, the commit the task started from)."""
 import json
 import re
 import shlex
+import sqlite3
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .documents import WorkflowError
+from .documents import WorkflowError, artifact
+from .storage import db_path
 
 ROOT = Path(__file__).resolve().parents[2]
 SETS_DIR = ROOT / 'bench/sets'
@@ -15,6 +18,12 @@ CACHE_DIR = Path('~/.local/share/devflow/bench').expanduser()
 DATASETS_DIR = CACHE_DIR / 'datasets'
 HARNESS_DIR = CACHE_DIR / 'harness'
 SWEBENCH_VERSION = '5.0.2'
+REFERENCES_DIR = CACHE_DIR / 'references'
+# The common runner image of reference tasks: python + git, no SWE-bench image behind them.
+REFERENCES_IMAGE = 'python:3.12-bookworm'
+REFERENCES_TEST_CMD = '.venv/bin/python -m pytest -q'
+REFERENCE_SLUGS = ('df-10-project-init-sync', 'df-12-jev-coverage-check', 'df-13-jev-plan-check', 'df-14-bash-guard',
+                   'df-15-side-fixes', 'df-16-timesheet', 'df-17-jira-accounts')
 LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',), 'ts': ('parse_log_vitest', 'parse_log_jest')}
 TEST_OUTPUT = re.compile(r"^: '>>>>> Start Test Output'\n(.*?)\n: '>>>>> End Test Output'", re.S | re.M)
 PRE_TEST = re.compile(r"^EOF_\d+\n(.*?)^: '>>>>> Start Test Output'", re.S | re.M)
@@ -71,6 +80,100 @@ def instances(dataset, split, ids, execute=None, directory=DATASETS_DIR):
     if missing:
         raise WorkflowError(f'{dataset}:{split}: unknown instances: {", ".join(missing)}')
     return {i: by_id[i] for i in ids}
+
+
+def set_instances(data, ids, execute=None, directory=DATASETS_DIR, references_dir=REFERENCES_DIR):
+    """Instances of a loaded set by its adapter, in the common schema."""
+    adapter = data.get('adapter')
+    if adapter == 'swebench':
+        return instances(data['dataset'], data['split'], ids, execute, directory)
+    if adapter == 'references':
+        return reference_instances(data['dataset'], ids, references_dir)
+    raise WorkflowError(f"set {data.get('name')}: unknown adapter {adapter!r}")
+
+
+def connect_readonly(ctx):
+    """The real state database of `ctx`, opened read-only; the snapshot never writes there."""
+    path, _ = db_path(ctx)
+    if not path.is_file():
+        raise WorkflowError(f'State database is missing: {path}')
+    db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=10)
+    db.row_factory = sqlite3.Row
+    return db
+
+
+def approved_document(db, slug, phase):
+    """The latest approved `phase` document of `slug`: `{revision, approved_at, content}` or None."""
+    row = db.execute('SELECT a.revision, a.approved_at, r.content FROM approvals a JOIN artifacts r '
+                     'ON r.slug=a.slug AND r.phase=a.phase AND r.revision=a.revision '
+                     'WHERE a.slug=? AND a.phase=? ORDER BY a.approved_at DESC LIMIT 1', (slug, phase)).fetchone()
+    return dict(row) if row else None
+
+
+def commit_before(repo, until, branch='main', execute=None):
+    """The last commit of `branch` not later than `until` (ISO time): where the task started."""
+    proc = (execute or host_execute)(['git', '-C', str(repo), 'log', '-1', '--format=%H', f'--until={until}', branch], timeout=60)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise WorkflowError(f'git log {branch} --until {until} in {repo}: {(proc.stderr or "").strip()[-300:] or "no commit"}')
+    return proc.stdout.strip()
+
+
+def snapshot_references(name, ctx, slugs=REFERENCE_SLUGS, commits=None, branch='main', execute=None, sets_dir=SETS_DIR,
+                        references_dir=REFERENCES_DIR):
+    """`devflow bench set snapshot <name>`: for every slug the spec from the vault, the latest approved research and plan
+    from the state database (read-only) and the commit of `branch` at the research approval (`commits` overrides it);
+    the documents go to `<references_dir>/<name>/<slug>.json`, the set to bench/sets/<name>.json."""
+    commits = commits or {}
+    db = connect_readonly(ctx)
+    target = Path(references_dir) / name
+    target.mkdir(parents=True, exist_ok=True)
+    details = {}
+    try:
+        for slug in slugs:
+            tz = artifact(ctx['vault'], 'tz', slug)
+            if tz is None:
+                raise WorkflowError(f'{slug}: no tz document in {ctx["vault"] / "tz"}')
+            research, plan = approved_document(db, slug, 'research'), approved_document(db, slug, 'plan')
+            for phase, doc in (('research', research), ('plan', plan)):
+                if doc is None:
+                    raise WorkflowError(f'{slug}: no approved {phase} in the state database')
+            commit = commits.get(slug) or commit_before(ctx['cwd'], research['approved_at'], branch, execute)
+            (target / f'{slug}.json').write_text(json.dumps(
+                {'slug': slug, 'repo': str(ctx['cwd']), 'commit': commit, 'tz': tz['raw'], 'research': research, 'plan': plan},
+                ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            details[slug] = {'commit': commit, 'commit_source': 'manual' if slug in commits else 'git log --until',
+                             'research_revision': research['revision'], 'research_approved_at': research['approved_at'],
+                             'plan_revision': plan['revision'], 'plan_approved_at': plan['approved_at']}
+    finally:
+        db.close()
+    result = {'name': name, 'adapter': 'references', 'dataset': name, 'split': 'references', 'swebench': None,
+              'source': str(ctx['cwd']), 'branch': branch, 'image': REFERENCES_IMAGE,
+              'built_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+              'instances': list(slugs), 'details': details}
+    sets_dir = Path(sets_dir)
+    sets_dir.mkdir(parents=True, exist_ok=True)
+    path = sets_dir / f'{name}.json'
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return dict(result, path=str(path), references=str(target))
+
+
+def reference_instances(name, ids, references_dir=REFERENCES_DIR):
+    """Reference tasks in the instance schema: the spec body is the problem statement, `source` + `base_commit`
+    say where the repository comes from, `reference` keeps the approved research and plan for the judge."""
+    directory = Path(references_dir) / name
+    loaded = {}
+    for slug in ids:
+        path = directory / f'{slug}.json'
+        if not path.is_file():
+            raise WorkflowError(f'{name}: no reference snapshot for {slug}; run devflow bench set snapshot {name}')
+        data = json.loads(path.read_text(encoding='utf-8'))
+        tz = data['tz']
+        match = re.match(r'\A---\n.*?\n---(?:\n|$)', tz, re.S)
+        loaded[slug] = {'instance_id': slug, 'repo': 'devflow', 'source': data['repo'], 'base_commit': data['commit'],
+                        'problem_statement': tz[match.end():] if match else tz, 'patch': '', 'test_patch': '',
+                        'test_cmd': REFERENCES_TEST_CMD, 'image': REFERENCES_IMAGE, 'FAIL_TO_PASS': [], 'PASS_TO_PASS': [],
+                        'reference': {'research': data['research'], 'plan': data['plan']}}
+    return loaded
 
 
 def by_language(items, language):
