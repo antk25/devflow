@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import statistics
@@ -264,7 +265,7 @@ def make_sandbox(root, pair, instance, execute=None):
     (sb['repo'] / '.git/info/exclude').write_text('AGENTS.md\n.devflow/\n', encoding='utf-8')
     test_cmd = instance['test_cmd']
     if container.RUNNER_MODE == 'host':
-        test_cmd = f"docker exec -w {sb['repo']} {container_name(pair)} sh -c {json.dumps(test_cmd)}"
+        test_cmd = f"docker exec -w {sb['repo']} {container_name(pair)} sh -c {shlex.quote(test_cmd)}"
     agents = Template(AGENTS_TEMPLATE.read_text(encoding='utf-8')).substitute(
         vault=sb['vault'], instance_id=instance['instance_id'], repo=instance.get('repo', ''), test_cmd=test_cmd)
     (sb['repo'] / 'AGENTS.md').write_text(agents, encoding='utf-8')
@@ -289,7 +290,7 @@ def sandbox(set_name, instance_id, root=None, execute=None):
     container.start(name, instance['image'], sb['dir'], execute=execute)
     return {**{k: str(v) for k, v in sb.items()}, 'container': name, 'slug': TASK_SLUG,
             'route': f'DEVFLOW_STATE_DIR={sb["state"]} devflow --cwd {sb["repo"]} route {TASK_SLUG}',
-            'tests': f'docker exec -w {sb["repo"]} {name} sh -c {json.dumps(instance["test_cmd"])}'}
+            'tests': f'docker exec -w {sb["repo"]} {name} sh -c {shlex.quote(instance["test_cmd"])}'}
 
 
 def pairs(tasks, combo_names):
@@ -340,10 +341,10 @@ def extract_patch(repo, base):
             if proc.returncode != 0:
                 raise WorkflowError(f'git {args[0]} failed in {repo}: {(proc.stderr or "").strip()[-500:]}')
         proc = subprocess.run(['git', '-C', str(repo), 'diff', '--cached', '--binary', base], env=env,
-                              capture_output=True, text=True, timeout=600)
+                              capture_output=True, timeout=600)
         if proc.returncode != 0:
-            raise WorkflowError(f'git diff failed in {repo}: {(proc.stderr or "").strip()[-500:]}')
-        return proc.stdout
+            raise WorkflowError(f'git diff failed in {repo}: {proc.stderr.decode("utf-8", "replace").strip()[-500:]}')
+        return proc.stdout.decode('utf-8', 'surrogateescape')
     finally:
         index.unlink(missing_ok=True)
 
@@ -616,9 +617,9 @@ def run_pair(pair, combo, instance, sb_root, journal, execute=None, limits=None,
         return {'pair': sb['pair'], 'attempt': attempt, 'outcome': 'paused', 'error_text': outcome['error_text']}
     patch_path = Path(journal).parent / 'patches' / f"{sb['pair']}.diff"
     patch_path.parent.mkdir(parents=True, exist_ok=True)
-    patch_path.write_text(patch, encoding='utf-8')
+    patch_path.write_text(patch, encoding='utf-8', errors='surrogateescape')
     record = {'type': 'pair_end', 'at': now(), 'pair': sb['pair'], 'attempt': attempt, **outcome,
-              'patch': str(patch_path), 'patch_bytes': len(patch.encode('utf-8'))}
+              'patch': str(patch_path), 'patch_bytes': len(patch.encode('utf-8', 'surrogateescape'))}
     append(journal, record)
     return record
 
@@ -657,6 +658,8 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
     not_called = [p for p in PHASES if p in (freeze or ()) or p not in phases]
     source_text, source = source, parse_source(source) if source else None
     data = load_set(set_name)
+    if data.get('adapter') == 'references' and 'implement' in phases:
+        raise WorkflowError(f'set {set_name}: the references adapter has no test command yet, use --phases research,plan')
     selected = combos(combo_names)
     by_name = {c['name']: c for c in selected}
     task_ids = data['instances'][:tasks] if tasks else data['instances']
@@ -685,7 +688,9 @@ def run(name, set_name, combo_names, tasks=None, yes=False, root=None, journal_d
             if flag['stop'] or (directory / 'STOP').exists():
                 state = 'stopped'
                 break
-            if limit and uses_claude(combo) and (limit['used_percentage'] or 0) >= threshold:
+            if claude_limit is None and index:
+                limit, threshold = claude_limits()
+            if limit and uses_claude(combo) and (limit['exhausted'] or (limit['used_percentage'] or 0) >= threshold):
                 append(journal, {'type': 'run_paused', 'at': now(), 'pair': pair_id(pair),
                                  'reason': f"claude limit {limit['window']} {limit['used_percentage']}% ≥ {threshold}%"})
                 state = 'paused'
@@ -711,7 +716,7 @@ def static_run(records, instances, journal, execute=None, start=None, stop=None,
     check runs in the pair's task container over the sandbox repository; a sandbox that is gone gets a reason."""
     execute = execute or container.docker_execute
     start, stop = start or container.start, stop or container.stop
-    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8'))
+    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8', errors='surrogateescape'))
     results = []
     for end in bench_eval.pending_pairs(records, kind='quality'):
         record = {'type': 'quality', 'at': now(), 'pair': end['pair'], 'attempt': end.get('attempt', 1), 'task': end['task']}

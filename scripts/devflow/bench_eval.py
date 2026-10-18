@@ -26,7 +26,7 @@ REFERENCES_DIR = CACHE_DIR / 'references'
 REFERENCES_IMAGE = 'python:3.12-bookworm'
 TASK_SLUG = 'bench-task'
 JUDGE_TIMEOUT = 60
-REFERENCES_TEST_CMD = '.venv/bin/python -m pytest -q'
+REFERENCES_TEST_CMD = 'python -m pytest -q'
 REFERENCE_SLUGS = ('df-10-project-init-sync', 'df-12-jev-coverage-check', 'df-13-jev-plan-check', 'df-14-bash-guard',
                    'df-15-side-fixes', 'df-16-timesheet', 'df-17-jira-accounts')
 LANGUAGE_PARSERS = {'php': ('parse_log_phpunit',), 'go': ('parse_log_gotest',), 'ts': ('parse_log_vitest', 'parse_log_jest'),
@@ -380,7 +380,10 @@ def pending_pairs(records, self_check=False, kind=None):
         if r.get('type') == 'pair_start':
             tasks[r['pair']] = {k: r.get(k) for k in ('task', 'sandbox', 'base')}
         elif r.get('type') == 'pair_end':
-            ends[r['pair']] = dict(r, **tasks[r['pair']])
+            if r.get('outcome') == 'skipped':
+                ends.pop(r['pair'], None)
+            else:
+                ends[r['pair']] = dict(r, **tasks[r['pair']])
         elif r.get('type') == kind:
             done.add(r['pair'])
     return [r for pair, r in ends.items() if pair not in done]
@@ -392,7 +395,7 @@ def evaluate(run, dataset, split, records, instances, execute, append, self_chec
     per model name (`<combo>__r<replica>`) — the harness keys predictions by instance. With `self_check` the gold
     patch stands in for the agent's; the result goes to `self_check` lines, not `eval`."""
     kind = 'self_check' if self_check else 'eval'
-    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8'))
+    patch_text = patch_text or (lambda path: Path(path).read_text(encoding='utf-8', errors='surrogateescape'))
     pending = pending_pairs(records, self_check)
     rounds = len({r['harness_run_id'] for r in records if r.get('type') in ('eval', 'self_check') and r.get('harness_run_id')})
     groups = {}
@@ -405,6 +408,7 @@ def evaluate(run, dataset, split, records, instances, execute, append, self_chec
         if not patch.strip():
             record.update(resolved=False, reason='empty patch', harness_run_id=None)
             results.append(record)
+            append(record)
             continue
         model = end['pair'][len(end['task']) + 2:]
         groups.setdefault(model, []).append((record, {'instance_id': end['task'], 'model_name_or_path': model, 'model_patch': patch}))
@@ -420,8 +424,7 @@ def evaluate(run, dataset, split, records, instances, execute, append, self_chec
             else:
                 record.update(report)
             results.append(record)
-    for record in results:
-        append(record)
+            append(record)
     return results
 
 

@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -171,7 +172,7 @@ def test_make_sandbox_single_base_commit_excludes_and_tz(sandbox_env):
     assert (repo / 'vendor/x.php').exists() and (repo / 'src/a.php').read_text() == '<?php // 2\n'
     agents = (repo / 'AGENTS.md').read_text()
     assert agents.startswith(f'---\nproject: bench\nvault: {sb["vault"]}\n---\n') and 'jev' not in agents
-    tests_line = f'`docker exec -w {repo} devflow-bench-php-cs-fixer__php-cs-fixer-8367__manual__r1 sh -c "vendor/bin/phpunit tests/T.php"`'
+    tests_line = f'`docker exec -w {repo} devflow-bench-php-cs-fixer__php-cs-fixer-8367__manual__r1 sh -c \'vendor/bin/phpunit tests/T.php\'`'
     assert tests_line in agents and '`fix: <описание>`' in agents and 'Jira нет' in agents
     tz = (sb['vault'] / 'tz/bench-task.md').read_text()
     assert INSTANCE['problem_statement'] in tz and 'Jira' in tz
@@ -649,3 +650,40 @@ def test_eval_run_judges_a_references_run(tmp_path, monkeypatch):
     assert result['judged'] == 1 and result['results']['df-1__smoke__r1']['reason'].startswith('no plan at')
     assert result['results']['df-1__smoke__r1'] == {'validate': None, 'coverage_min': None, 'judge': None, 'reason': result['results']['df-1__smoke__r1']['reason']}
     assert bench.read(journal)[-1]['type'] == 'judge'
+
+
+def test_make_sandbox_quotes_the_test_command_for_the_shell(sandbox_env):
+    cmd = 'CFG=a.json; [ -f $CFG ] || CFG=b.js\necho jest -c=$CFG'
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, dict(INSTANCE, test_cmd=cmd), execute=lambda c, timeout: None)
+    assert f"sh -c {shlex.quote(cmd)}`" in (sb['repo'] / 'AGENTS.md').read_text()
+
+
+def test_sandbox_tests_command_is_shell_quoted(sandbox_env, monkeypatch):
+    cmd = 'echo $CFG\necho two'
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'dataset': 'd', 'split': 'test', 'instances': [INSTANCE['instance_id']]})
+    monkeypatch.setattr(bench, 'set_instances', lambda data, ids: {INSTANCE['instance_id']: dict(INSTANCE, test_cmd=cmd)})
+    result = bench.sandbox('php-pilot', INSTANCE['instance_id'], root=sandbox_env / 'sb',
+                           execute=lambda c, timeout, cwd=None, env=None: subprocess.CompletedProcess(c, 0, '', ''))
+    assert shlex.split(result['tests'])[-1] == cmd
+
+
+def test_extract_patch_survives_a_non_utf8_file(sandbox_env):
+    sb = bench.make_sandbox(sandbox_env / 'run', PAIR, INSTANCE, execute=lambda cmd, timeout: None)
+    (sb['repo'] / 'src/latin.txt').write_bytes(b'caf\xe9\n')
+    patch = bench.extract_patch(sb['repo'], sb['base'])
+    assert 'src/latin.txt' in patch and patch.encode('utf-8', 'surrogateescape').count(b'caf\xe9') == 1
+
+
+def test_run_rereads_the_claude_limit_before_each_pair(two_task_run, monkeypatch):
+    snapshots = iter([(None, 95), ({'exhausted': True, 'window': 'five_hour', 'used_percentage': 50}, 95)])
+    monkeypatch.setattr(bench, 'claude_limits', lambda: next(snapshots, (None, 95)))
+    result = two_task_run['go'](claude_limit=None)
+    assert result['state'] == 'paused' and result['pairs_done'] == 1
+    lines = bench.read(two_task_run['dir'] / 'journal.jsonl')
+    assert lines[-1]['type'] == 'run_paused' and 'five_hour' in lines[-1]['reason']
+
+
+def test_run_refuses_implement_for_the_references_set(two_task_run, monkeypatch):
+    monkeypatch.setattr(bench, 'load_set', lambda name, directory=None: {'name': name, 'adapter': 'references', 'instances': ['df-1']})
+    with pytest.raises(WorkflowError, match='references'):
+        two_task_run['go'](phases=list(bench.PHASES))

@@ -669,3 +669,29 @@ def test_judge_skips_documents_over_the_limit_and_missing_noul(monkeypatch):
                         lambda req, timeout: JudgeResp(json.dumps({'model': 'm', 'answers': {'boundaries': {'noul': 0.5}}}).encode()))
     out = bench_eval.judge({'plan': {'content': 'a'}}, {'plan': 'b'})
     assert out == {'model': 'm', 'noul': None, 'reason': 'в ответе нет noul для same_requirements, no_extra_steps'}
+
+
+def test_evaluate_keeps_results_of_groups_before_a_harness_failure(journal, dirs):
+    records, loaded = journal
+    fake = FakeHarness(dirs['harness_dir'])
+
+    def failing_second(cmd, cwd=None, timeout=None):
+        if 'r-eval-2' in cmd:
+            return subprocess.CompletedProcess(cmd, 1, '', 'boom')
+        return fake(cmd, cwd, timeout)
+    written = []
+    with pytest.raises(WorkflowError):
+        bench_eval.evaluate('r', 'd', 'test', records, loaded, failing_second, written.append, harness_dir=dirs['harness_dir'])
+    assert {r['pair'] for r in written} == {'a__b-2__smoke__r1', 'a__b-1__smoke__r1'}
+
+
+def test_evaluate_ignores_skipped_pairs(journal, dirs):
+    records, loaded = journal
+    records = records + [{'type': 'pair_start', 'pair': 'a__b-2__frz__r1', 'attempt': 1, 'task': 'a__b-2'},
+                         {'type': 'pair_end', 'pair': 'a__b-2__frz__r1', 'attempt': 1, 'outcome': 'skipped', 'patch': str(dirs['harness_dir'])}]
+    results = bench_eval.evaluate('r', 'd', 'test', records, loaded, FakeHarness(dirs['harness_dir']), lambda r: None, harness_dir=dirs['harness_dir'])
+    assert 'a__b-2__frz__r1' not in {r['pair'] for r in results}
+
+
+def test_references_test_command_does_not_need_a_venv():
+    assert '.venv' not in bench_eval.REFERENCES_TEST_CMD

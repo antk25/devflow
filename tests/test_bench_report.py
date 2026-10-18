@@ -136,4 +136,5 @@ def test_report_in_judge_mode_shows_judge_columns_instead_of_resolved(tmp_path):
     assert '| связка | валидно | завершено (planned) | покрытие мед | судья мед (треб/шаги/границы) |' in text
     assert '| production | 2/2 | 2/2 | 0.85 | 0.93/0.85/0.80 |' in text and '| smoke | 0/1 | 2/2 | 0.40 | 0.50/0.60/0.30 |' in text
     assert 'diff×' not in text and 'решена' not in text
+    assert 'Мак-Немара' not in text and 'Холма' not in text
     assert 'summary' not in result and bench_report.summarize(journal())['mode'] == 'tests'

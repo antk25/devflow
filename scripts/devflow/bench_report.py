@@ -247,7 +247,11 @@ def render(name, base, summary, stats, comparison, aa):
         lines.append(f"{head} {fmt(t['input'])} | {fmt(t['output'])} | "
                      f"{fmt(cache)} | {fmt(s['cost']['claude'])} | {fmt(s['cost']['pi'])} | {fmt(s['time'])} | {fmt(s['tools'])} | "
                      f"{s['phases']} | {s['steps']} | {s['open_questions']} |")
-    if comparison:
+    if comparison and by_judge:
+        lines += ['', f'## Сравнение с базой `{base}`', '', '| связка | стоимость ×мед (p знак.) | время ×мед (p знак.) |', '|---|---|---|']
+        for key, c in comparison.items():
+            lines.append(f"| {key} | {c['cost']['median_ratio']} ({c['cost']['p']}) | {c['time']['median_ratio']} ({c['time']['p']}) |")
+    elif comparison:
         lines += ['', f'## Сравнение с базой `{base}`', '',
                   '| связка | задач | решила только база | только связка | p Мак-Немара | p Холма | стоимость ×мед (p знак.) | время ×мед (p знак.) |',
                   '|---|' + '---|' * 7]
