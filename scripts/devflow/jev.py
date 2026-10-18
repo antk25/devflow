@@ -38,6 +38,14 @@ WIDE = ("The state holds a software task: the ticket text (`tz`) and the require
         "(`requirements`). Does implementing it require a large number of changes across many parts of the system, "
         "with a real risk of breaking the current behaviour?")
 LEVEL = "Classify the complexity of the software task in the state."
+JUDGE = ("The state holds two implementation plans for the same software task: `reference`, the approved one, and "
+         "`candidate`, written by another agent. ")
+JUDGE_QUESTIONS = {
+    'same_requirements': JUDGE + "Does the candidate plan account for the same requirements as the reference plan?",
+    'no_extra_steps': JUDGE + "Is the candidate plan free of steps and scope that have no counterpart in the reference plan?",
+    'boundaries': JUDGE + ("Does the candidate plan keep to the same architecture boundaries as the reference plan: the same "
+                           "modules and layers, no new abstractions outside them?"),
+}
 COMPLEXITY_CLASSES = {
     "high": "The task statement is unclear (ambiguous, contradictory or incomplete) and/or it requires many changes across the system with a real risk of breaking current behaviour.",
     "medium": "The task statement is clear enough, and the change is contained but touches several places or has some risk to existing behaviour.",
@@ -86,6 +94,10 @@ def plan_questions(reqs: list[str]) -> list[dict]:
         out.append({'key': f'addr_{n}', 'type': 'noul', 'instructions': ADDR.format(r=r)})
         out.append({'key': f'cov_{n}', 'type': 'choice', 'instructions': COVER.format(r=r), 'criteria': PLAN_CLASSES})
     return out
+
+
+def judge_questions() -> list[dict]:
+    return [{'key': key, 'type': 'noul', 'instructions': text} for key, text in JUDGE_QUESTIONS.items()]
 
 
 def complexity_questions() -> list[dict]:

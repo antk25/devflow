@@ -1,0 +1,136 @@
+{
+  "name": "design-pilot",
+  "adapter": "swebench",
+  "dataset": "SWE-bench/SWE-bench_Multimodal",
+  "split": "dev",
+  "language": "js",
+  "swebench": "5.0.2",
+  "built_at": "2026-10-16T14:17:47+00:00",
+  "limitations": [
+    "скриншоты из issue — только ссылки в тексте ТЗ; сеть к ним из песочницы закрыта"
+  ],
+  "instances": [
+    "diegomura__react-pdf-2400",
+    "diegomura__react-pdf-1552",
+    "diegomura__react-pdf-1541",
+    "chartjs__Chart.js-11352",
+    "chartjs__Chart.js-11116",
+    "chartjs__Chart.js-10806",
+    "markedjs__marked-2811",
+    "markedjs__marked-2627",
+    "markedjs__marked-2483",
+    "processing__p5.js-6111",
+    "processing__p5.js-6069",
+    "processing__p5.js-5970",
+    "Automattic__wp-calypso-35531",
+    "Automattic__wp-calypso-34820",
+    "Automattic__wp-calypso-34597"
+  ],
+  "details": {
+    "diegomura__react-pdf-2400": {
+      "repo": "diegomura/react-pdf",
+      "created_at": "2023-09-21T15:27:01Z",
+      "image": "swebench/sweb.eval.x86_64.diegomura_1776_react-pdf-2400:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "diegomura__react-pdf-1552": {
+      "repo": "diegomura/react-pdf",
+      "created_at": "2021-10-20T06:36:58Z",
+      "image": "swebench/sweb.eval.x86_64.diegomura_1776_react-pdf-1552:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "diegomura__react-pdf-1541": {
+      "repo": "diegomura/react-pdf",
+      "created_at": "2021-10-13T11:49:40Z",
+      "image": "swebench/sweb.eval.x86_64.diegomura_1776_react-pdf-1541:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "chartjs__Chart.js-11352": {
+      "repo": "chartjs/Chart.js",
+      "created_at": "2023-06-15T15:45:37Z",
+      "image": "swebench/sweb.eval.x86_64.chartjs_1776_chart.js-11352:latest",
+      "gold_resolved": true,
+      "screenshots": 1
+    },
+    "chartjs__Chart.js-11116": {
+      "repo": "chartjs/Chart.js",
+      "created_at": "2023-02-05T23:02:26Z",
+      "image": "swebench/sweb.eval.x86_64.chartjs_1776_chart.js-11116:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "chartjs__Chart.js-10806": {
+      "repo": "chartjs/Chart.js",
+      "created_at": "2022-10-18T10:04:54Z",
+      "image": "swebench/sweb.eval.x86_64.chartjs_1776_chart.js-10806:latest",
+      "gold_resolved": true
+    },
+    "markedjs__marked-2811": {
+      "repo": "markedjs/marked",
+      "created_at": "2023-05-21T16:06:49Z",
+      "image": "swebench/sweb.eval.x86_64.markedjs_1776_marked-2811:latest",
+      "gold_resolved": true,
+      "screenshots": 1
+    },
+    "markedjs__marked-2627": {
+      "repo": "markedjs/marked",
+      "created_at": "2022-10-27T03:00:25Z",
+      "image": "swebench/sweb.eval.x86_64.markedjs_1776_marked-2627:latest",
+      "gold_resolved": true,
+      "screenshots": 1
+    },
+    "markedjs__marked-2483": {
+      "repo": "markedjs/marked",
+      "created_at": "2022-05-28T02:11:50Z",
+      "image": "swebench/sweb.eval.x86_64.markedjs_1776_marked-2483:latest",
+      "gold_resolved": true,
+      "screenshots": 1
+    },
+    "processing__p5.js-6111": {
+      "repo": "processing/p5.js",
+      "created_at": "2023-04-20T15:40:32Z",
+      "image": "swebench/sweb.eval.x86_64.processing_1776_p5.js-6111:latest",
+      "gold_resolved": true,
+      "screenshots": 4
+    },
+    "processing__p5.js-6069": {
+      "repo": "processing/p5.js",
+      "created_at": "2023-03-13T12:24:38Z",
+      "image": "swebench/sweb.eval.x86_64.processing_1776_p5.js-6069:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "processing__p5.js-5970": {
+      "repo": "processing/p5.js",
+      "created_at": "2023-01-23T09:35:01Z",
+      "image": "swebench/sweb.eval.x86_64.processing_1776_p5.js-5970:latest",
+      "gold_resolved": true,
+      "screenshots": 1
+    },
+    "Automattic__wp-calypso-35531": {
+      "repo": "Automattic/wp-calypso",
+      "created_at": "2019-08-18T08:35:34Z",
+      "image": "swebench/sweb.eval.x86_64.automattic_1776_wp-calypso-35531:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "Automattic__wp-calypso-34820": {
+      "repo": "Automattic/wp-calypso",
+      "created_at": "2019-07-22T18:06:52Z",
+      "image": "swebench/sweb.eval.x86_64.automattic_1776_wp-calypso-34820:latest",
+      "gold_resolved": true,
+      "screenshots": 2
+    },
+    "Automattic__wp-calypso-34597": {
+      "repo": "Automattic/wp-calypso",
+      "created_at": "2019-07-11T16:56:11Z",
+      "image": "swebench/sweb.eval.x86_64.automattic_1776_wp-calypso-34597:latest",
+      "gold_resolved": true,
+      "screenshots": 6
+    }
+  },
+  "rejected": {}
+}

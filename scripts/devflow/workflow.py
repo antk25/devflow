@@ -386,13 +386,18 @@ def _check(ctx, db, slug, run_id, all_, threshold, result):
     return None
 
 
-def check_plan(ctx, db, slug):
-    threshold = float(os.environ.get('DEVFLOW_JEV_PLAN_THRESHOLD', '0.95'))
+def plan_coverage(ctx, slug, threshold):
+    """Jev coverage of the research requirements by the plan, without the journal event."""
     result = {'slug': slug, 'kind': 'plan', 'threshold': threshold, 'model': None, 'requirements': []}
     reason = _check_plan(ctx, slug, threshold, result)
-    result = dict(result, status='skipped', reason=reason) if reason else dict(result, status='ok', reason=None)
+    return dict(result, status='skipped', reason=reason) if reason else dict(result, status='ok', reason=None)
+
+
+def check_plan(ctx, db, slug):
+    threshold = float(os.environ.get('DEVFLOW_JEV_PLAN_THRESHOLD', '0.95'))
+    result = plan_coverage(ctx, slug, threshold)
     with transaction(db):
-        event(db, 'check', slug, kind='plan', status=result['status'], reason=reason, model=result['model'],
+        event(db, 'check', slug, kind='plan', status=result['status'], reason=result['reason'], model=result['model'],
               threshold=threshold, noul=[r['noul'] for r in result['requirements']],
               flagged=[r['flagged'] for r in result['requirements']])
     return result

@@ -140,6 +140,8 @@ def test_build_command_without_model_and_without_claude():
     assert cmd == ['pi', '-p', '--no-session', '--append-system-prompt', '/tmp/body.md', '--tools', 'read,bash', 'задание']
     assert '--model' not in cmd
     assert '--model' in pi.build_command('/tmp/b', ['read'], 'openai-codex/gpt-6-astra', 'm')
+    with_options = pi.build_command('/tmp/b', ['read'], None, 'm', options=('--no-extensions', '--session-id', 'u'))
+    assert with_options[:5] == ['pi', '-p', '--no-extensions', '--session-id', 'u'] and '--no-session' not in with_options
     assert not any('claude' in part for part in cmd)
 
 

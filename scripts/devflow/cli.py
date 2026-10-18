@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import board, pi, project
+from . import bench, board, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
@@ -54,6 +54,18 @@ def parser():
     a = commands.add_parser('artifact'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan', 'changelog']); a.add_argument('--revision', required=True)
     a = commands.add_parser('backup'); a.add_argument('destination')
     a = commands.add_parser('board'); a.add_argument('--refresh', action='store_true')
+    bench_commands = commands.add_parser('bench').add_subparsers(dest='bench_command', required=True)
+    a = bench_commands.add_parser('combos'); a.add_argument('names', nargs='*'); a.add_argument('--probe', action='store_true')
+    a = bench_commands.add_parser('doctor'); a.add_argument('instance'); a.add_argument('--keep', action='store_true')
+    a = bench_commands.add_parser('sandbox'); a.add_argument('set'); a.add_argument('instance')
+    a = bench_commands.add_parser('run'); a.add_argument('--name', required=True); a.add_argument('--set', required=True)
+    a.add_argument('--combo', action='append', required=True); a.add_argument('--tasks', type=int); a.add_argument('--yes', action='store_true'); a.add_argument('--root'); a.add_argument('--freeze'); a.add_argument('--from'); a.add_argument('--phases')
+    a = bench_commands.add_parser('eval'); a.add_argument('run'); a.add_argument('--self-check', action='store_true'); a.add_argument('--workers', type=int, default=2); a.add_argument('--static', action='store_true')
+    a = bench_commands.add_parser('report'); a.add_argument('run'); a.add_argument('--base', default='production')
+    set_commands = bench_commands.add_parser('set').add_subparsers(dest='set_command', required=True)
+    a = set_commands.add_parser('build'); a.add_argument('name'); a.add_argument('--dataset', required=True); a.add_argument('--split', default='test')
+    a.add_argument('--language', required=True); a.add_argument('--per-repo', type=int, default=3); a.add_argument('--count', type=int); a.add_argument('--workers', type=int, default=1)
+    a = set_commands.add_parser('snapshot'); a.add_argument('name'); a.add_argument('--slug', action='append'); a.add_argument('--commit', action='append'); a.add_argument('--branch', default='main')
     project_commands = commands.add_parser('project').add_subparsers(dest='project_command', required=True)
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
@@ -72,6 +84,8 @@ def execute(args):
         return project.init(Path(args.path), args.name, draft=args.agents_draft, dry_run=args.dry_run)
     if args.command == 'board':
         return board.snapshot(refresh=args.refresh)
+    if args.command == 'bench':
+        return bench.command(args)
     ctx = context(args.cwd)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}

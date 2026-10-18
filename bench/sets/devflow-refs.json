@@ -1,0 +1,78 @@
+{
+  "name": "devflow-refs",
+  "adapter": "references",
+  "dataset": "devflow-refs",
+  "split": "references",
+  "swebench": null,
+  "source": "/home/smg25/projects/devflow",
+  "branch": "main",
+  "image": "python:3.12-bookworm",
+  "built_at": "2026-10-16T11:24:56+00:00",
+  "instances": [
+    "df-10-project-init-sync",
+    "df-12-jev-coverage-check",
+    "df-13-jev-plan-check",
+    "df-14-bash-guard",
+    "df-15-side-fixes",
+    "df-16-timesheet",
+    "df-17-jira-accounts"
+  ],
+  "details": {
+    "df-10-project-init-sync": {
+      "commit": "e6768d1736867968d0042654098fed25d6ad4379",
+      "commit_source": "git log --until",
+      "research_revision": "b25bf26a119111db7c493ffaca85949dd6ef4e8d3cd876b81941c04b94bc032d",
+      "research_approved_at": "2026-09-22T07:05:55+00:00",
+      "plan_revision": "c7088bcf8ceeb4d780b198e9b6f6c415b8bf8bb236611a379e6a1f4011964eb6",
+      "plan_approved_at": "2026-09-22T07:16:13+00:00"
+    },
+    "df-12-jev-coverage-check": {
+      "commit": "993adc56842e06f9ef9ca4c6065be733302e8462",
+      "commit_source": "git log --until",
+      "research_revision": "92beaad609cb6c077fa96f35ed53578de6d942f1741dd8d910f861d2dcb67f84",
+      "research_approved_at": "2026-09-23T19:24:31+00:00",
+      "plan_revision": "1545e82c6daae1421c17aacebd536e2fe99952cb6dbdc29856d3c32ecef437ff",
+      "plan_approved_at": "2026-09-23T20:03:13+00:00"
+    },
+    "df-13-jev-plan-check": {
+      "commit": "634161bb65a2283a400c1c399e1f4baeded9a183",
+      "commit_source": "git log --until",
+      "research_revision": "6cfe185efb64e2329aaed4fb2330c658bc1d50433da708613b5cb580e0ed642c",
+      "research_approved_at": "2026-09-24T04:44:47+00:00",
+      "plan_revision": "46c0a93b4f7d3f23564bc710ba0a201466f58bc7bc6f35f46a5fb2ae35cfd1c0",
+      "plan_approved_at": "2026-09-24T05:05:06+00:00"
+    },
+    "df-14-bash-guard": {
+      "commit": "a8333eb3974c47825ad642690cd7d9d899d1bd4d",
+      "commit_source": "git log --until",
+      "research_revision": "6d5c42e573354485bf452afb07f6fa39ea234e93cb154409d919c4550f86297e",
+      "research_approved_at": "2026-09-24T10:20:44+00:00",
+      "plan_revision": "a82c3b45325a121680e5f5b2a5200670a729d45440c51c2574ea82177906be12",
+      "plan_approved_at": "2026-09-24T10:27:38+00:00"
+    },
+    "df-15-side-fixes": {
+      "commit": "8bc1369006e74f10f5820c5e5c5e00919627d79e",
+      "commit_source": "git log --until",
+      "research_revision": "d351e1a13c3eed188ff08c79e98308ef3e7929cf80e42e2be757a1b085f83e9b",
+      "research_approved_at": "2026-09-24T11:20:55+00:00",
+      "plan_revision": "b1666f0bd4ffbe5a56372d39cc8c979f0667aa08a15e32bbffff7c2ac06d1d15",
+      "plan_approved_at": "2026-09-24T11:24:23+00:00"
+    },
+    "df-16-timesheet": {
+      "commit": "9cddf6b29883a47324f45fa07713ba4fafa0b9fa",
+      "commit_source": "git log --until",
+      "research_revision": "e9586d14f0b7d4f13a2dcb02e7563101082871458ddd1bee06baafa1d548fca5",
+      "research_approved_at": "2026-09-25T08:26:25+00:00",
+      "plan_revision": "9a8c8fd815e00c29bad562c0236fd0946d0a822d41963e5432d407ba242155ab",
+      "plan_approved_at": "2026-09-25T10:01:35+00:00"
+    },
+    "df-17-jira-accounts": {
+      "commit": "279f5927c18a483f81f85654a481dc92155f1e09",
+      "commit_source": "git log --until",
+      "research_revision": "f2644b50f95e74f38db6d7206c9f78aff3c05e6eb0e0a6b81378c00bdd8e04a7",
+      "research_approved_at": "2026-09-25T07:41:51+00:00",
+      "plan_revision": "c3bda1736743621c5a8bcc623f520064ac785d2455aedfe69069111796cab8b5",
+      "plan_approved_at": "2026-09-25T07:43:40+00:00"
+    }
+  }
+}
