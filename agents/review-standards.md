@@ -23,7 +23,9 @@ asked belongs to the other axis, and you never see its findings.
    style, tests in the same commit as the code they cover.
 
 ## Step 2: Read the diff, then its neighbours
-Get the diff (`git diff <range>`). For every touched file, read enough of the surrounding code
+Use the exact target supplied by the driver: SHA → `git show <sha>`; range → `git diff <range>`;
+branch → `git diff <base>...<branch>`; `--uncommitted` → `git diff HEAD` plus read untracked files.
+Do not reinterpret the base or switch branches. Get the diff. For every touched file, read enough of the surrounding code
 to know what "matching the neighbours" means here — a convention violation is only visible against
 the local style, not against a general idea of good code.
 
@@ -43,5 +45,7 @@ Rules for the report:
 
 ## Rules
 - **Read-only.** You have no Write or Edit; never propose applying a fix yourself.
+  Bash must not modify repository files or git state; tool policy is not OS isolation.
+  Never read the other axis's input/output or findings.
 - **Не лезь в соответствие ТЗ.** "Это не то, что просили" is the other axis's finding, not yours.
 - **All prose Russian** (project convention).

@@ -84,6 +84,34 @@ def test_role_closed_list(runner, role):
         pi.run_agent(runner, role, 'task')
 
 
+def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypatch):
+    tracked = runner['cwd'] / 'code.py'
+    tracked.write_text('original\n')
+    before = tracked.read_bytes()
+    calls = []
+    reports = {
+        'review-standards': 'Худшее: правило. Цитата: «конвенция»',
+        'review-conformance': 'Худшее: контракт. ТЗ: «точная цитата»',
+    }
+
+    def execute(command, **kwargs):
+        prompt = Path(command[command.index('--append-system-prompt') + 1]).read_text()
+        role = 'review-conformance' if '# review-conformance' in prompt else 'review-standards'
+        assert 'write' not in command[command.index('--tools') + 1].split(',')
+        assert 'edit' not in command[command.index('--tools') + 1].split(',')
+        assert all(report not in command[-1] for report in reports.values())
+        calls.append(command[command.index('--append-system-prompt') + 1])
+        return subprocess.CompletedProcess(command, 0, reports[role], '')
+
+    monkeypatch.setattr(pi.subprocess, 'run', execute)
+    for role, report in reports.items():
+        result = pi.run_agent(runner, role, 'cwd: demo; target: base...HEAD; slug: demo')
+        assert result['report'] == report
+    assert len(set(calls)) == 2
+    assert tracked.read_bytes() == before
+    assert not (runner['cwd'] / '.devflow').exists()
+
+
 def test_bridge_before_process(runner, monkeypatch):
     monkeypatch.setattr(pi.subprocess, 'run', lambda *a, **k: pytest.fail('process started'))
     with pytest.raises(WorkflowError, match='claude-bridge'):

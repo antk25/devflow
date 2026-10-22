@@ -232,6 +232,19 @@ def test_install_links_into_pi_exactly_the_skills_with_pi_true(home):
     assert 'skip pi autoresearch: not verified for pi' in r.stdout
 
 
+def test_review_skills_install_reinstall_remove(home):
+    assert install(home).returncode == 0
+    for name in ('review', 'xreview'):
+        assert (home / 'pi/skills' / name).resolve() == ROOT / 'skills' / name
+        assert (home / 'pi/prompts' / f'{name}.md').resolve() == ROOT / 'pi/prompts' / f'{name}.md'
+    assert install(home).returncode == 0
+    assert install(home, '--check').returncode == 0
+    assert install(home, '--remove').returncode == 0
+    for name in ('review', 'xreview'):
+        assert not (home / 'pi/skills' / name).exists()
+        assert not (home / 'pi/prompts' / f'{name}.md').exists()
+
+
 def test_shared_rules_and_extension_install_reinstall_remove(home):
     assert install(home).returncode == 0
     rules = home / '.claude/devflow-instructions.md'

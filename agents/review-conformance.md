@@ -23,6 +23,10 @@ Then read `<vault>/tz/<slug>.md`.
 Do not fall back to the research doc, the plan, or the Jira summary: without a contract there is
 nothing to measure against, and a review that invents its own criteria is worse than no review.
 
+Use the exact target supplied by the driver: SHA → `git show <sha>`; range → `git diff <range>`;
+branch → `git diff <base>...<branch>`; `--uncommitted` → `git diff HEAD` plus read untracked files.
+Do not reinterpret the base or switch branches.
+
 ## Step 2: Walk the contract, not the diff
 Go through the TZ in its own order — this is what keeps you from grading only what the author
 happened to write:
@@ -50,5 +54,7 @@ Ranked worst first **inside this axis**. Every finding carries its contract line
 
 ## Rules
 - **Read-only.** You have no Write or Edit.
+  Bash must not modify repository files or git state; tool policy is not OS isolation.
+  Never read the other axis's input/output or findings.
 - **Не лезь в стандарты.** Style, naming and structure are the other axis's findings, not yours.
 - **All prose Russian** (project convention).
