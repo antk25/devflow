@@ -216,6 +216,32 @@ environment. A project without `AGENTS.md` is not launched blind: the launcher p
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
+### Ограничения инструментов pi
+
+Глобальное расширение проверяет каждый `tool_call` до исполнения через
+`devflow guard --host pi` (один JSON-запрос в stdin → `decision`, `rule`, `reason`).
+Claude PreToolUse сохраняет прежний протокол. Настройки берутся из действующего
+`~/.claude/settings.json` и `.claude/settings{,.local}.json` в cwd и его предках;
+пользовательские файлы не перезаписываются. Приоритет: deny → ask → allow.
+Проектный запрет нельзя отменить глобальным allow. Без подходящего правила остаётся
+обычное поведение pi, а не скрытый классификатор Claude auto-mode.
+
+| Ограничение | Pi |
+|---|---|
+| Bash prefix `:*`, glob `*`, имена инструментов | Действующие allow/ask/deny |
+| `autoMode.soft_deny` с явными правилами | Отдельное подтверждение; `$defaults` и текстовые эвристики Claude не воспроизводятся |
+| `env`, `rtk`, абсолютные пути, `bash -c`, `git -C`, составные команды | Проверка нормализованных команд; запрет в любом сегменте сильнее разрешения |
+| Подстановки, перенаправления, неоднозначные опции оболочки | Отказ с просьбой разбить вызов на простые команды |
+| Защищённые ветки, force, удаление, mirror | Отказ даже при общем разрешении push |
+| Write/Edit и пути Read/Glob/Grep | Применение доступных файловых правил, включая `~/`, `//` для абсолютного пути и проектные пути |
+| Прямой вызов `claude`/`claude-bridge` | Всегда запрещён |
+
+Ask показывает точные аргументы данного вызова и требует отдельного ответа в UI.
+Отмена, отсутствие UI (print/JSON), ошибка UI, ошибка/тайм-аут процесса, неверный JSON
+или повреждённые настройки блокируют вызов. Расширение не повторяет отказ автоматически.
+Это ограничение инструментов, **не изоляция ОС или сети**: произвольный Python-код,
+содержимое скриптов и скрытые эвристики Claude не анализируются.
+
 ### Launching pi instead of Claude Code
 
 ```bash
