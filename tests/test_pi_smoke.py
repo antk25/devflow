@@ -106,6 +106,17 @@ def test_stop_task_only_stops_matching_sessions(tmp_path):
     assert 'abc-456' not in log.read_text()
 
 
+def test_pi_browser_uses_literal_sessions_without_guard_bypass():
+    skill = (ROOT / 'skills/smoke/SKILL.md').read_text()
+    browser = (ROOT / 'agents/browser.md').read_text()
+    for text in (skill, browser):
+        assert 'буквально' in text
+        assert 'составных команд' in text or 'составные команды' in text
+        assert 'Guard не ослаблять и не обходить' in text
+        assert 'требует подтверждения' in text
+        assert 'Не хватает' in text
+
+
 def test_save_replay_exit_and_failure_contract():
     skill = (ROOT / 'skills/smoke/SKILL.md').read_text()
     assert 'ненулевой exit даже без ❌' in skill
