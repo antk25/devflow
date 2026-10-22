@@ -212,11 +212,13 @@ def run_agent(ctx, role, message, model=None, env=None, timeout=600):
     return result
 
 
-def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
+def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False):
     env = dict(os.environ if env is None else env)
     current = route(ctx, db, slug)
     at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
-    if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate:
+    if replan and (phase != 'plan' or current['state'] != 'ready'):
+        raise WorkflowError('--replan requires phase plan in state ready')
+    if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
     body, tools = agent_body(phase)
     if not shutil.which('pi', path=env.get('PATH')):

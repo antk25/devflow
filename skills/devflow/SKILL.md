@@ -143,6 +143,8 @@ never runs them.
   re-route before spawning anything. A partial attempt's changes must be inspected before retry.
 - Use `df history <slug>` and `df artifact <slug> <phase> --revision <hash>` to compare saved versions.
 - Replanning is an explicit user-selected phase; spawn plan, then route and hold the new gate.
+  In pi, from `ready` use `devflow phase run <slug> plan --replan --note "<user decision>"`;
+  this does not start a run or approve the revised plan.
 - To redo a done step, after the user's decision run
   `df reopen <slug> --step <id> --revision <current-plan-hash> --reason <decision>`.
   This also reopens dependent steps and requires plan approval again. Never reopen silently.

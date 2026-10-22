@@ -72,7 +72,7 @@ def parser():
     handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
     a = handoff_commands.add_parser('latest'); a.add_argument('--task')
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
-    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model')
+    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true')
     agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
     a = agent_commands.add_parser('run'); a.add_argument('role', choices=pi.ROLES)
     a.add_argument('--message-file', required=True, type=Path); a.add_argument('--model')
@@ -137,7 +137,7 @@ def execute(args):
         if args.command == 'finish':
             return finish(ctx, db, args.run_id, args.status, args.changelog, args.reason)
         if args.command == 'phase':
-            return pi.run_phase(ctx, db, args.slug, args.phase, step=args.step, note=args.note, model=args.model)
+            return pi.run_phase(ctx, db, args.slug, args.phase, step=args.step, note=args.note, model=args.model, replan=args.replan)
         if args.command == 'check':
             return check(ctx, db, args.slug, args.run, args.all, args.plan)
         if args.command == 'interrupt':

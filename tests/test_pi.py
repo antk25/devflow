@@ -280,6 +280,24 @@ def runs(proj):
     return [dict(r) for r in proj['db'].execute('SELECT * FROM runs')]
 
 
+def test_replan_requires_explicit_flag_and_does_not_start_run(proj, fake_pi):
+    approve_plan(proj)
+    before = workflow.route(proj['ctx'], proj['db'], 'x')
+    with pytest.raises(WorkflowError, match='state ready'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=fake_pi['env'])
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', replan=True, env=fake_pi['env'])
+    assert out['exit_code'] == 0
+    assert out['route'] == before
+    assert runs(proj) == []
+
+
+@pytest.mark.parametrize('phase', ['research', 'implement', 'plan'])
+def test_replan_refuses_other_phases_and_unapproved_research(proj, fake_pi, phase):
+    with pytest.raises(WorkflowError, match='--replan requires'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', phase, replan=True, env=fake_pi['env'])
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+
+
 def test_implement_refuses_when_not_ready_without_start(proj, fake_pi):
     approve_research(proj)
     with pytest.raises(WorkflowError, match='state plan'):
