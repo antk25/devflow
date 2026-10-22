@@ -52,6 +52,38 @@ export async function guardTool(event: any, ctx: ExtensionContext, check = check
 }
 
 export default function devflow(pi: ExtensionAPI) {
+	let level = "";
+	let restored = "";
+	function contextWarning(ctx: ExtensionContext) {
+		const usage = ctx.getContextUsage?.();
+		const tokens = usage?.tokens;
+		let next = "unknown";
+		if (typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0) {
+			next = tokens >= 180000 ? "cut" : tokens >= 120000 ||
+				(usage!.contextWindow > 0 && tokens >= usage!.contextWindow * 0.75) ? "warn" : "ok";
+		}
+		if (next === level) return;
+		level = next;
+		if (next === "ok") return;
+		const text = next === "unknown"
+			? "CONTEXT_UNKNOWN: размер контекста неизвестен; это не нулевой контекст. Перед большой работой проверьте /session."
+			: `${next === "cut" ? "CONTEXT_CUT" : "CONTEXT_WARN"} ${Math.floor(tokens! / 1000)}K: ` +
+				(next === "cut" ? "не начинай новую большую работу. " : "закончи текущий шаг. ") +
+				"Предложи /cut; после записи передачи пользователь сам выполняет /new.";
+		if (ctx.hasUI) ctx.ui.notify(text, "warning");
+		else console.error(text);
+		pi.sendMessage({ customType: "devflow-context", content: text, display: true }, { triggerTurn: false });
+	}
+	pi.on("turn_end", (_event, ctx) => { contextWarning(ctx); });
+	pi.on("session_before_compact", (event, ctx) => {
+		if (event.reason === "manual" || level === "warn" || level === "cut") return;
+		level = "warn";
+		const text = "CONTEXT_WARN: приближается штатное сжатие контекста. Сохрани решения через /cut; /new выполняет пользователь. Сжатие не отменяется.";
+		if (ctx.hasUI) ctx.ui.notify(text, "warning");
+		else console.error(text);
+		pi.sendMessage({ customType: "devflow-context", content: text, display: true }, { triggerTurn: false });
+	});
+	pi.on("session_compact", () => { level = ""; });
 	pi.on("tool_call", (event, ctx) => guardTool(event, ctx));
 	function stop(ctx: ExtensionContext, message: string) {
 		if (ctx.hasUI) ctx.ui.notify(message, "error");
@@ -67,10 +99,20 @@ export default function devflow(pi: ExtensionAPI) {
 		return text;
 	}
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
+		level = "";
+		restored = "";
 		try {
 			instructions();
-			if (ctx.model?.provider === "claude-bridge") stop(ctx, reason);
+			if (ctx.model?.provider === "claude-bridge") { stop(ctx, reason); return; }
+			if (pi.exec && ctx.cwd) {
+				const root = resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
+				const result = await pi.exec("python3", [join(root, "scripts/launch.py"), "--restore-context"],
+					{ cwd: ctx.cwd, timeout: 10000 });
+				restored = result.code === 0 ? result.stdout :
+					`Восстановление недоступно: ${result.stderr}. Не создавай новое состояние; сначала устрани ошибку.`;
+				if (restored && ctx.hasUI) ctx.ui.notify(restored, result.code === 0 ? "info" : "error");
+			}
 		} catch (error) {
 			stop(ctx, `DevFlow: общие инструкции недоступны: ${error}; запустите ./install.sh`);
 		}
@@ -81,6 +123,9 @@ export default function devflow(pi: ExtensionAPI) {
 			stop(ctx, reason);
 			return;
 		}
+		if (ctx.getContextUsage) contextWarning(ctx);
+		if (restored) event.systemPromptOptions.sections.devflow_restore =
+			"Актуальное восстановление (заменяет снимок launcher):\n" + restored;
 		try {
 			event.systemPromptOptions.sections.devflow_shared = instructions();
 			event.systemPromptOptions.sections.devflow_host =

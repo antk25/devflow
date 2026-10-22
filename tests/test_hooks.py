@@ -109,6 +109,30 @@ def test_restore(case, tmp_path):
     assert results[-1].stdout == case['expect_last']
 
 
+@pytest.mark.parametrize('source', ['clear', 'startup', 'resume'])
+@pytest.mark.parametrize('slug', ['df-pi-workflow-parity', 'DF-11'])
+def test_restore_handoff_from_either_host(source, slug, tmp_path):
+    project = tmp_path / 'project'
+    project.mkdir()
+    vault = tmp_path / 'vault'
+    notes = vault / 'notes'
+    notes.mkdir(parents=True)
+    (project / 'AGENTS.md').write_text(f'---\nproject: x\nvault: {vault}\n---\n')
+    handoff = notes / f'handoff-{slug}.md'
+    handoff.write_text(f'---\ntype: handoff\ntask: {slug}\n---\n# Передача\n')
+    env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path), 'XDG_RUNTIME_DIR': str(tmp_path)}
+    event = json.dumps({'source': source})
+    result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    assert f'HANDOFF {handoff}' in result.stdout
+    assert 'devflow route <полный slug>' in result.stdout
+    assert not (project / '.devflow').exists()
+    (notes / 'handoff-other.md').write_text('---\ntype: handoff\ntask: other\n---\n# Другая\n')
+    result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert 'выберите полный slug явно' in result.stdout
+    assert f'HANDOFF {handoff}' not in result.stdout
+
+
 def test_deny_survives_unwritable_journal(tmp_path):
     blocker = tmp_path / 'file'
     blocker.write_text('')

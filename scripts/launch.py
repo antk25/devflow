@@ -19,6 +19,9 @@ from devflow.storage import connect
 
 def main():
     root = Path(__file__).resolve().parent.parent
+    if sys.argv[1:] == ['--restore-context']:
+        print(restore_context(Path.cwd()), end='')
+        return 0
     registry = registry_path(root)
     p = argparse.ArgumentParser(description='Choose a project and launch DevFlow')
     p.add_argument('project', nargs='?')
@@ -101,20 +104,29 @@ def pi_command(path, model):
         print(f'WARNING: {path} has no AGENTS.md; launching pi without DevFlow context', file=sys.stderr)
         return executable, argv
     ctx = context(path)
-    db = None
-    if (path / '.devflow/project.json').exists():
-        db = connect(ctx)
+    text = restore_context(path)
+    # One file per project, overwritten on every launch: execv leaves nobody to delete a fresh temp file.
+    preamble = Path(tempfile.gettempdir()) / f"devflow-pi-{ctx['project']}.md"
+    preamble.write_text(text, encoding='utf-8')
+    return executable, argv + ['--append-system-prompt', str(preamble)]
+
+
+def restore_context(path):
+    if not (path / 'AGENTS.md').exists():
+        return ''
+    ctx = context(path)
+    db = connect(ctx) if (path / '.devflow/project.json').exists() else None
     try:
-        items = active(ctx, db)
+        items = active(ctx, db, limit=1000000)
     finally:
         if db:
             db.close()
-    key = pi.task_key(items)
-    handoff = handoff_latest(ctx['vault'], key) if key else None
-    # One file per project, overwritten on every launch: execv leaves nobody to delete a fresh temp file.
-    preamble = Path(tempfile.gettempdir()) / f"devflow-pi-{ctx['project']}.md"
-    preamble.write_text(pi.preamble(ctx, items, handoff), encoding='utf-8')
-    return executable, argv + ['--append-system-prompt', str(preamble)]
+    try:
+        slug = pi.task_slug(items)
+        handoff = handoff_latest(ctx['vault'], slug)
+    except WorkflowError as exc:
+        return pi.preamble(ctx, items, None) + f'Выберите задачу явно: {exc}\n'
+    return pi.preamble(ctx, items, handoff)
 
 
 if __name__ == '__main__':

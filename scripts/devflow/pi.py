@@ -85,11 +85,21 @@ def task_key(active):
     return None
 
 
+def task_slug(active):
+    names = {item['name'].lower() for folder in ('plans', 'research', 'tz')
+             for item in active.get(folder, ()) if item.get('status') not in ('invalid', 'completed', 'archived', 'closed')}
+    if len(names) > 1:
+        raise WorkflowError('Неоднозначная задача; укажите полный slug: ' + ', '.join(sorted(names)))
+    return next(iter(names), None)
+
+
 def preamble(ctx, active, handoff):
     parts = ['PROJECT_RESTORE', json.dumps({k: str(v) for k, v in ctx.items()}, ensure_ascii=False, indent=2),
              'OBSIDIAN_CONTEXT', json.dumps(active, ensure_ascii=False, indent=2)]
     if handoff:
-        parts += [f"HANDOFF {handoff['path']}", handoff['body'].strip()]
+        parts += [f"HANDOFF {handoff['path']}", handoff['body'].strip(),
+                  'После чтения передачи выполните devflow route <полный slug>. '
+                  'Передача не разрешает автоматические approve/finish/resume; recovery требует явного решения.']
     return '\n'.join(parts) + '\n'
 
 

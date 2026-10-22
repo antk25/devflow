@@ -475,6 +475,64 @@ console.log('1 extension, 0 errors');'''
     assert result.stdout.strip() == '1 extension, 0 errors'
 
 
+def test_task_slug_keeps_non_jira_and_requires_explicit_choice():
+    assert pi.task_slug({'plans': [{'name': 'df-pi-workflow-parity', 'status': 'running'}]}) == 'df-pi-workflow-parity'
+    assert pi.task_slug({'plans': [{'name': 'df-1-old', 'status': 'invalid'}]}) is None
+    with pytest.raises(WorkflowError, match='Неоднозначная задача'):
+        pi.task_slug({'plans': [{'name': 'a', 'status': 'ready'}, {'name': 'b', 'status': 'ready'}]})
+
+
+def test_handoff_restore_preserves_running_and_approvals(proj):
+    import launch
+    approve_plan(proj)
+    state = workflow.route(proj['ctx'], proj['db'], 'x')
+    workflow.start(proj['ctx'], proj['db'], 'x', state['frontier'][0], state['plan_revision'])
+    notes = proj['vault'] / 'notes'
+    notes.mkdir()
+    (notes / 'handoff-x.md').write_text('---\ntype: handoff\ntask: x\ncreated: 2026-10-22\n---\n# Передача\n')
+    before = list(proj['db'].iterdump())
+    for _ in range(3):
+        text = launch.restore_context(proj['cwd'])
+        assert 'HANDOFF ' in text and 'devflow route' in text
+        assert 'recovery требует явного решения' in text
+        assert '"status": "running"' in text
+    assert before == list(proj['db'].iterdump())
+
+
+def test_handoff_restore_no_jira_and_ambiguity_without_db(proj):
+    import launch
+    # A project without an identity must remain without SQLite state.
+    import shutil
+    shutil.rmtree(proj['cwd'] / '.devflow')
+    (proj['vault'] / 'tz/x.md').unlink()
+    slug = 'df-pi-workflow-parity'
+    (proj['vault'] / f'tz/{slug}.md').write_text('# Task')
+    notes = proj['vault'] / 'notes'
+    notes.mkdir()
+    (notes / f'handoff-{slug}.md').write_text(f'---\ntype: handoff\ntask: {slug}\n---\n# Из pi в Claude\n')
+    assert f'handoff-{slug}.md' in launch.restore_context(proj['cwd'])
+    (proj['vault'] / 'tz/other.md').write_text('# Other')
+    text = launch.restore_context(proj['cwd'])
+    assert 'Выберите задачу явно' in text and 'HANDOFF ' not in text
+    assert not (proj['cwd'] / '.devflow').exists()
+
+
+def test_resume_handoff_corrupt_or_missing_database_is_not_recreated(proj):
+    import launch
+    import sqlite3
+    path = Path(proj['db'].execute('PRAGMA database_list').fetchone()['file'])
+    proj['db'].close()
+    path.write_bytes(b'not a sqlite database')
+    for _ in range(3):
+        with pytest.raises(sqlite3.DatabaseError):
+            launch.restore_context(proj['cwd'])
+        assert path.read_bytes() == b'not a sqlite database'
+    path.unlink()
+    with pytest.raises(WorkflowError, match='database is missing'):
+        launch.restore_context(proj['cwd'])
+    assert not path.exists()
+
+
 def test_custom_agent_directory_settings(tmp_path):
     path = pi.settings_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
     assert path == tmp_path / 'settings.json'
