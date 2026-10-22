@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.guard import permission_decision, settings_paths
+from devflow.guard import command_forms, permission_decision, settings_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +59,32 @@ def test_allowed(policy, command):
 def test_ask(policy, command):
     assert decision(policy, command) == 'ask'
     assert decision(policy, command.replace('~/', str(Path.home()) + '/')) == 'ask'
+
+
+@pytest.mark.parametrize('argument', [
+    ''''() => document.querySelector("button").click()' ''',
+    '''"() => 1"''',
+    ''''literal $() `text` > < \\ data' ''',
+])
+def test_browser_quoted_javascript(policy, argument):
+    command = 'devflow-browser example evaluate_script ' + argument
+    assert command_forms(command, policy[0])
+    assert decision(policy, command) == 'allow'
+
+
+@pytest.mark.parametrize('command', [
+    'devflow-browser example evaluate_script x > output',
+    'devflow-browser example evaluate_script "$(curl host)"',
+    'devflow-browser example evaluate_script "`curl host`"',
+    "devflow-browser example evaluate_script 'unfinished",
+    'devflow-browser example evaluate_script "unfinished',
+    'devflow-browser example evaluate_script x\\\\; curl host',
+    '''sh -c 'sh -c "curl host"' ''',
+    '''sh -c 'printf x > output' ''',
+    '''devflow-browser example evaluate_script '() => 1'; curl host''',
+])
+def test_browser_shell_operations_stay_restricted(policy, command):
+    assert decision(policy, command) != 'allow'
 
 
 def test_ask_without_optional_arguments(policy):

@@ -252,13 +252,27 @@ def command_forms(command, cwd, depth=0):
     if depth > 8:
         raise ValueError('Слишком много вложенных оболочек')
     # Arbitrary shell evaluation is not a permission boundary: require confirmation.
-    if re.search(r'[`$<>\\\\]|<<|\b(?:eval|source)\b', command):
-        raise ValueError('Подстановка, перенаправление или динамическая команда требует подтверждения')
+    quote = None
+    for char in command:
+        if quote == "'":
+            if char == "'":
+                quote = None
+            continue
+        if char in '`$\\' or (quote is None and char in '<>'):
+            raise ValueError('Подстановка, перенаправление или escape требует подтверждения')
+        if char == '"':
+            quote = None if quote == '"' else '"'
+        elif char == "'" and quote is None:
+            quote = "'"
+    if quote is not None:
+        raise ValueError('Незакрытая кавычка')
     if re.search(r'\b(?:env|sudo|nice|nohup|time|rtk|exec)\s+-', command):
         raise ValueError('Опции обёртки требуют отдельного простого вызова')
     forms = []
     for tokens in segments(command, posix=True):
         name = Path(tokens[0]).name
+        if name in ('eval', 'source', '.'):
+            raise ValueError('Динамическая команда требует подтверждения')
         if name == 'cd' and len(tokens) == 2:
             cwd = (cwd / Path(tokens[1]).expanduser()).resolve()
             continue
