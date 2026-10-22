@@ -57,6 +57,14 @@ Vault layout: `tz/` (specs in) · `research/` · `plans/` · `changelog/` · `no
 
 Use `/note save <title>` (category `notes`) to persist patterns mid-implementation. `/note search <query>` to grep the vault.
 
+## Browser
+
+### local
+- Адрес: http://127.0.0.1:18765
+- Вход: нет
+- Ограничения: локальный тестовый стенд, только фиктивные данные, без внешних ресурсов.
+- Запуск: `python3 tests/parity_site.py --port 18765`
+
 ## Token accounting
 `/tokens` reports spend by task, project, phase, model, or day from the local Claude Code
 transcripts (`skills/tokens/token-stats.py`). The driver tags each task it routes into

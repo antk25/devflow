@@ -1,6 +1,6 @@
 ---
 name: smoke
-pi: "needs a Claude Code subagent; in pi run the saved script"
+pi: true
 description: "Проверить сценарий в браузере — страницы, формы, запросы /api/, консоль на local/staging/prod/shopify. Вызывать, когда пользователь говорит «проверь в браузере», «открой страницу и посмотри», «работает ли на staging», «смоук», и для пунктов browser: в Acceptance шага. Идёт в подагенте browser через изолированный headless Chrome (devflow-browser, не MCP), возвращает таблицу вердиктов ✅/❌ со скриншотами."
 user-invocable: true
 context: fork
@@ -12,6 +12,18 @@ argument-hint: "[env: <имя>;] [slug: <slug>;] [save;] <адрес, вход, 
 
 Сырые снимки, сеть и консоль остаются в этом подагенте; вызвавший получает таблицу вердиктов.
 Формат ответа и правила безопасности — в агенте `browser`; здесь — как проверять.
+
+### Запуск в pi (вызывающий, не роль browser)
+Не выполнять браузерные команды в контексте драйвера. Создать файл задания с тремя строками:
+`Скилл: <абсолютный путь этого SKILL.md>`, `Аргументы: <строка вызова>`,
+`Вердикт: /tmp/devflow-smoke/<slug>/verdict.md`.
+Запустить `devflow agent run browser --message-file <файл> --timeout 420` (Bash timeout 450 секунд).
+Runner выполняет prep → отдельный pi → wait → остановку процесса и Chrome по task.
+Проверить `exit_code` JSON, затем прочитать файл вердикта; stdout процесса не заменяет файл.
+Ненулевой exit, ❌, «Не хватает» или отсутствие полного `n/n` — не успех.
+Роль browser, получившая три строки, выполняет разделы ниже, не запускает сама себя.
+Готовый `<vault>/notes/smoke-<slug>.sh` можно повторить через Bash: проверять и код выхода,
+и отсутствие ❌; ненулевой exit даже без ❌ означает провал.
 
 ## 1. Аргументы
 Строка вызова: `$ARGUMENTS`
@@ -81,9 +93,9 @@ devflow-browser $S stop
 ```bash
 #!/usr/bin/env bash
 # smoke-<slug> · env <имя> · <адрес> · <дата>
-set -uo pipefail
-S=$(devflow-browser start [--insecure] 2>/dev/null) || { echo "❌ start — devflow-browser не запустился"; exit 1; }
-trap 'devflow-browser "$S" stop >/dev/null 2>&1' EXIT
+set -euo pipefail
+S=$(devflow-browser start [--insecure] --task <slug> 2>/dev/null) || { echo "❌ start — devflow-browser не запустился"; exit 1; }
+trap 'rc=$?; devflow-browser "$S" stop >/dev/null 2>&1 || rc=1; exit "$rc"' EXIT
 fail=0
 b() { devflow-browser "$S" "$@" 2>/dev/null; }
 check() { if [[ "$2" == 1 ]]; then echo "✅ $1 — $3"; else echo "❌ $1 — $3"; fail=1; fi; }
@@ -103,4 +115,4 @@ exit $fail
 - Каждый вызов обёртки ≈2 с (`npx`); сценарий на 20 действий — около минуты. Не дробить проверки
   на лишние команды и не звать `take_snapshot` без нужды.
 - Предупреждения Google о телеметрии в stderr `start` — шум, не ошибка.
-- В pi скилла нет (`skip pi smoke`): там implement гоняет готовый `smoke-<slug>.sh`.
+- Claude сохраняет `context: fork` и роль `browser`; pi использует тот же скилл через `agent run`.

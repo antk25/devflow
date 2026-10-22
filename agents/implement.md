@@ -67,10 +67,13 @@ checks after deploy — not yours; the driver lists them on `completed`.
   - exit 3 → `finish blocked --reason "smoke: browser без признаков жизни 120 с, вердикта нет"`;
   - exit 124 → `finish blocked --reason "smoke: вердикт не получен за 420 с"`;
   - any other code → `finish blocked --reason "smoke: devflow-smoke-wait <code>: <first stderr line>"`.
-- Without the `Agent` tool (pi): if `<vault>/notes/smoke-<slug>.sh` exists, run `bash` on it and put
-  its output into `### Tests`; a `❌` line → `finish blocked --reason "smoke: <first ❌ line>"`. No
-  script → move the item to `Open / follow-up`, finish as `partial` with the reason
-  «browser-проверка требует Claude Code».
+- В pi без `Agent`: записать те же три строки в файл задания и вызвать
+  `devflow agent run browser --message-file <файл> --timeout 420` через Bash с timeout 450 секунд.
+  Runner сам выполняет prep → запуск → wait → очистку; не запускать второй wait параллельно.
+  Проверить `exit_code` JSON до чтения вердикта: ненулевой код — blocked по реакциям выше,
+  даже если stdout содержит ✅. Затем Read вердикта и те же реакции, включая один повтор.
+  Сохранённый `<vault>/notes/smoke-<slug>.sh` допустим для повторного сценария: записать вывод
+  в Tests; ❌ или ненулевой exit (даже без ❌) → blocked. Новый сценарий не требует Claude Code.
 
 When the step is done, commit its result (code + tests) with plain `git commit`, message in the commit format from the project's `AGENTS.md`, then verify `HEAD` with `git log -1 --oneline`.
 

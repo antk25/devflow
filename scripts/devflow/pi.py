@@ -4,6 +4,8 @@ Model for a phase run: `--model` > policy (`route.launch.pi.model`) > `PI_*` env
 import json
 import os
 import re
+import signal
+import time
 import shutil
 import subprocess
 import tempfile
@@ -157,6 +159,78 @@ def build_command(body_file, tools, model_arg, message, options=('--no-session',
             *(['--model', model_arg] if model_arg else []), message]
 
 
+def _browser_process(command, ctx, message, env, timeout):
+    match = re.search(r'^Аргументы: (.+)$', message, re.M)
+    slug = re.search(r'(?:^|;)\s*slug: ([a-z0-9-]+)\s*(?:;|$)', match[1]) if match else None
+    if not slug:
+        raise WorkflowError('browser requires Аргументы: with slug: <slug>;')
+    slug = slug[1]
+    verdict = Path('/tmp/devflow-smoke') / slug / 'verdict.md'
+    if f'Вердикт: {verdict}' not in message.splitlines():
+        raise WorkflowError(f'browser requires Вердикт: {verdict}')
+    verdict = Path(env.get('DEVFLOW_SMOKE_DIR', '/tmp/devflow-smoke')) / slug / 'verdict.md'
+    wrappers = Path(__file__).resolve().parents[2] / 'bin'
+    wait_command = [str(wrappers / 'devflow-smoke-wait')]
+    prep = subprocess.run([*wait_command, 'prep', slug], env=env, capture_output=True, text=True)
+    if prep.returncode:
+        return prep
+    proc = waiter = None
+    deadline = time.monotonic() + min(timeout or 420, 420)
+    with tempfile.TemporaryFile(mode='w+') as out, tempfile.TemporaryFile(mode='w+') as err, \
+            tempfile.TemporaryFile(mode='w+') as wait_out, tempfile.TemporaryFile(mode='w+') as wait_err:
+        code = None
+        try:
+            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env,
+                                    stdout=out, stderr=err, start_new_session=True)
+            waiter = subprocess.Popen([*wait_command, 'wait', slug], env=env,
+                                      stdout=wait_out, stderr=wait_err, start_new_session=True)
+            while proc.poll() is None:
+                if waiter.poll() not in (None, 0):
+                    code = waiter.returncode
+                    break
+                if time.monotonic() >= deadline:
+                    code = 124
+                    break
+                try:
+                    proc.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
+            if code is None:
+                code = proc.returncode
+                if code == 0:
+                    if not verdict.is_file() or not verdict.stat().st_size:
+                        code = 1
+                    else:
+                        checked = subprocess.run([*wait_command, 'wait', slug], env=env,
+                                                 capture_output=True, text=True,
+                                                 timeout=max(0.1, deadline - time.monotonic()))
+                        code = checked.returncode
+        except subprocess.TimeoutExpired:
+            code = 124
+        finally:
+            for child in (proc, waiter):
+                if child is not None:
+                    # Descendants can outlive an already exited shell/pi parent.
+                    try:
+                        os.killpg(child.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        child.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(child.pid, signal.SIGKILL)
+                        child.wait()
+            cleanup = subprocess.run([str(wrappers / 'devflow-browser'), 'stop-task', slug],
+                                     env=env, capture_output=True, text=True, timeout=30)
+        out.seek(0); err.seek(0); wait_err.seek(0)
+        report, errors = out.read(), err.read() + wait_err.read() + cleanup.stderr
+        if cleanup.returncode:
+            code = cleanup.returncode
+        if code:
+            verdict.unlink(missing_ok=True)
+        return subprocess.CompletedProcess(command, code, report, errors)
+
+
 def _run_process(ctx, name, body, tools, chosen, message, env, timeout=None):
     extension = extension_path(env)
     with tempfile.NamedTemporaryFile('w', suffix='.md', prefix='devflow-' + name + '-', delete=False,
@@ -164,8 +238,11 @@ def _run_process(ctx, name, body, tools, chosen, message, env, timeout=None):
         fh.write(body)
     body_file = Path(fh.name)
     try:
-        return subprocess.run(build_command(body_file, tools, chosen, message,
-                                             options=('--no-session', '--extension', str(extension))),
+        command = build_command(body_file, tools, chosen, message,
+                                options=('--no-session', '--extension', str(extension)))
+        if name == 'browser' and re.search(r'^Вердикт:', message, re.M):
+            return _browser_process(command, ctx, message, env, timeout)
+        return subprocess.run(command,
                               stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True,
                               text=True, timeout=timeout)
     finally:
