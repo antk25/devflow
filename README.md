@@ -8,6 +8,10 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 
 ---
 
+## Совместимость хостов
+
+Pi поддерживает основной цикл через существующий `devflow-pi` и общий CLI; завершённая живая совместимость с Claude Code пока не подтверждена. [Матрица, результаты и оставшиеся пользовательские проверки](docs/host-parity.md). Статистика/токены pi, timesheet/recap, board, standup/Jira и прочие вспомогательные skills отложены: таблица ниже не обещает их совместимость с pi.
+
 ## Skills
 
 | Command | What it does | Output |
