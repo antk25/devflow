@@ -70,6 +70,21 @@ def pi_model(entry):
     return entry['model'] + (':' + entry['effort'] if entry.get('effort') else '')
 
 
+def resolve_pi_role(policy, role, env, override=None):
+    entry = (policy or {}).get('pi', {}).get('roles', {}).get(role)
+    if override:
+        return {'model': override, 'model_source': 'override'}
+    if entry is not None:
+        if not isinstance(entry, dict) or not isinstance(entry.get('model'), str) or not entry['model']:
+            raise WorkflowError(f'Invalid pi.roles.{role}: expected model and optional effort')
+        return {'model': pi_model(entry), 'model_source': f'pi.roles.{role}'}
+    provider, model = env.get('PI_PROVIDER'), env.get('PI_MODEL')
+    chosen = f'{provider}/{model}' if provider and model else None
+    if chosen and env.get('PI_REASONING_LEVEL'):
+        chosen += ':' + env['PI_REASONING_LEVEL']
+    return {'model': chosen, 'model_source': 'inherited' if chosen else 'default'}
+
+
 def limits_path():
     return Path(os.environ.get('DEVFLOW_RATE_LIMITS', str(claude_dir() / 'devflow/rate-limits.json')))
 

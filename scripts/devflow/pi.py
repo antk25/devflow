@@ -10,11 +10,12 @@ import tempfile
 from pathlib import Path
 
 from .documents import WorkflowError, artifact, document
-from .policy import PHASES
+from .policy import PHASES, load, policy_path, resolve_pi_role
 from .workflow import interrupt, route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
 AGENTS = Path(__file__).resolve().parents[2] / 'agents'
+ROLES = ('crossreview', 'second-opinion', 'review-standards', 'review-conformance', 'reader', 'browser')
 INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
@@ -123,7 +124,7 @@ def warns_claude_bridge(model_arg, settings_path=PI_SETTINGS):
 
 def agent_body(phase):
     path = AGENTS / f'{phase}.md'
-    if phase not in PHASES or not path.is_file():
+    if phase not in (*PHASES, *ROLES) or not path.is_file():
         raise WorkflowError(f'Unknown phase: {phase}')
     doc = document(path)
     tools = []
@@ -156,6 +157,61 @@ def build_command(body_file, tools, model_arg, message, options=('--no-session',
             *(['--model', model_arg] if model_arg else []), message]
 
 
+def _run_process(ctx, name, body, tools, chosen, message, env, timeout=None):
+    extension = extension_path(env)
+    with tempfile.NamedTemporaryFile('w', suffix='.md', prefix='devflow-' + name + '-', delete=False,
+                                     encoding='utf-8') as fh:
+        fh.write(body)
+    body_file = Path(fh.name)
+    try:
+        return subprocess.run(build_command(body_file, tools, chosen, message,
+                                             options=('--no-session', '--extension', str(extension))),
+                              stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True,
+                              text=True, timeout=timeout)
+    finally:
+        body_file.unlink(missing_ok=True)
+
+
+def run_agent(ctx, role, message, model=None, env=None, timeout=600):
+    if role not in ROLES:
+        raise WorkflowError(f'Unknown role: {role}')
+    if timeout <= 0:
+        raise WorkflowError('--timeout must be positive')
+    env = dict(os.environ if env is None else env)
+    body, tools = agent_body(role)
+    selection = resolve_pi_role(load(Path(env.get('DEVFLOW_MODEL_POLICY', policy_path()))), role, env, model)
+    chosen = selection['model']
+    ensure_pi_model(chosen, settings_path(env))
+    shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
+    if not shutil.which('pi', path=env.get('PATH')):
+        raise WorkflowError('pi CLI is missing from PATH')
+    result = {'role': role, 'host': 'pi', **selection, 'session_id': None, 'session_path': None}
+    if selection['model_source'] in ('inherited', 'default'):
+        result['warning'] = 'Модель роли наследуется; независимость обеспечена отдельным контекстом'
+    executor = chosen
+    if not executor:
+        try:
+            settings = json.loads(settings_path(env).read_text())
+            if settings.get('defaultProvider') and settings.get('defaultModel'):
+                executor = settings['defaultProvider'] + '/' + settings['defaultModel']
+        except FileNotFoundError:
+            pass
+    provenance = f'Исполнитель: host=pi model={executor or "pi default (неизвестна)"}\n'
+    try:
+        proc = _run_process(ctx, role, body, tools, chosen, provenance + message, env, timeout)
+        result.update(exit_code=proc.returncode, report=proc.stdout, stderr=proc.stderr)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            result['warning'] = 'Обзор не завершён: ошибка процесса или пустой ответ'
+    except subprocess.TimeoutExpired as exc:
+        def text(value):
+            return value.decode(errors='replace') if isinstance(value, bytes) else value or ''
+        result.update(exit_code=124, report=text(exc.stdout), stderr=text(exc.stderr), warning='Обзор не завершён: timeout')
+    except OSError as exc:
+        raise WorkflowError(f'pi failed to launch: {exc}')
+    result['executor'] = executor
+    return result
+
+
 def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     env = dict(os.environ if env is None else env)
     current = route(ctx, db, slug)
@@ -170,7 +226,7 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
     source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
     ensure_pi_model(chosen, settings_path(env))
     shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
-    extension = extension_path(env)
+    extension_path(env)
     run = None
     if phase == 'implement':
         step = step or current['step']
@@ -179,20 +235,12 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None):
         run = start(ctx, db, current['slug'], step, current['revision'])
         if step != current['step']:
             current = dict(current, n=None)
-    with tempfile.NamedTemporaryFile('w', suffix='.md', prefix='devflow-' + phase + '-', delete=False,
-                                     encoding='utf-8') as fh:
-        fh.write(body)
-    body_file = Path(fh.name)
     try:
-        proc = subprocess.run(build_command(body_file, tools, chosen, task_message(phase, ctx, current, step, run, note),
-                                             options=('--no-session', '--extension', str(extension))),
-                              stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+        proc = _run_process(ctx, phase, body, tools, chosen, task_message(phase, ctx, current, step, run, note), env)
     except OSError as exc:
         if run:
             interrupt(db, run['run_id'], f'pi failed to launch: {exc}')
         raise WorkflowError(f'pi failed to launch: {exc}')
-    finally:
-        body_file.unlink(missing_ok=True)
     after = route(ctx, db, current['slug'])
     result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'model_source': source, 'exit_code': proc.returncode,
               'report': proc.stdout, 'stderr': proc.stderr, 'route': after}

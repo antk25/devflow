@@ -73,6 +73,10 @@ def parser():
     a = handoff_commands.add_parser('latest'); a.add_argument('--task')
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
     a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model')
+    agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
+    a = agent_commands.add_parser('run'); a.add_argument('role', choices=pi.ROLES)
+    a.add_argument('--message-file', required=True, type=Path); a.add_argument('--model')
+    a.add_argument('--timeout', type=int, default=600)
     return p
 
 
@@ -87,6 +91,9 @@ def execute(args):
     if args.command == 'bench':
         return bench.command(args)
     ctx = context(args.cwd)
+    if args.command == 'agent':
+        return pi.run_agent(ctx, args.role, args.message_file.read_text(encoding='utf-8'),
+                            model=args.model, timeout=args.timeout)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
     if args.command == 'handoff':
