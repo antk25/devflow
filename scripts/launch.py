@@ -92,10 +92,9 @@ def pi_command(path, model):
     if not executable:
         raise WorkflowError('pi CLI is missing from PATH')
     model = pi.model_arg(os.environ, model)
-    if pi.warns_claude_bridge(model):
-        print('WARNING: pi would run on claude-bridge (Claude); pass --model provider/id or set '
-              'PI_PROVIDER/PI_MODEL', file=sys.stderr)
-    argv = [executable] + (['--model', model] if model else [])
+    pi.ensure_pi_model(model, pi.settings_path(os.environ))
+    pi.shared_instructions(Path(os.environ.get('DEVFLOW_INSTRUCTIONS', pi.SHARED_INSTRUCTIONS)))
+    argv = [executable, '--extension', str(pi.extension_path(os.environ))] + (['--model', model] if model else [])
     if model:
         os.environ.update(pi.model_env(model))
     if not (path / 'AGENTS.md').exists():

@@ -181,6 +181,22 @@ After install, skills and agents are available in any Claude Code session. The s
 `~/.claude/skills/devflow/devflow`, or `./scripts/devflow-cli.sh` from this checkout.
 `DEVFLOW_CLAUDE_DIR` and `DEVFLOW_PI_DIR` override the symlink destinations for isolated installation checks.
 
+Общие инструкции устанавливаются из `devflow-instructions.example.md` в
+`~/.claude/devflow-instructions.md`; Claude подключает их импортом в глобальном `CLAUDE.md`
+(прежний текст сохраняется, перед добавлением импорта создаётся `.devflow.bak`). Pi читает
+тот же файл через глобальное расширение `~/.pi/agent/extensions/devflow.ts`, в именованный
+системный раздел `devflow_shared`; правила хоста находятся отдельно в `devflow_host`.
+Проектные `.pi/` и AGENTS.md менять не нужно. `DEVFLOW_INSTRUCTIONS` задаёт другой общий путь
+для установки и запуска; при нестандартном каталоге pi используйте `DEVFLOW_PI_DIR` при установке
+и штатный `PI_CODING_AGENT_DIR` при запуске.
+
+Существующий пользовательский файл инструкций установщик не заменяет: выводит `REVIEW`,
+сохраняет резервную копию с хешем и кладёт эталон рядом как `.proposed` для ручного объединения.
+Сравните его со своими правилами, особенно запреты публикации и размер implement-запуска:
+общий порядок допускает публикацию текущей feature-ветки драйвером, но implement не публикует
+и выполняет ровно один шаг. Повторная установка не перезаписывает резервную копию и предложение;
+`--check` только диагностирует, `--remove` сохраняет инструкции, импорт и резервные копии.
+
 ---
 
 ## Launching a project
@@ -208,14 +224,23 @@ devflow-pi <name> --model openai-codex/gpt-6-astra  # explicit model; otherwise 
 ```
 
 `devflow-pi` (`bin/devflow-pi`, linked into `~/.local/bin` by `install.sh`) runs the same launcher as
-`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared. pi has no
-SessionStart hook, so the launcher writes what the hook would print — `PROJECT_RESTORE`,
-`OBSIDIAN_CONTEXT`, the latest `/cut` hand-off of the active task (`devflow handoff latest --task <key>`)
-and a short block of pi rules (state moves only through `devflow`, never call `claude`, `approve` only
-on the user's word, on `running` inspect before `finish`/`resume`/`interrupt`) — to a temp file and
-starts `pi --append-system-prompt <file>`. Nothing is written into the project: no state database is
-created, a project without `AGENTS.md` gets a warning and a bare pi. If the model would resolve to
-`claude-bridge`, a warning goes to stderr before launch.
+`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared.
+Launcher передаёт только проектный контекст: `PROJECT_RESTORE`, `OBSIDIAN_CONTEXT` и последнюю
+передачу `/cut` активной задачи (`devflow handoff latest --task <key>`), через временный файл
+`--append-system-prompt`. Общие инструкции загружает расширение, одинаково в драйвере и фазах;
+перечитывание перед запросом не накапливает копии раздела после `/reload` или `/new`.
+Отсутствующий, пустой или нечитаемый общий файл останавливает управляемый запуск с диагностикой.
+В проект ничего не записывается, БД не создаётся; без AGENTS.md pi запускается с предупреждением,
+но с общими правилами.
+
+`claude-bridge` отклоняется до запуска и до `devflow start`: для явного `--model`, выбора через
+`PI_PROVIDER`/`PI_MODEL` и глобального значения по умолчанию. При выборе bridge внутри сессии
+расширение отменяет текущую работу и возвращает прежнюю модель либо завершает сессию.
+Прямой `anthropic/*` разрешён. Управляемый запуск принимает явную модель только как
+`provider/id[:thinking]`, без неоднозначного короткого имени или шаблона провайдера.
+Это проверка выбора провайдера, не изоляция ОС и не проверка
+произвольных shell-команд (за неё отвечает отдельный механизм ограничений). Модели Claude и
+его запуск через `start.sh` не меняются.
 
 `/devflow <slug>` in pi is the same driver skill as in Claude Code; only the launch layer differs.
 Where Claude Code spawns a phase through the `Agent` tool, pi runs

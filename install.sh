@@ -9,6 +9,7 @@ INTEGRATIONS_DIR="${DEVFLOW_INTEGRATIONS_DIR:-$HOME/.config/devflow/integrations
 POLICY_FILE="${DEVFLOW_MODEL_POLICY:-$CLAUDE_DIR/devflow/model-policy.json}"
 STATUSLINE="${DEVFLOW_STATUSLINE:-$CLAUDE_DIR/statusline.sh}"
 PI_DIR="${DEVFLOW_PI_DIR:-$HOME/.pi/agent}"
+INSTRUCTIONS="${DEVFLOW_INSTRUCTIONS:-$CLAUDE_DIR/devflow-instructions.md}"
 # Every skills/<name>/SKILL.md declares `pi:` in its frontmatter: `true` → linked into pi, a quoted reason → skipped.
 SKILLS=()
 for src in "$DEVFLOW_DIR"/skills/*/SKILL.md; do
@@ -39,7 +40,8 @@ if [ "$mode" = install ]; then
     fi
 fi
 
-sources=() destinations=()
+sources=("$DEVFLOW_DIR/pi/extensions/devflow.ts")
+destinations=("$PI_DIR/extensions/devflow.ts")
 for name in "${SKILLS[@]}"; do
     sources+=("$DEVFLOW_DIR/skills/$name")
     destinations+=("$CLAUDE_DIR/skills/$name")
@@ -111,6 +113,13 @@ elif [ -x "$PYTHON" ]; then
         echo "CONFLICT (not replacing): $dst" >&2; issues=1
     done <<< "$conflicts"
 fi
+if [ "$mode" != remove ] && [ -x "$PYTHON" ]; then
+    "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from devflow.project import install_instructions; install_instructions(*sys.argv[2:])' \
+        "$DEVFLOW_DIR/scripts" "$INSTRUCTIONS" "$DEVFLOW_DIR/devflow-instructions.example.md" \
+        "$([ "$mode" = check ] && echo check || echo preflight)" || issues=1
+    "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; from devflow.project import install_instruction_import; install_instruction_import(Path(sys.argv[2]) / "CLAUDE.md", sys.argv[3], sys.argv[4])' \
+        "$DEVFLOW_DIR/scripts" "$CLAUDE_DIR" "$INSTRUCTIONS" "$([ "$mode" = check ] && echo check || echo preflight)" || issues=1
+fi
 if [ "$mode" != remove ]; then
     for line in "${pi_skipped[@]}"; do
         echo "$line"
@@ -174,7 +183,7 @@ fi
 
 if [ "$mode" = install ]; then
     "$PYTHON" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1] + "/scripts"); from devflow.registry import initialize; initialize(Path(sys.argv[1]))' "$DEVFLOW_DIR"
-    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$PI_DIR/skills" "$PI_DIR/prompts" "$BIN_DIR" "$INTEGRATIONS_DIR"
+    mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents" "$PI_DIR/skills" "$PI_DIR/prompts" "$PI_DIR/extensions" "$BIN_DIR" "$INTEGRATIONS_DIR"
     for i in "${!sources[@]}"; do
         src="${sources[$i]}" dst="${destinations[$i]}"
         if links_to "$dst" "$src"; then
@@ -189,6 +198,10 @@ if [ "$mode" = install ]; then
         cp -- "$DEVFLOW_DIR/model-policy.example.json" "$POLICY_FILE"
         echo "copy $POLICY_FILE"
     fi
+    "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from devflow.project import install_instructions; install_instructions(*sys.argv[2:])' \
+        "$DEVFLOW_DIR/scripts" "$INSTRUCTIONS" "$DEVFLOW_DIR/devflow-instructions.example.md"
+    "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; from devflow.project import install_instruction_import; install_instruction_import(Path(sys.argv[2]) / "CLAUDE.md", sys.argv[3])' \
+        "$DEVFLOW_DIR/scripts" "$CLAUDE_DIR" "$INSTRUCTIONS"
     # Phase agents are rendered from model-policy.json (frontmatter) + agents/<phase>.md (body); atomic write.
     DEVFLOW_MODEL_POLICY="$POLICY_FILE" PYTHONPATH="$DEVFLOW_DIR/scripts" "$PYTHON" -m devflow.policy write "$CLAUDE_DIR/agents"
 fi

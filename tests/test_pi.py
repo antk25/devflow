@@ -15,13 +15,20 @@ ACTIVE = {'project': 'demo', 'vault': '/v', 'tz': [], 'research': [],
 HANDOFF = {'path': '/v/notes/handoff-df-11.md', 'body': '# Передача\n\nГде остановились.\n'}
 
 
-def test_preamble_has_markers_json_handoff_and_rules():
+@pytest.fixture(autouse=True)
+def shared_rules(tmp_path, monkeypatch):
+    path = tmp_path / 'shared.md'
+    path.write_text('# Общие правила\nОдно выполнение — один шаг.\n')
+    monkeypatch.setenv('DEVFLOW_INSTRUCTIONS', str(path))
+
+
+def test_preamble_has_markers_json_handoff_and_no_shared_rules():
     text = pi.preamble(CTX, ACTIVE, HANDOFF)
     assert text.startswith('PROJECT_RESTORE\n{')
     assert 'OBSIDIAN_CONTEXT\n{' in text
     assert json.dumps(ACTIVE, ensure_ascii=False, indent=2) in text
     assert 'HANDOFF /v/notes/handoff-df-11.md\n# Передача' in text
-    assert 'DEVFLOW_RULES' in text and '`claude`' in text and 'approve' in text
+    assert 'DEVFLOW_RULES' not in text and 'Общие правила' not in text
     assert text == pi.preamble(CTX, ACTIVE, HANDOFF)
 
 
@@ -31,10 +38,8 @@ def test_preamble_without_handoff_has_no_handoff_section():
 
 def test_preamble_rules_cover_interrupted_run():
     text = pi.preamble(CTX, ACTIVE, None)
-    assert '`running`' in text
-    assert 'git status' in text and 'changelog' in text
-    assert 'finish' in text and 'resume' in text and 'interrupt' in text
-    assert 'phase run … implement` для того же шага не запускай' in text
+    assert '"status": "running"' in text
+    assert 'DEVFLOW_RULES' not in text
 
 
 def test_task_key_prefers_most_advanced_active_task():
@@ -218,15 +223,15 @@ def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch):
     ({'PI_PROVIDER': 'claude-bridge', 'PI_MODEL': 'claude-opus-5-5'}, None),
     ({}, '{"defaultProvider": "claude-bridge"}'),
 ])
-def test_run_phase_warns_about_claude_bridge_but_runs(proj, fake_pi, tmp_path, monkeypatch, capsys, env_model, settings):
+def test_run_phase_refuses_claude_bridge(proj, fake_pi, tmp_path, monkeypatch, env_model, settings):
     approve_research(proj)
     settings_path = tmp_path / 'settings.json'
     if settings:
         settings_path.write_text(settings)
     monkeypatch.setattr(pi, 'PI_SETTINGS', settings_path)
-    pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], **env_model})
-    assert 'claude-bridge' in capsys.readouterr().err
-    assert fake_pi['log'].exists()
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], **env_model})
+    assert not fake_pi['log'].exists()
 
 
 def test_cli_phase_run_exit_code_only_in_json(proj, fake_pi, monkeypatch, capsys):
@@ -366,3 +371,95 @@ def test_implement_launch_failure_interrupts_the_run(proj, fake_pi, monkeypatch)
         pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
     assert [r['status'] for r in runs(proj)] == ['blocked']
     assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'blocked'
+
+
+@pytest.mark.parametrize('selection', ['override', 'env', 'default'])
+def test_bridge_refused_before_start(proj, fake_pi, tmp_path, monkeypatch, selection):
+    approve_plan(proj)
+    settings = tmp_path / 'pi-settings.json'
+    settings.write_text(json.dumps({'defaultProvider': 'claude-bridge'} if selection == 'default' else {}))
+    monkeypatch.setattr(pi, 'PI_SETTINGS', settings)
+    env = dict(fake_pi['env'])
+    if selection == 'env':
+        env.update(PI_PROVIDER='claude-bridge', PI_MODEL='test')
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
+                     model='claude-bridge/test' if selection == 'override' else None, env=env)
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'ready'
+
+
+def test_missing_shared_rules_refused_before_start(proj, fake_pi):
+    approve_plan(proj)
+    with pytest.raises(WorkflowError, match='Общие инструкции недоступны'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
+                     env={**fake_pi['env'], 'DEVFLOW_INSTRUCTIONS': '/nonexistent/rules.md'})
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+
+
+def test_anthropic_override_allowed_over_bridge_default(proj, fake_pi, tmp_path, monkeypatch):
+    settings = tmp_path / 'settings.json'
+    settings.write_text('{"defaultProvider": "claude-bridge"}')
+    monkeypatch.setattr(pi, 'PI_SETTINGS', settings)
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', model='anthropic/test', env=fake_pi['env'])
+    assert out['exit_code'] == 0
+    assert str(pi.extension_path(fake_pi['env'])) in fake_pi['argv']()
+
+
+def test_launcher_refuses_bridge_and_loads_extension(proj, fake_pi, monkeypatch):
+    import launch
+    for key, value in fake_pi['env'].items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        launch.pi_command(proj['cwd'], 'claude-bridge/test')
+    _, argv = launch.pi_command(proj['cwd'], 'anthropic/test')
+    assert str(pi.extension_path(os.environ)) in argv
+    text = Path(argv[argv.index('--append-system-prompt') + 1]).read_text()
+    assert 'DEVFLOW_RULES' not in text
+
+
+def test_extension_uses_discovered_symlink_path(tmp_path):
+    installed = tmp_path / 'extensions/devflow.ts'
+    installed.parent.mkdir()
+    installed.symlink_to(pi.EXTENSION)
+    assert pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)}) == installed
+    installed.unlink()
+    installed.write_text('foreign')
+    with pytest.raises(WorkflowError, match='CONFLICT pi extension'):
+        pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+
+
+@pytest.mark.parametrize('model', ['opus', '*/opus', 'claude-bridge/test'])
+def test_ambiguous_or_bridge_model_refused(tmp_path, model):
+    with pytest.raises(WorkflowError):
+        pi.ensure_pi_model(model, tmp_path / 'settings.json')
+
+
+def test_real_pi_loader_does_not_duplicate_extension(tmp_path):
+    import shutil
+    import subprocess
+    executable = shutil.which('pi')
+    if not executable or not shutil.which('node'):
+        pytest.skip('pi/node are not installed')
+    loader = Path(executable).resolve().parents[1] / 'core/extensions/loader.js'
+    if not loader.exists():
+        pytest.skip('pi loader is not exposed by this installation')
+    installed = tmp_path / 'extensions/devflow.ts'
+    installed.parent.mkdir()
+    installed.symlink_to(pi.EXTENSION)
+    selected = pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+    script = f'''import {{discoverAndLoadExtensions}} from {json.dumps(loader.as_uri())};
+const r = await discoverAndLoadExtensions([{json.dumps(str(selected))}], {json.dumps(str(tmp_path))}, {json.dumps(str(tmp_path))});
+if (r.errors.length || r.extensions.length !== 1) throw new Error(JSON.stringify({{count: r.extensions.length, errors: r.errors}}));
+console.log('1 extension, 0 errors');'''
+    result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == '1 extension, 0 errors'
+
+
+def test_custom_agent_directory_settings(tmp_path):
+    path = pi.settings_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+    assert path == tmp_path / 'settings.json'
+    path.write_text('not-json')
+    with pytest.raises(WorkflowError, match='Cannot read pi settings'):
+        pi.ensure_pi_model(None, path)

@@ -14,6 +14,58 @@ VAULT_DIRS = ('tz', 'research', 'plans', 'changelog', 'notes')
 STALE_DENY = ('Bash(gh:*)', 'Bash(gh *)', 'Bash(*gh *)', 'Bash(git push:*)', 'Bash(git push *)', 'Bash(*git push*)')
 
 
+def install_instructions(path, example, mode='install'):
+    """Preserve local instructions; offer a reviewed replacement, never silently merge prose."""
+    path, example = Path(path), Path(example)
+    wanted = example.read_text(encoding='utf-8')
+    if not path.exists():
+        if path.is_symlink():
+            raise WorkflowError(f'CONFLICT instructions: {path} is a dangling link')
+        if mode == 'check':
+            raise WorkflowError(f'MISS shared instructions {path}')
+        if mode == 'install':
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('x', encoding='utf-8') as fh:
+                fh.write(wanted)
+        return
+    current = path.read_text(encoding='utf-8')
+    if not current.strip():
+        raise WorkflowError(f'CONFLICT empty shared instructions: {path}')
+    if current == wanted:
+        return
+    print(f'REVIEW shared instructions: {path}; compare with {example}; user file preserved')
+    if mode == 'install':
+        import hashlib
+        digest = hashlib.sha256(current.encode()).hexdigest()[:12]
+        for target, text in ((path.with_name(path.name + f'.{digest}.bak'), current),
+                             (path.with_name(path.name + '.proposed'), wanted)):
+            if not target.exists():
+                with target.open('x', encoding='utf-8') as fh:
+                    fh.write(text)
+            print(f'review {target}')
+
+
+def install_instruction_import(path, instructions, mode='install'):
+    path, instructions = Path(path), Path(instructions)
+    current = path.read_text(encoding='utf-8') if path.exists() else ''
+    imports = [line.strip()[1:] for line in current.splitlines() if line.strip().startswith('@')]
+    if any((path.parent / entry).resolve() == instructions.resolve() for entry in imports):
+        return
+    if path.is_symlink():
+        raise WorkflowError(f'CONFLICT shared instructions import: {path} is a symlink')
+    if mode == 'check':
+        raise WorkflowError(f'MISS shared instructions import in {path}')
+    if mode != 'install':
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if current:
+        backup = path.with_name(path.name + '.devflow.bak')
+        if not backup.exists():
+            with backup.open('x', encoding='utf-8') as fh:
+                fh.write(current)
+    atomic_write(path, current + ('\n\n' if current else '') + f'@{instructions}\n')
+
+
 def registry_path(root):
     return Path(root) / '.claude/data/projects.json'
 

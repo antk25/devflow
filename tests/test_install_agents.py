@@ -230,3 +230,69 @@ def test_install_links_into_pi_exactly_the_skills_with_pi_true(home):
         if value is not True:
             assert f'skip pi {name}: {value}\n' in r.stdout, r.stdout
     assert 'skip pi autoresearch: not verified for pi' in r.stdout
+
+
+def test_shared_rules_and_extension_install_reinstall_remove(home):
+    assert install(home).returncode == 0
+    rules = home / '.claude/devflow-instructions.md'
+    original = rules.read_text()
+    assert original == (ROOT / 'devflow-instructions.example.md').read_text()
+    context = home / '.claude/CLAUDE.md'
+    assert context.read_text().count(f'@{rules}') == 1
+    extension = home / 'pi/extensions/devflow.ts'
+    assert extension.is_symlink() and extension.resolve() == ROOT / 'pi/extensions/devflow.ts'
+    assert install(home).returncode == 0
+    assert context.read_text().count(f'@{rules}') == 1
+    assert install(home, '--check').returncode == 0
+    assert install(home, '--remove').returncode == 0
+    assert not extension.exists()
+    assert rules.read_text() == original
+    assert context.read_text().count(f'@{rules}') == 1
+
+
+def test_local_rules_preserved_with_backup_and_proposal(home):
+    rules = home / '.claude/devflow-instructions.md'
+    rules.write_text('Мои настройки\n')
+    context = home / '.claude/CLAUDE.md'
+    context.write_text('Мой контекст\n')
+    policy = fallback_policy(home)
+    result = install(home)
+    assert result.returncode == 0, result.stderr
+    assert 'REVIEW shared instructions' in result.stdout
+    assert rules.read_text() == 'Мои настройки\n'
+    backups = list(rules.parent.glob('devflow-instructions.md.*.bak'))
+    assert len(backups) == 1 and backups[0].read_text() == rules.read_text()
+    assert rules.with_name(rules.name + '.proposed').read_text() == (ROOT / 'devflow-instructions.example.md').read_text()
+    assert context.read_text().startswith('Мой контекст\n')
+    assert (home / '.claude/CLAUDE.md.devflow.bak').read_text() == 'Мой контекст\n'
+    before = {p.name: p.read_bytes() for p in rules.parent.iterdir() if p.is_file()}
+    assert install(home).returncode == 0
+    assert {p.name: p.read_bytes() for p in rules.parent.iterdir() if p.is_file()} == before
+    assert json.loads((home / 'model-policy.json').read_text()) == policy
+    assert install(home, '--remove').returncode == 0
+    assert rules.read_text() == 'Мои настройки\n'
+
+
+def test_existing_relative_import_not_duplicated(home):
+    context = home / '.claude/CLAUDE.md'
+    context.write_text('@devflow-instructions.md\nМои правила\n')
+    assert install(home).returncode == 0
+    assert context.read_text() == '@devflow-instructions.md\nМои правила\n'
+
+
+def test_empty_instructions_fail_preflight_without_installing(home):
+    (home / '.claude/devflow-instructions.md').write_text('')
+    result = install(home)
+    assert result.returncode != 0
+    assert not (home / 'pi/extensions/devflow.ts').exists()
+    assert not (home / 'model-policy.json').exists()
+
+
+def test_foreign_extension_fails_before_global_instructions_are_written(home):
+    extension = home / 'pi/extensions/devflow.ts'
+    extension.parent.mkdir(parents=True)
+    extension.write_text('user extension')
+    result = install(home)
+    assert result.returncode != 0
+    assert extension.read_text() == 'user extension'
+    assert not (home / '.claude/devflow-instructions.md').exists()
