@@ -298,6 +298,8 @@ def command_forms(command, cwd, depth=0):
                     index += 2
                 elif tokens[index] == '-c':
                     index += 2
+                elif tokens[index] in ('--no-pager', '--no-optional-locks'):
+                    index += 1
                 else:
                     raise ValueError('Неизвестная глобальная опция git')
             forms.append((' '.join(['git', *tokens[index:]]), cwd))

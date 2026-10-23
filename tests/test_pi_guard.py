@@ -153,6 +153,83 @@ def test_settings_protocol_and_exceptions(tmp_path):
     assert permission_decision({'toolName': 'bash', 'input': {'command': 'custom test'}}, [config])['rule'] == 'Bash(custom:*)'
 
 
+@pytest.mark.parametrize('flags', [
+    '--no-pager', '--no-optional-locks', '--no-pager --no-optional-locks',
+    '--no-optional-locks --no-pager', '--no-pager --no-pager --no-optional-locks',
+])
+def test_safe_git_global_flags(policy, flags):
+    cwd, paths = policy
+    command = f'git {flags} status'
+    assert command_forms(command, cwd) == [(command, cwd), ('git status', cwd)]
+    assert decision(policy, command) == 'allow'
+    mixed = f'git {flags} -C sub -c core.fsmonitor=false status --no-pager'
+    assert command_forms(mixed, cwd) == [(mixed, cwd), ('git status --no-pager', cwd / 'sub')]
+    interleaved = f'git -c core.fsmonitor=false {flags} -C sub status'
+    assert command_forms(interleaved, cwd)[-1] == ('git status', cwd / 'sub')
+
+
+@pytest.mark.parametrize('flags', [
+    '--no-pager', '--no-optional-locks', '--no-pager --no-optional-locks',
+    '--no-optional-locks --no-pager', '--no-pager --no-pager --no-optional-locks',
+])
+@pytest.mark.parametrize('rules,expected,rule', [
+    ({}, 'allow', 'pi-default'),
+    ({'allow': ['Bash(git status)']}, 'allow', 'Bash(git status)'),
+    ({'allow': ['Bash(git *)'], 'ask': ['Bash(git status)']}, 'ask', 'Bash(git status)'),
+    ({'allow': ['Bash(git *)'], 'ask': ['Bash(git status)'], 'deny': ['Bash(git status)']},
+     'deny', 'Bash(git status)'),
+])
+@pytest.mark.parametrize('prefix', ['', '-C sub -c core.fsmonitor=false '])
+def test_safe_git_flags_policy_equivalence(policy, flags, rules, expected, rule, prefix):
+    cwd, paths = policy
+    paths[0].write_text(json.dumps({'permissions': rules}))
+    baseline = f'git {prefix}status'
+    flagged = f'git {flags} {prefix}status'
+    for command in (baseline, flagged):
+        result = permission_decision({'toolName': 'bash', 'input': {'command': command}, 'cwd': str(cwd)}, paths)
+        assert (result['decision'], result['rule']) == (expected, rule)
+
+
+@pytest.mark.parametrize('kind', ['deny', 'ask'])
+@pytest.mark.parametrize('form', ['original', 'normalized'])
+def test_safe_git_flags_local_restrictions(policy, tmp_path, kind, form):
+    cwd, paths = policy
+    paths[0].write_text(json.dumps({'permissions': {'allow': ['Bash(git *)']}}))
+    flagged = 'git --no-pager --no-optional-locks status'
+    pattern = flagged if form == 'original' else 'git status'
+    local = tmp_path / 'local-policy.json'
+    local.write_text(json.dumps({'permissions': {kind: [f'Bash({pattern})']}}))
+    paths.append(local)
+    result = permission_decision({'toolName': 'bash', 'input': {'command': flagged}, 'cwd': str(cwd)}, paths)
+    assert (result['decision'], result['rule']) == (kind, f'Bash({pattern})')
+    assert decision(policy, 'git status') == (kind if form == 'normalized' else 'allow')
+
+
+@pytest.mark.parametrize('flag', ['--no-pager=x', '--no-optional-locks=x', '--no-page', '--no-optional-lock', '--unknown'])
+def test_unknown_git_global_flags(policy, flag):
+    with pytest.raises(ValueError, match='глобальная опция'):
+        command_forms(f'git {flag} status', policy[0])
+    assert decision(policy, f'git {flag} status') != 'allow'
+
+
+@pytest.mark.parametrize('tail', [
+    'push origin main', 'push origin master', 'push origin production', 'push origin stable',
+    'push --force origin feature', 'push --delete origin feature', 'push --mirror origin',
+    'push origin +feature', 'push origin :feature', 'push origin feature:main',
+])
+def test_safe_flags_preserve_publication_denials(policy, tail):
+    assert decision(policy, f'git {tail}') == 'deny'
+    assert decision(policy, f'git --no-pager --no-optional-locks {tail}') == 'deny'
+
+
+@pytest.mark.parametrize('command', [
+    'git --no-pager --unknown status', 'git --no-optional-locks status $(true)',
+    'git --no-pager status `true`', 'git --no-pager status > output',
+])
+def test_safe_flags_do_not_allow_unknown_or_shell(policy, command):
+    assert decision(policy, command) != 'allow'
+
+
 def test_protocol(tmp_path):
     result = subprocess.run([str(ROOT / 'scripts/devflow-cli.sh'), 'guard', '--host', 'pi'],
                             input='{broken', text=True, capture_output=True)
