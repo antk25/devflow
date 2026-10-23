@@ -6,9 +6,163 @@ import { EventEmitter } from "node:events";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { checkTool, guardTool } from "../pi/extensions/devflow.ts";
 import { REVIEW_GIT, bindReviewTarget, checkReviewTool, registerReviewChild } from "../pi/pilots/review-child.ts";
-import { pilotApi, registerReviewSession, reviewRole } from "../pi/pilots/review-standards.ts";
+import reviewStandards, { pilotApi, registerReviewSession, reviewRole, reduceReview, settleReview,
+	unavailableReview, saveReviewEvidence, REVIEW_MODEL } from "../pi/pilots/review-standards.ts";
+
+async function interactiveProbe() {
+	const external = process.env.DEVFLOW_TEST_EVIDENCE!;
+	const packagePath = process.env.DEVFLOW_SUBAGENTS_PILOT_PACKAGE!;
+	const rows: any[] = [];
+	const commands = new Map<string, any>();
+	const notices: string[] = [];
+	const calls = { delegation: 0, provider: 0, child: 0, backend: 0 };
+	const api: any = { on() {}, registerCommand(name: string, command: any) { commands.set(name, command); },
+		events: { emit() { calls.delegation++; throw new Error("delegation forbidden"); },
+			on() { throw new Error("subscription forbidden"); } },
+		exec() { calls.backend++; throw new Error("backend forbidden"); } };
+	reviewStandards(api);
+	assert.equal(commands.size, 1);
+	for (const target of ["a".repeat(40), "a..b", "--uncommitted", "", "$(forbidden)"]) {
+		await commands.get("devflow-review-standards").handler(target, new Proxy({
+			ui: { notify(message: string) { notices.push(message); } },
+		}, { get(context, key) {
+			if (key === "ui") return context.ui;
+			if (key === "modelRegistry" || key === "modelRuntime") calls.provider++;
+			else calls.backend++;
+			throw new Error(`NO-GO must not access context.${String(key)}`);
+		} }));
+		assert.ok(notices.at(-1)!.includes("unavailable/lifecycle_unverifiable"));
+		rows.push({ name: `command:${target}`, passed: true });
+	}
+	assert.deepEqual(calls, { delegation: 0, provider: 0, child: 0, backend: 0 });
+	commands.clear();
+	const enabled = process.env.DEVFLOW_SUBAGENTS_PILOT_PACKAGE;
+	try {
+		delete process.env.DEVFLOW_SUBAGENTS_PILOT_PACKAGE;
+		reviewStandards(api);
+		assert.equal(commands.size, 0);
+	} finally { process.env.DEVFLOW_SUBAGENTS_PILOT_PACKAGE = enabled; }
+	rows.push({ name: "without-opt-in", passed: true });
+
+	const identity = { requestId: "attempt", ownerRunId: "owner", nodeId: "leaf" };
+	const initial = () => ({ ...unavailableReview(), identity, taskStatus: "pending", outcome: "pending", final: false });
+	const terminal = { status: "completed", model: REVIEW_MODEL, thinking: "low", exitCode: 0, text: "synthetic only" };
+	const signal = (data: any) => ({ ...identity, ...data });
+	for (const status of ["completed", "cancelled", "timed_out", "failed", "interrupted"]) {
+		for (const shutdown of [undefined, false, true]) for (const noWork of [undefined, false, true]) {
+			const result = settleReview(status, shutdown, noWork);
+			assert.equal(result.outcome, shutdown === true && noWork === true ? status : "unavailable");
+			let state = reduceReview(initial(), signal({ kind: "terminal", terminal: { ...terminal, status } }), 0);
+			state = reduceReview(state, signal({ kind: "cleanup", shutdownConfirmed: shutdown,
+				noActiveWorkConfirmed: noWork }), 1);
+			assert.equal(state.outcome, result.outcome);
+			assert.equal(state.final, result.outcome !== "unavailable");
+			if (!state.final) {
+				state = reduceReview(state, signal({ kind: "tick" }), 10000);
+				assert.equal(state.reason, "cleanup_unconfirmed");
+				assert.equal(state.originalReason, status);
+			}
+			rows.push({ name: `settle:${status}:${shutdown}:${noWork}`, passed: true });
+		}
+	}
+	for (const [name, patch, expected] of [
+		["success-synthetic-only", {}, "completed"], ["empty", { text: " " }, "empty_response"],
+		["model-unknown", { model: undefined }, "failed"], ["thinking-unknown", { thinking: undefined }, "failed"],
+		["exit-error", { exitCode: 1 }, "failed"], ["partial", { status: "failed", text: "partial" }, "failed"],
+	] as const) {
+		let state = reduceReview(initial(), signal({ kind: "terminal", terminal: { ...terminal, ...patch } }), 50);
+		assert.equal(state.outcome, "unavailable");
+		state = reduceReview(state, signal({ kind: "cleanup", shutdownConfirmed: true, noActiveWorkConfirmed: true }), 51);
+		assert.equal(state.outcome, expected);
+		assert.equal(state.final, true);
+		rows.push({ name, passed: true });
+	}
+	for (const first of ["terminal", "cancel"]) {
+		let state = reduceReview(initial(), signal({ kind: first, terminal }), 100);
+		assert.equal(state.deadline, 10100);
+		const same = state;
+		for (const field of ["requestId", "ownerRunId", "nodeId"]) {
+			assert.equal(reduceReview(state, signal({ kind: "cleanup", [field]: "foreign", shutdownConfirmed: true,
+				noActiveWorkConfirmed: true }), 101), same);
+		}
+		if (first === "terminal") {
+			const duplicate = reduceReview(state, signal({ kind: "terminal", terminal: { ...terminal, status: "failed" } }), 101);
+			assert.deepEqual(duplicate.terminal, terminal);
+			assert.equal(duplicate.taskStatus, "completed");
+		}
+		state = reduceReview(state, signal({ kind: "cleanup", disposeResolved: true }), 102);
+		assert.equal(state.outcome, "unavailable");
+		state = reduceReview(state, signal({ kind: "terminal", terminal }), 200);
+		assert.equal(state.deadline, 10100);
+		state = reduceReview(state, signal({ kind: "tick" }), 10099);
+		assert.equal(state.final, false);
+		state = reduceReview(state, signal({ kind: "tick" }), 10100);
+		assert.equal(state.reason, "cleanup_unconfirmed");
+		assert.equal(state.originalReason, first === "cancel" ? "cancelled" : "completed");
+		for (const kind of ["cleanup", "terminal", "cancel", "tick"]) {
+			assert.equal(reduceReview(state, signal({ kind, terminal, shutdownConfirmed: true, noActiveWorkConfirmed: true }), 10101), state);
+		}
+		saveReviewEvidence(state);
+		rows.push({ name: `fake-clock:${first}:10000ms:late-foreign-duplicate`, passed: true });
+	}
+	let failedShutdown = reduceReview(initial(), signal({ kind: "terminal", terminal }), 0);
+	failedShutdown = reduceReview(failedShutdown, signal({ kind: "cleanup", shutdownConfirmed: false, noActiveWorkConfirmed: true }), 1);
+	failedShutdown = reduceReview(failedShutdown, signal({ kind: "cleanup", shutdownConfirmed: true }), 2);
+	assert.equal(failedShutdown.outcome, "unavailable");
+	assert.equal(reduceReview(failedShutdown, signal({ kind: "tick" }), 10000).reason, "cleanup_unconfirmed");
+	rows.push({ name: "shutdown-error-is-not-ack", passed: true });
+
+	const load = (path: string) => import(pathToFileURL(join(packagePath, path)).href);
+	const { createDefaultChildSessionFactory } = await load("src/runs/shared/child-session.js");
+	const { toSubagentDelegationResponse } = await load("src/slash/delegation-adapters.js");
+	let release!: () => void;
+	let shutdownFinished = false;
+	let disposed = false;
+	const held = new Promise<void>(resolve => { release = resolve; });
+	let shutdownDone: Promise<void> | undefined;
+	const shutdown = () => shutdownDone = held.then(() => { shutdownFinished = true; });
+	const errors: any[] = [];
+	const fakeSDK = {
+		ModelRuntime: { create: async () => ({}) }, SettingsManager: { create: () => ({}) },
+		DefaultResourceLoader: class { loaded = false; reload() {} getExtensions() { return { errors: [], runtime: {} }; } },
+		SessionManager: { inMemory: () => ({}) },
+		createAgentSession: async () => ({ session: { bindExtensions: async () => {},
+			extensionRunner: { hasHandlers: () => true, emit: shutdown },
+			dispose() { disposed = true; }, abort: async () => {} } }),
+	};
+	const factory = createDefaultChildSessionFactory({ loadPiCodingAgent: async () => fakeSDK, shutdownTimeoutMs: 1 });
+	const keepAlive = setInterval(() => {}, 1000);
+	try {
+		const child = await factory.create({ cwd: external, tools: ["read"], extensionPaths: [], hooks: [],
+			runtime: {}, storage: { kind: "memory" }, onExtensionError: (error: any) => errors.push(error) });
+		await child.dispose();
+		await factory.dispose();
+		assert.equal(disposed, true);
+		assert.equal(shutdownFinished, false);
+		assert.deepEqual(errors, []);
+		const response = toSubagentDelegationResponse({ ...identity, result: { kind: "text" } },
+			{ details: { results: [{ finalOutput: "synthetic", model: REVIEW_MODEL, thinking: "low", exitCode: 0 }] } }, false);
+		assert.equal(response.status, "completed");
+		let state = reduceReview(initial(), signal({ kind: "terminal", terminal: { ...terminal, status: response.status } }), 0);
+		state = reduceReview(state, signal({ kind: "cleanup", disposeResolved: true }), 1);
+		assert.equal(state.outcome, "unavailable");
+		assert.notEqual(settleReview("cancelled", undefined, undefined).outcome, "cancelled");
+		saveReviewEvidence(state);
+		writeFileSync(join(external, "factory-result.json"), JSON.stringify({ disposeResolved: true, shutdownFinished,
+			errors, syntheticTerminal: response.status, realModelSession: false, outcome: state.outcome }));
+		rows.push({ name: "real-factory-fake-sdk-held-shutdown", passed: true });
+	} finally {
+		release();
+		clearInterval(keepAlive);
+		await shutdownDone;
+		assert.equal(shutdownFinished, true);
+	}
+	writeFileSync(join(external, "interactive-result.json"), JSON.stringify({ rows, calls, realModelSession: false }));
+}
+
 
 export default async function () {
+	if (process.env.DEVFLOW_TEST_INTERACTIVE) return interactiveProbe();
 	const fixture = process.env.DEVFLOW_TEST_FIXTURE!;
 	if (process.env.DEVFLOW_TEST_TARGET_PROBE) {
 		const handlers: any[] = [];

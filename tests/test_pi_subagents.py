@@ -207,3 +207,54 @@ def test_guarded_sdk_cwd_and_environment(guarded):
 
 def test_guarded_git_sqlite_and_transition_spies(guarded):
     assert guarded['snapshots_equal'] is True
+
+
+def test_interactive_no_go_matrix():
+    package = os.environ.get('DEVFLOW_SUBAGENTS_PILOT_PACKAGE')
+    assert package, 'Нужен явный проверенный пакет'
+    executable = shutil.which('pi')
+    assert executable
+    sdk = Path(executable).resolve().parents[2]
+    loader = sdk / 'dist/core/extensions/loader.js'
+    evidence_root = Path.home() / '.local/state/devflow/pi-subagents-pilot'
+    evidence_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    external = Path(tempfile.mkdtemp(prefix='interactive-matrix-', dir=evidence_root))
+    home = external / 'home'
+    home.mkdir(mode=0o700)
+    secret = 'DEVFLOW_FAKE_SECRET_INTERACTIVE_71e90c'
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('PI_', 'DEVFLOW_', 'GIT_'))}
+    env.update(HOME=str(home), PI_CODING_AGENT_DIR=str(home / '.pi/agent'),
+               DEVFLOW_SUBAGENTS_PILOT_PACKAGE=package, DEVFLOW_TEST_INTERACTIVE='1',
+               DEVFLOW_TEST_EVIDENCE=str(external), DEVFLOW_BROWSER_ENV=secret)
+    script = f'''import {{discoverAndLoadExtensions}} from {json.dumps(loader.as_uri())};
+const result = await discoverAndLoadExtensions([{json.dumps(str(ROOT / 'tests/pi_subagents_harness.ts'))}],
+ {json.dumps(str(external))}, {json.dumps(str(home / '.pi/agent'))});
+if(result.errors.length) {{ console.error(JSON.stringify(result.errors)); process.exitCode=1; }}
+'''
+    result = subprocess.run(['node', '--input-type=module', '-e', script], cwd=ROOT, env=env,
+                            capture_output=True, text=True, timeout=30)
+    (external / 'stdout.log').write_text(result.stdout)
+    (external / 'stderr.log').write_text(result.stderr)
+    assert result.returncode == 0, f'{external}\n{result.stdout}\n{result.stderr}'
+    report = json.loads((external / 'interactive-result.json').read_text())
+    assert len(report['rows']) >= 60
+    assert all(row['passed'] for row in report['rows'])
+    assert report['calls'] == dict(delegation=0, provider=0, child=0, backend=0)
+    manifests = list(home.rglob('manifest.json'))
+    assert len(manifests) == 8
+    for path in manifests:
+        data = json.loads(path.read_text())
+        assert {'terminalStatus', 'disposeResolved', 'shutdownConfirmed',
+                'noActiveWorkConfirmed', 'outcome'} <= data.keys()
+        assert data['realModelSession'] is False
+        assert data['shutdownConfirmed'] == 'unknown'
+        assert data['noActiveWorkConfirmed'] == 'unknown'
+        assert data['outcome'] == 'unavailable'
+        assert path.with_name('report.md').is_file()
+    factory = json.loads((external / 'factory-result.json').read_text())
+    assert factory == dict(disposeResolved=True, shutdownFinished=False, errors=[],
+                           syntheticTerminal='completed', realModelSession=False, outcome='unavailable')
+    for path in external.rglob('*'):
+        if path.is_file():
+            assert secret.encode() not in path.read_bytes(), str(path)
+    print(f'Interactive evidence (NO-GO, не реальное ревью): {external}')
