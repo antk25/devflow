@@ -230,6 +230,28 @@ def test_safe_flags_do_not_allow_unknown_or_shell(policy, command):
     assert decision(policy, command) != 'allow'
 
 
+@pytest.mark.parametrize('path_kind', ['relative', 'absolute', 'symlink'])
+@pytest.mark.parametrize('rules,expected,rule', [
+    ({}, 'allow', 'pi-default'),
+    ({'allow': ['Glob(**/listed)']}, 'allow', 'Glob(**/listed)'),
+    ({'allow': ['Glob(**)'], 'ask': ['Glob(**/listed)']}, 'ask', 'Glob(**/listed)'),
+    ({'allow': ['Glob(**)'], 'ask': ['Glob(**/listed)'], 'deny': ['Glob(**/listed)']},
+     'deny', 'Glob(**/listed)'),
+])
+def test_listing_glob_policy_equivalence(tmp_path, path_kind, rules, expected, rule):
+    directory = tmp_path / 'listed'
+    directory.mkdir()
+    link = tmp_path / 'linked'
+    link.symlink_to(directory, target_is_directory=True)
+    config = tmp_path / 'settings.json'
+    config.write_text(json.dumps({'permissions': rules}))
+    path = {'relative': 'listed', 'absolute': str(directory), 'symlink': 'linked'}[path_kind]
+    results = [permission_decision({'toolName': tool, 'input': {'path': path, 'pattern': '*'},
+                                    'cwd': str(tmp_path)}, [config]) for tool in ('ls', 'find')]
+    assert results[0] == results[1]
+    assert (results[0]['decision'], results[0]['rule']) == (expected, rule)
+
+
 def test_protocol(tmp_path):
     result = subprocess.run([str(ROOT / 'scripts/devflow-cli.sh'), 'guard', '--host', 'pi'],
                             input='{broken', text=True, capture_output=True)

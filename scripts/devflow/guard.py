@@ -349,7 +349,7 @@ def permission_decision(event, settings_paths):
     try:
         tool = event.get('tool_name', event.get('toolName'))
         tool = {'bash': 'Bash', 'read': 'Read', 'write': 'Write', 'edit': 'Edit',
-                'find': 'Glob', 'grep': 'Grep'}.get(tool, tool)
+                'find': 'Glob', 'ls': 'Glob', 'grep': 'Grep'}.get(tool, tool)
         data = event.get('tool_input', event.get('input', {}))
         cwd = Path(event.get('cwd') or '.').resolve()
         if not isinstance(tool, str) or not isinstance(data, dict):

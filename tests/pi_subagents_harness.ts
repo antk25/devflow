@@ -301,7 +301,8 @@ export default async function () {
 				if (allowed) {
 					assert.deepEqual(verdicts, [undefined, undefined]);
 					matrixBackendCalls++;
-					const result = await bash.execute("matrix", input);
+					const tool = toolName === "ls" ? sdk.createLsTool(fixture) : bash;
+					const result = await tool.execute("matrix", input);
 					assert.ok(JSON.stringify(result).includes(expected), JSON.stringify(result));
 				}
 				matrix.push({ hasUI, kind: allowed ? "allowed" : "denied", verb, input, passed: true });
@@ -337,8 +338,9 @@ export default async function () {
 			for (const toolName of ["write", "edit", "subagent", "codemode", "mcp", "unknown", "ls", "find", "grep"]) {
 				await call(toolName, { path: ".", pattern: ".", content: "bad" }, false);
 			}
+			await call("ls", { path: "safe-dir" }, true, "ls", "item.txt");
 			for (const [toolName, path] of [["read", "guard-denied.txt"], ["grep", "guard-denied.txt"],
-				["grep", "guard-denied-dir"], ["find", "guard-denied-dir"]]) {
+				["grep", "guard-denied-dir"], ["find", "guard-denied-dir"], ["ls", "guard-denied-dir"]]) {
 				const input = { path, pattern: "." };
 				assert.equal(checkReviewTool({ toolName, input } as any, fixture), undefined);
 				const event = { type: "tool_call", toolCallId: "permission-mapping", toolName, input };
@@ -346,7 +348,7 @@ export default async function () {
 				assert.equal((await handlers[1](event, ctx))?.block, true);
 				await call(toolName, input, false);
 			}
-			assert.equal(matrixBackendCalls, 5);
+			assert.equal(matrixBackendCalls, 6);
 		}
 		for (const command of [
 			"claude --version", "claude-bridge probe", "git push origin feature", "gh pr create", "git add safe.txt",
@@ -366,6 +368,7 @@ export default async function () {
 		// This path passes the strict filter, so the actual Python-backed shared guard must block it.
 		assert.equal(checkReviewTool({ toolName: "read", input: { path: "guard-denied.txt" } } as any, fixture), undefined);
 		assert.equal((await invoke("read", { path: "guard-denied.txt" })).block, true);
+		assert.equal((await invoke("ls", { path: "guard-denied-dir" })).block, true);
 		assert.equal(backendCalls, before);
 		const unavailableSpawn = () => {
 			const process: any = new EventEmitter();

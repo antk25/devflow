@@ -53,6 +53,8 @@ def guarded():
     (cwd / 'AGENTS.md').write_text(f'---\nproject: guarded-fixture\nvault: {vault}\n---\n# Fixture\n')
     (cwd / 'safe.txt').write_text('FIXTURE_CONTENT\n')
     (cwd / 'guard-denied.txt').write_text('Не читать\n')
+    (cwd / 'safe-dir').mkdir()
+    (cwd / 'safe-dir/item.txt').write_text('SAFE_LISTING\n')
     (cwd / 'guard-denied-dir').mkdir()
     (cwd / 'guard-denied-dir/item.txt').write_text('Не искать\n')
     subprocess.run(['git', 'init', '-b', 'fixture', str(cwd)], check=True, capture_output=True)
@@ -191,12 +193,12 @@ def test_guarded_strict_readonly_blocks_before_backend(guarded):
     assert all(row['passed'] for row in matrix)
     for ui in (False, True):
         positive = [row for row in matrix if row['hasUI'] == ui and row['kind'] == 'allowed']
-        assert {row['verb'] for row in positive} == {'status', 'rev-parse', 'ls-files', 'show', 'diff'}
-        assert len(positive) == 5
+        assert {row['verb'] for row in positive} == {'status', 'rev-parse', 'ls-files', 'show', 'diff', 'ls'}
+        assert len(positive) == 6
         denied = [row for row in matrix if row['hasUI'] == ui and row['kind'] == 'denied']
         assert len(denied) >= 60
         for tool, path in [('read', 'guard-denied.txt'), ('grep', 'guard-denied.txt'),
-                           ('grep', 'guard-denied-dir'), ('find', 'guard-denied-dir')]:
+                           ('grep', 'guard-denied-dir'), ('find', 'guard-denied-dir'), ('ls', 'guard-denied-dir')]:
             assert any(row['verb'] == tool and row['input']['path'] == path for row in denied)
 
 
