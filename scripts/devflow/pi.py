@@ -169,6 +169,24 @@ def build_command(body_file, tools, model_arg, message, options=('--no-session',
             *(['--model', model_arg] if model_arg else []), message]
 
 
+def _cleanup_process_group(child, grace=2.0):
+    try:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+            deadline = time.monotonic() + grace
+            while True:
+                os.killpg(child.pid, 0)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    break
+                time.sleep(min(0.05, remaining))
+        except ProcessLookupError:
+            pass
+    finally:
+        child.wait(timeout=max(0.1, grace))
+
+
 def _browser_process(command, ctx, message, env, timeout):
     match = re.search(r'^Аргументы: (.+)$', message, re.M)
     slug = re.search(r'(?:^|;)\s*slug: ([a-z0-9-]+)\s*(?:;|$)', match[1]) if match else None
@@ -189,6 +207,8 @@ def _browser_process(command, ctx, message, env, timeout):
     with tempfile.TemporaryFile(mode='w+') as out, tempfile.TemporaryFile(mode='w+') as err, \
             tempfile.TemporaryFile(mode='w+') as wait_out, tempfile.TemporaryFile(mode='w+') as wait_err:
         code = None
+        cleanup_errors = []
+        cleanup_failed = False
         try:
             proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env,
                                     stdout=out, stderr=err, start_new_session=True)
@@ -220,22 +240,26 @@ def _browser_process(command, ctx, message, env, timeout):
         finally:
             for child in (proc, waiter):
                 if child is not None:
-                    # Descendants can outlive an already exited shell/pi parent.
                     try:
-                        os.killpg(child.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        child.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(child.pid, signal.SIGKILL)
-                        child.wait()
-            cleanup = subprocess.run([str(wrappers / 'devflow-browser'), 'stop-task', slug],
-                                     env=env, capture_output=True, text=True, timeout=30)
+                        _cleanup_process_group(child)
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        cleanup_errors.append(str(exc))
+                        cleanup_failed = True
+            try:
+                cleanup = subprocess.run([str(wrappers / 'devflow-browser'), 'stop-task', slug],
+                                         env=env, capture_output=True, text=True, timeout=30)
+                if cleanup.returncode:
+                    code = cleanup.returncode
+                cleanup_errors.append(cleanup.stderr)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                cleanup_errors.append(str(exc))
+                code = 1
+            if cleanup_failed:
+                code = code or 1
+            if code is None or code:
+                verdict.unlink(missing_ok=True)
         out.seek(0); err.seek(0); wait_err.seek(0)
-        report, errors = out.read(), err.read() + wait_err.read() + cleanup.stderr
-        if cleanup.returncode:
-            code = cleanup.returncode
+        report, errors = out.read(), err.read() + wait_err.read() + '\n'.join(cleanup_errors)
         if code:
             verdict.unlink(missing_ok=True)
         return subprocess.CompletedProcess(command, code, report, errors)
@@ -252,9 +276,22 @@ def _run_process(ctx, name, body, tools, chosen, message, env, timeout=None):
                                 options=('--no-session', '--extension', str(extension)))
         if name == 'browser' and re.search(r'^Вердикт:', message, re.M):
             return _browser_process(command, ctx, message, env, timeout)
-        return subprocess.run(command,
-                              stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True,
-                              text=True, timeout=timeout)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with tempfile.TemporaryFile(mode='w+') as out, tempfile.TemporaryFile(mode='w+') as err:
+            child = subprocess.Popen(command, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env,
+                                     stdout=out, stderr=err, start_new_session=True)
+            expired = False
+            try:
+                child.wait(timeout=None if deadline is None else max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                expired = True
+            finally:
+                _cleanup_process_group(child)
+            out.seek(0); err.seek(0)
+            report, errors = out.read(), err.read()
+            if expired:
+                raise subprocess.TimeoutExpired(command, timeout, output=report, stderr=errors)
+            return subprocess.CompletedProcess(command, child.returncode, report, errors)
     finally:
         body_file.unlink(missing_ok=True)
 

@@ -106,6 +106,40 @@ def test_stop_task_only_stops_matching_sessions(tmp_path):
     assert 'abc-456' not in log.read_text()
 
 
+@pytest.mark.parametrize('stop_code', [0, 9])
+def test_failed_start_retries_stop(tmp_path, stop_code):
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    status = tmp_path / 'stop-code'
+    status.write_text(str(stop_code))
+    log = tmp_path / 'calls'
+    npx = tools / 'npx'
+    npx.write_text(f'''#!/bin/bash
+printf '%s\\n' "$*" >> "{log}"
+case " $* " in
+  *' start '*) exit 7 ;;
+  *' stop '*) exit "$(<"{status}")" ;;
+  *) exit 99 ;;
+esac
+''')
+    npx.chmod(0o755)
+    env = {**os.environ, 'PATH': f'{tools}:{os.environ["PATH"]}',
+           'DEVFLOW_SMOKE_DIR': str(tmp_path / 'smoke'),
+           'DEVFLOW_BROWSER_ENV': str(tmp_path / 'absent.env')}
+    command = [str(ROOT / 'bin/devflow-browser')]
+    started = subprocess.run([*command, 'start', '--task', 'demo'], env=env,
+                             capture_output=True, text=True, timeout=3)
+    assert started.returncode == 7
+    markers = list((tmp_path / 'smoke/.sessions').iterdir())
+    assert len(markers) == (1 if stop_code else 0)
+    status.write_text('0')
+    stopped = subprocess.run([*command, 'stop-task', 'demo'], env=env,
+                             capture_output=True, text=True, timeout=3)
+    assert stopped.returncode == 0
+    assert not list((tmp_path / 'smoke/.sessions').iterdir())
+    assert log.read_text().count(' stop ') == (2 if stop_code else 1)
+
+
 def test_pi_browser_uses_literal_sessions_without_guard_bypass():
     skill = (ROOT / 'skills/smoke/SKILL.md').read_text()
     browser = (ROOT / 'agents/browser.md').read_text()

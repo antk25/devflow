@@ -18,11 +18,42 @@ def runner(tmp_path, monkeypatch):
     monkeypatch.setattr(pi.shutil, 'which', lambda *a, **k: '/fake/pi')
     monkeypatch.setattr(pi, 'extension_path', lambda env: Path('/extension.ts'))
     monkeypatch.setattr(pi, 'settings_path', lambda env: tmp_path / 'settings.json')
+    monkeypatch.setattr(pi.subprocess, 'run', lambda *a, **k: pytest.fail('subprocess.run forbidden'))
+    monkeypatch.setattr(pi.subprocess, 'Popen', lambda *a, **k: pytest.fail('unmocked Popen'))
     return {'cwd': tmp_path, 'vault': tmp_path / 'vault', 'project': 'demo'}
 
 
+@pytest.fixture
+def popen(monkeypatch):
+    def install(execute):
+        class Child:
+            pid = 987654
+
+            def __init__(self, command, **kwargs):
+                self.command, self.kwargs = command, kwargs
+                self.returncode = None
+
+            def wait(self, timeout=None):
+                if self.returncode is None:
+                    result = execute(self.command, **self.kwargs, timeout=timeout)
+                    self.kwargs['stdout'].write(result.stdout)
+                    self.kwargs['stderr'].write(result.stderr)
+                    self.returncode = result.returncode
+                return self.returncode
+
+            def poll(self):
+                return self.returncode
+
+        monkeypatch.setattr(pi.subprocess, 'Popen', Child)
+    def gone(*args):
+        raise ProcessLookupError
+    monkeypatch.setattr(pi.os, 'killpg', gone)
+    monkeypatch.setattr(pi.subprocess, 'Popen', lambda *a, **k: pytest.fail('unknown process'))
+    return install
+
+
 @pytest.mark.parametrize('role', pi.ROLES)
-def test_roles_state_independent(runner, monkeypatch, role):
+def test_roles_state_independent(runner, monkeypatch, popen, role):
     def forbidden(*args, **kwargs):
         pytest.fail('Роль не должна обращаться к состоянию фаз')
     for name in ('route', 'start', 'interrupt'):
@@ -32,14 +63,15 @@ def test_roles_state_independent(runner, monkeypatch, role):
         calls.append((command, kwargs))
         assert Path(command[command.index('--append-system-prompt') + 1]).exists()
         return subprocess.CompletedProcess(command, 0, 'находок нет', '')
-    monkeypatch.setattr(pi.subprocess, 'run', execute)
+    popen(execute)
     result = pi.run_agent(runner, role, 'Независимое задание', model='anthropic/model:high')
     assert result['host'] == 'pi' and result['exit_code'] == 0
     assert result['model_source'] == 'override'
     assert result['executor'] == 'anthropic/model:high'
     command, kwargs = calls[0]
     assert command[0] == 'pi' and '--no-session' in command
-    assert kwargs['stdin'] == subprocess.DEVNULL and kwargs['timeout'] == 600
+    assert kwargs['stdin'] == subprocess.DEVNULL and 0 < kwargs['timeout'] <= 600
+    assert kwargs['start_new_session'] is True
     assert not Path(command[command.index('--append-system-prompt') + 1]).exists()
     assert not (runner['cwd'] / '.devflow').exists()
 
@@ -54,16 +86,22 @@ def test_cli_state_bypasses_connect(runner, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('code,report', [(0, ''), (1, 'partial'), (-15, 'partial')])
-def test_incomplete(runner, monkeypatch, code, report):
-    monkeypatch.setattr(pi.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess([], code, report, 'error'))
+def test_incomplete(runner, popen, code, report):
+    popen(lambda *a, **k: subprocess.CompletedProcess([], code, report, 'error'))
     result = pi.run_agent(runner, 'crossreview', 'task')
     assert result['exit_code'] == code and 'не завершён' in result['warning']
 
 
-def test_timeout_retains_partial_report(runner, monkeypatch):
+def test_timeout_retains_partial_report(runner, popen):
+    calls = []
     def timeout(*a, **k):
-        raise subprocess.TimeoutExpired('pi', 1, output=b'partial', stderr=b'limit')
-    monkeypatch.setattr(pi.subprocess, 'run', timeout)
+        if not calls:
+            calls.append(True)
+            k['stdout'].write('partial')
+            k['stderr'].write('limit')
+            raise subprocess.TimeoutExpired('pi', 1)
+        return subprocess.CompletedProcess([], -9, '', '')
+    popen(timeout)
     result = pi.run_agent(runner, 'second-opinion', 'task', timeout=1)
     assert result['exit_code'] == 124 and result['report'] == 'partial'
     assert result['stderr'] == 'limit'
@@ -84,7 +122,7 @@ def test_role_closed_list(runner, role):
         pi.run_agent(runner, role, 'task')
 
 
-def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypatch):
+def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypatch, popen):
     tracked = runner['cwd'] / 'code.py'
     tracked.write_text('original\n')
     before = tracked.read_bytes()
@@ -103,7 +141,7 @@ def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypa
         calls.append(command[command.index('--append-system-prompt') + 1])
         return subprocess.CompletedProcess(command, 0, reports[role], '')
 
-    monkeypatch.setattr(pi.subprocess, 'run', execute)
+    popen(execute)
     for role, report in reports.items():
         result = pi.run_agent(runner, role, 'cwd: demo; target: base...HEAD; slug: demo')
         assert result['report'] == report
@@ -114,5 +152,6 @@ def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypa
 
 def test_bridge_before_process(runner, monkeypatch):
     monkeypatch.setattr(pi.subprocess, 'run', lambda *a, **k: pytest.fail('process started'))
+    monkeypatch.setattr(pi.subprocess, 'Popen', lambda *a, **k: pytest.fail('process started'))
     with pytest.raises(WorkflowError, match='claude-bridge'):
         pi.run_agent(runner, 'crossreview', 'task', model='claude-bridge/x')

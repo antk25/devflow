@@ -105,8 +105,9 @@ if [[ "$1" == start ]]; then
   rc=0
   run_cli start --isolated --headless --redactNetworkHeaders "${extra[@]}" --sessionId "$id" >&2 || rc=$?
   if (( rc != 0 )); then
-    run_cli stop --sessionId "$id" >/dev/null 2>&1 || true
-    rm -f "$SESSIONS_DIR/$id"
+    if run_cli stop --sessionId "$id" >/dev/null 2>&1; then
+      rm -f "$SESSIONS_DIR/$id"
+    fi
     exit "$rc"
   fi
   touch_activity
