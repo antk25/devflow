@@ -51,7 +51,7 @@ export async function guardTool(event: any, ctx: ExtensionContext, check = check
 	}
 }
 
-export default function devflow(pi: ExtensionAPI) {
+export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: boolean } = {}) {
 	let level = "";
 	let restored = "";
 	function contextWarning(ctx: ExtensionContext) {
@@ -105,7 +105,7 @@ export default function devflow(pi: ExtensionAPI) {
 		try {
 			instructions();
 			if (ctx.model?.provider === "claude-bridge") { stop(ctx, reason); return; }
-			if (pi.exec && ctx.cwd) {
+			if (options.restoreContext !== false && pi.exec && ctx.cwd) {
 				const root = resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
 				const result = await pi.exec("python3", [join(root, "scripts/launch.py"), "--restore-context"],
 					{ cwd: ctx.cwd, timeout: 10000 });
@@ -149,4 +149,8 @@ export default function devflow(pi: ExtensionAPI) {
 		}
 		stop(ctx, reason);
 	});
+}
+
+export default function devflow(pi: ExtensionAPI) {
+	registerDevflow(pi);
 }
