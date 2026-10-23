@@ -283,6 +283,42 @@ itself before the process; if the step ends without `devflow finish`, `route` st
 result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through
 `finish`/`resume`/`interrupt`, never by relaunching the step. `claude` is never called from pi.
 
+### Пилот pi-subagents: NO-GO
+
+Для `nicobailon/pi-subagents@0.80.0` на Pi 1.4.0 выбран **NO-GO**.
+Необязательный адаптер `pi/pilots/review-standards.ts` при явном
+`DEVFLOW_SUBAGENTS_PILOT_PACKAGE` регистрирует команду, но возвращает
+`unavailable/lifecycle_unverifiable` до delegation. Launcher пилот не подключает;
+Python runner и обычный рабочий процесс не меняются.
+
+Публичный `src/api/delegation.d.ts` пакета описывает started/update/response/cancel,
+но не подтверждение полного shutdown и отсутствия всей активной работы.
+В `src/runs/shared/child-session.js` ожидание shutdown ограничено `Promise.race`;
+после таймера `dispose` может завершиться без ошибки, пока обработчик ещё работает.
+Terminal, завершившийся dispose и отсутствие активных tools не доказывают отсутствие
+всей работы. `session_shutdown` Pi также не даёт родительскому адаптеру подтверждения
+завершения последующих обработчиков.
+
+Детерминированная проверка без provider:
+
+```bash
+DEVFLOW_SUBAGENTS_PILOT_PACKAGE=/home/smg25/.local/state/devflow/pi-subagents-pilot/package-0.80.0/package python3 -m pytest -q tests/test_pi_subagents.py
+```
+
+Итоговая попытка `verify-pilot-35f92843` хранится вне репозитория в
+`~/.local/state/devflow/pi-subagents-pilot/`: версии, проверка integrity tarball и
+равенства опубликованных файлов, копии API/исходников, stdout/stderr и ссылки на
+новые именованные результаты. Исходная `lifecycle-contract-XitL96` сохранена.
+Матрица проверяет guard настоящего SDK без модельного запроса и отдельно настоящую
+пакетную factory с **fake SDK** и удерживаемым shutdown. Synthetic terminal и два
+synthetic подтверждения редуктора — не реальная модельная сессия.
+
+**Реальное ревью, фактическая модель/thinking и подтверждённая отмена не проверены.**
+Зелёная отрицательная матрица не означает совместимость. Возобновление положительных
+испытаний требует нового согласованного исследования и плана с доказуемой публичной
+границей; собственный runner, патч пакета и повторная установка не являются решением
+этого пилота.
+
 ### Model per phase
 
 Модель и effort фазового агента не зашиты в агентах и драйвере — это правило в
