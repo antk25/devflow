@@ -311,7 +311,7 @@ def run_agent(ctx, role, message, model=None, env=None, timeout=600):
         raise WorkflowError('pi CLI is missing from PATH')
     result = {'role': role, 'host': 'pi', **selection, 'session_id': None, 'session_path': None}
     if selection['model_source'] in ('inherited', 'default'):
-        result['warning'] = 'Модель роли наследуется; независимость обеспечена отдельным контекстом'
+        result['model_note'] = 'Модель роли наследуется; независимость обеспечена отдельным контекстом'
     executor = chosen
     if not executor:
         try:

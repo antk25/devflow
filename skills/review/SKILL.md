@@ -34,19 +34,21 @@ argument-hint: "[target]"
 | Хост | Запуск |
 |---|---|
 | Claude Code | Одним сообщением два вызова Agent: `subagent_type: review-standards` и `subagent_type: review-conformance`. |
-| pi | Два отдельных процесса `devflow agent run`, по возможности параллельно; команды ниже. Не вызывай Claude. |
+| pi | Два отдельных простых вызова инструмента с `devflow agent run`; команды ниже. Не вызывай Claude. |
 
 В отдельном временном каталоге создай `standards.in.md` и `conformance.in.md`.
 Каждый содержит только cwd, базу/HEAD, точную цель, слаг и «сделай свою ось и верни находки».
 Не передавай историю разговора, собственные находки или результат другой оси.
 
 ```bash
-devflow agent run review-standards --message-file <tmp>/standards.in.md > <tmp>/standards.out.json &
-devflow agent run review-conformance --message-file <tmp>/conformance.in.md > <tmp>/conformance.out.json &
-wait
+devflow agent run review-standards --message-file <tmp>/standards.in.md
+devflow agent run review-conformance --message-file <tmp>/conformance.in.md
 ```
 
-Прочитай оба JSON отдельно: `exit_code`, `warning`, `report`. Ошибка процесса, пустой ответ
+Подставь путь временного каталога вместо `<tmp>`. Не добавляй перенаправления, цепочки,
+фоновый `&` или `wait`: получай JSON непосредственно из результата каждого вызова инструмента.
+Прочитай оба JSON отдельно: `exit_code`, `warning`, `report`; `model_note` — только информация
+о наследовании модели, не признак ошибки. Ошибка процесса, пустой ответ
 или предупреждение означают незавершённую ось, а не отсутствие замечаний.
 Последовательный запуск допустим, но второй вход остаётся исходным: чужие находки не добавлять.
 Логика проверки живёт в телах агентов — не пересказывай её здесь.

@@ -1,11 +1,14 @@
 import json
 import os
+import re
+import shlex
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from devflow import cli, pi, policy
+from devflow.guard import permission_decision
 from devflow.documents import WorkflowError
 
 
@@ -148,6 +151,85 @@ def test_review_axes_separate_inputs_outputs_and_unchanged_tree(runner, monkeypa
     assert len(set(calls)) == 2
     assert tracked.read_bytes() == before
     assert not (runner['cwd'] / '.devflow').exists()
+
+
+@pytest.mark.parametrize('source', ['inherited', 'default', 'override'])
+@pytest.mark.parametrize('outcome', ['success', 'error', 'empty', 'timeout'])
+def test_role_model_result_contract(runner, popen, source, outcome):
+    env = {'DEVFLOW_INSTRUCTIONS': os.environ['DEVFLOW_INSTRUCTIONS'],
+           'DEVFLOW_MODEL_POLICY': os.environ['DEVFLOW_MODEL_POLICY']}
+    if source == 'inherited':
+        env.update(PI_PROVIDER='provider', PI_MODEL='current', PI_REASONING_LEVEL='low')
+    if source == 'default':
+        (runner['cwd'] / 'settings.json').write_text(json.dumps({
+            'defaultProvider': 'provider', 'defaultModel': 'configured'}))
+    calls = []
+
+    def execute(command, **kwargs):
+        if outcome == 'timeout':
+            if not calls:
+                calls.append(command)
+                kwargs['stdout'].write('partial')
+                kwargs['stderr'].write('limit')
+                raise subprocess.TimeoutExpired(command, 1)
+            return subprocess.CompletedProcess(command, -9, '', '')
+        return subprocess.CompletedProcess(command, 1 if outcome == 'error' else 0,
+                                           '' if outcome == 'empty' else 'report', 'diagnostic')
+
+    popen(execute)
+    result = pi.run_agent(runner, 'review-standards', 'task', env=env,
+                          model='provider/explicit:low' if source == 'override' else None)
+    assert result['model_source'] == source
+    assert result['executor'] == {'inherited': 'provider/current:low',
+                                  'default': 'provider/configured',
+                                  'override': 'provider/explicit:low'}[source]
+    if source in ('inherited', 'default'):
+        assert 'наследуется' in result['model_note']
+    else:
+        assert 'model_note' not in result
+    if outcome == 'success':
+        assert result['exit_code'] == 0 and result['report'] == 'report'
+        assert 'warning' not in result
+    else:
+        assert 'не завершён' in result['warning']
+        assert result['exit_code'] == {'error': 1, 'empty': 0, 'timeout': 124}[outcome]
+        if outcome == 'timeout':
+            assert result['report'] == 'partial' and result['stderr'] == 'limit'
+
+
+def test_review_skill_commands_guarded(runner, popen):
+    skill = (Path(__file__).resolve().parents[1] / 'skills/review/SKILL.md').read_text()
+    block = re.search(r'```bash\n(.*?)\n```', skill, re.S).group(1)
+    commands = block.splitlines()
+    assert len(commands) == 2
+    config = runner['cwd'] / 'policy.json'
+    config.write_text(json.dumps({'permissions': {'allow': ['Bash(devflow agent run:*)']}}))
+    inputs = {}
+    for role in ('review-standards', 'review-conformance'):
+        path = runner['cwd'] / (role.removeprefix('review-') + '.in.md')
+        path.write_text('cwd: demo; target: base...HEAD; slug: demo; сделай свою ось')
+        inputs[role] = path
+    reports = []
+
+    def execute(command, **kwargs):
+        assert all(report not in command[-1] for report in reports)
+        reports.append('Отдельный результат ' + str(len(reports)))
+        return subprocess.CompletedProcess(command, 0, reports[-1], '')
+
+    popen(execute)
+    results = []
+    for command, role in zip(commands, inputs):
+        command = command.replace('<tmp>', str(runner['cwd']))
+        verdict = permission_decision({'toolName': 'bash', 'input': {'command': command},
+                                       'cwd': str(runner['cwd'])}, [config])
+        assert verdict['decision'] == 'allow', verdict
+        assert not any(token in command for token in ('>', '<', '&', '|', ';'))
+        args = shlex.split(command)
+        assert args == ['devflow', 'agent', 'run', role, '--message-file', str(inputs[role])]
+        results.append(json.loads(json.dumps(pi.run_agent(runner, role, inputs[role].read_text()))))
+    assert [result['report'] for result in results] == reports
+    assert results[0]['role'] != results[1]['role']
+    assert len(reports) == 2
 
 
 def test_bridge_before_process(runner, monkeypatch):
