@@ -1,3 +1,5 @@
+import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -14,8 +16,15 @@ def text(path):
 
 def test_review_independent_axes_and_output_contract():
     skill = text('skills/review/SKILL.md')
-    for role, stem in [('review-standards', 'standards'), ('review-conformance', 'conformance')]:
-        assert f'devflow agent run {role} --message-file <tmp>/{stem}.in.md > <tmp>/{stem}.out.json &' in skill
+    commands = re.search(r'```bash\n(.*?)\n```', skill, re.S)[1].splitlines()
+    assert len(commands) == 2
+    for command, (role, stem) in zip(commands, [('review-standards', 'standards'), ('review-conformance', 'conformance')]):
+        command = command.replace('<tmp>', '/tmp/independent-review')
+        assert shlex.split(command) == ['devflow', 'agent', 'run', role, '--message-file',
+                                        f'/tmp/independent-review/{stem}.in.md']
+        assert not any(token in command for token in ('>', '<', '&', '|', ';', '$'))
+    assert 'второй вход остаётся исходным' in skill
+    assert 'Прочитай оба JSON отдельно' in skill
     for rule in ['чужие находки не добавлять', 'Не сливать и не переранжировать',
                  'Не сокращать цитаты ТЗ', 'худшее *внутри каждой* оси',
                  'ТЗ не найдено — ось', 'exit_code', 'warning', 'report']:
@@ -47,7 +56,7 @@ def test_xreview_portable_targets_and_failure_contract():
         assert target in skill
     for requirement in ['Base branch', 'AGENTS.md', 'cwd', 'codex login status',
                         'второе мнение не получено', 'Отсутствие вердикта', 'exit≠0',
-                        '600 секунд', '</dev/null', 'не проверить', 'Не переключай рабочую ветку']:
+                        '600 секунд', 'DEVNULL', 'не проверить', 'Не переключай рабочую ветку']:
         assert requirement in skill
 
 

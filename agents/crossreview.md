@@ -49,21 +49,30 @@ Save the list right away as a draft of the note (Step 5 format, only the heading
 `## Собственное ревью (host=<host> model=<model>)` section и base/HEAD/diff hash) — a second launch picks it up from there.
 
 ## Step 3: Codex review
-`codex review` prints the whole diff before its verdict, so it always goes to a file:
+Из cwd репозитория выполни один простой вызов без перенаправлений и подстановок:
 
 ```bash
-OUT=<scratchpad>/crossreview-<slug>.md
-cd <repo>
-codex review --base <base> --title "<slug>" </dev/null > "$OUT" 2>&1
-sed -n '/^codex$/,$p' "$OUT"
+devflow codex-review --base <base> --title "<slug>"
 ```
 
-`</dev/null` is mandatory — otherwise a confirmation prompt hangs the call. Timeout 600000 ms.
-Read only the verdict. «tests could not be run» is expected (no PHP/node on the host) and is not
-a finding. «No actionable regressions» on a static read is a weak signal, not a green light.
+Обёртка использует DEVNULL stdin и таймаут 600 секунд; request, полные раздельные stdout/stderr
+и manifest сохраняются в новом каталоге вне репозитория при любом исходе. Вход независим:
+не передавай собственные находки или историю. Для другой ветки/диапазона/focus используй
+`devflow codex-review --message-file <tmp>/request.md`: точная цель, команда diff и инструкция
+только читать, без своих находок; не сочетай с target-флагами. SHA и незакоммиченные изменения:
+`devflow codex-review --commit <sha>` либо `devflow codex-review --uncommitted`.
 
-**Codex unavailable** — not logged in (Step 1), `codex` missing, non-zero exit, usage limit, or no
-`codex` verdict block in `$OUT`. You can't spawn agents, so hand the second opinion to the driver:
+После запуска и до чтения чужого ответа заново проверь base/HEAD/diff hash из Step 1.
+Дрейф → `REVIEW_STALE <slug>`, не используй устаревшее мнение. Сравни также до/после
+`git status --porcelain=v1 --untracked-files=all`, `git diff HEAD --binary` и содержимое untracked-файлов;
+чужие изменения не откатывай. Через read прочитай полные request/stdout/stderr/manifest из JSON.
+Проверь exit_code, timed_out и error. Код транспорта 0 без вердикта не означает успешное мнение.
+«tests could not be run» само по себе не находка. «No actionable regressions» при статическом
+чтении — слабый сигнал, не зелёный свет. Отдельный процесс не является песочницей ОС.
+
+**Codex unavailable** — нет авторизации (Step 1), бинаря, непустого ответа или вердикта;
+ненулевой exit, сигнал, timeout, ошибка cleanup, stderr с ошибкой авторизации/лимита.
+Частичный текст не означает успешное мнение. Передай запасное мнение драйверу:
 stop and reply exactly
 
 ```

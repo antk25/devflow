@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import bench, board, pi, project
+from . import bench, board, codex_review, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
@@ -39,6 +39,11 @@ def parser():
     commands = p.add_subparsers(dest='command', required=True)
     a = commands.add_parser('init'); a.add_argument('--fresh-state', action='store_true', help='Explicitly create empty state for an existing identity with a missing database')
     commands.add_parser('context')
+    a = commands.add_parser('codex-review')
+    g = a.add_mutually_exclusive_group(required=True)
+    g.add_argument('--base'); g.add_argument('--commit'); g.add_argument('--uncommitted', action='store_true')
+    g.add_argument('--message-file', type=Path)
+    a.add_argument('--title')
     a = commands.add_parser('active'); a.add_argument('--limit', type=int, default=5)
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
@@ -91,6 +96,10 @@ def execute(args):
     if args.command == 'bench':
         return bench.command(args)
     ctx = context(args.cwd)
+    if args.command == 'codex-review':
+        return codex_review.run_review(ctx, base=args.base, commit=args.commit,
+                                       uncommitted=args.uncommitted, message_file=args.message_file,
+                                       title=args.title)
     if args.command == 'agent':
         return pi.run_agent(ctx, args.role, args.message_file.read_text(encoding='utf-8'),
                             model=args.model, timeout=args.timeout)
