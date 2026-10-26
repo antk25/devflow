@@ -289,7 +289,7 @@ result carries a `warning` — the driver then inspects (`git status`, changelog
 Необязательный адаптер `pi/pilots/review-standards.ts` при явном
 `DEVFLOW_SUBAGENTS_PILOT_PACKAGE` регистрирует команду, но возвращает
 `unavailable/lifecycle_unverifiable` до delegation. Launcher пилот не подключает;
-Python runner и обычный рабочий процесс не меняются.
+Пакет не заменяет Python runner и обычный рабочий процесс.
 
 Публичный `src/api/delegation.d.ts` пакета описывает started/update/response/cancel,
 но не подтверждение полного shutdown и отсутствия всей активной работы.
@@ -305,10 +305,21 @@ Terminal, завершившийся dispose и отсутствие актив�
 DEVFLOW_SUBAGENTS_PILOT_PACKAGE=/home/smg25/.local/state/devflow/pi-subagents-pilot/package-0.80.0/package python3 -m pytest -q tests/test_pi_subagents.py
 ```
 
-Итоговая попытка `verify-pilot-35f92843` хранится вне репозитория в
-`~/.local/state/devflow/pi-subagents-pilot/`: версии, проверка integrity tarball и
-равенства опубликованных файлов, копии API/исходников, stdout/stderr и ссылки на
-новые именованные результаты. Исходная `lifecycle-contract-XitL96` сохранена.
+Повторная итоговая попытка `verify-pilot-86a9212d` хранится вне репозитория в
+`~/.local/state/devflow/pi-subagents-pilot/`: версии, integrity tarball и равенство
+693 опубликованных файлов, команды с кодами/stdout/stderr, соответствие шести
+находок тестам и проверка фиктивного секрет-маркера во всех новых категориях.
+Безопасная регрессия — 194 PASS, матрица пилота — 8 PASS. Старые свидетельства,
+включая `verify-pilot-35f92843` и `lifecycle-contract-XitL96`, сохранены без изменений.
+
+Повторно проверены ограничения Glob для ls, повторная остановка после ошибки
+браузера, очистка собственных групп browser/waiter и обычных ролей, две прямые
+команды review и информационное наследование модели. Обычный runner использует
+отдельную группу процессов с ограниченной очисткой TERM/KILL, сохраняет раздельный
+частичный вывод и код 124 при timeout. `model_note` сообщает о наследовании;
+`warning` означает незавершённость, а не сам факт наследования. Проверки процессов
+используют подмены и безвредные локальные деревья с гарантированной очисткой;
+provider, Claude/claude-bridge и Chrome не запускаются.
 Матрица проверяет guard настоящего SDK без модельного запроса и отдельно настоящую
 пакетную factory с **fake SDK** и удерживаемым shutdown. Synthetic terminal и два
 synthetic подтверждения редуктора — не реальная модельная сессия.
