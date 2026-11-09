@@ -446,9 +446,12 @@ and keeps working. Compaction itself is treated as a session cut: the core lives
 branch and route, never rewriting earlier text, and logs the event to
 `~/.claude/devflow/compact-log.jsonl` (with `tokens`). `autoCompactWindow: 230000`: the compaction
 threshold is the window minus the summary buffer and must stay above the 180K `CONTEXT_CUT` level;
-if the log shows compaction at ≤ 180K, adjust the window in the reference settings. Codex has
-`PreCompact`/`SessionStart` hooks but no adapter yet: it is fallback-only — refresh the hand-off
-after every plan step and read `devflow handoff latest` at session start. A new environment setting goes to the global layer first; it becomes
+if the log shows compaction at ≤ 180K, adjust the window in the reference settings. Codex runs
+the same two scripts from `~/.codex/hooks.json` (reference `codex-hooks.example.json`, created by
+`./install.sh` when absent, checked by `--check`): `pre-compact.sh --host codex` on `PreCompact`
+and `project-restore.sh` on `SessionStart`, including `source=compact`. Codex's `PreCompact` output
+has no field for the summary, so the instructions only reach the user as `systemMessage`.
+`~/.codex/AGENTS.md` adds the rule to read the hand-off at session start. A new environment setting goes to the global layer first; it becomes
 per-project only when added to both `project init` and `project sync`.
 
 ---

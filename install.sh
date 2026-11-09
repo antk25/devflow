@@ -143,6 +143,10 @@ if [ "$mode" = check ]; then
             issues=1
         fi
     fi
+    if [ -d "$HOME/.codex" ] && [ ! -e "$HOME/.codex/hooks.json" ]; then
+        sed "s#__DEVFLOW_ROOT__#$DEVFLOW_DIR#g" "$DEVFLOW_DIR/codex-hooks.example.json" > "$HOME/.codex/hooks.json"
+        echo "copy $HOME/.codex/hooks.json"
+    fi
     if [ ! -e "$POLICY_FILE" ]; then
         echo "MISS model policy $POLICY_FILE"; issues=1
     elif [ -x "$PYTHON" ]; then
@@ -174,6 +178,16 @@ for k in d["keys"]: print("MISS global setting", k)' \
         if [ -n "$drift" ]; then
             echo "$drift"; issues=1
             echo "(merge settings.global.example.json into $CLAUDE_DIR/settings.json by hand; __DEVFLOW_ROOT__ = $DEVFLOW_DIR)"
+        fi
+    fi
+    if [ -x "$PYTHON" ] && [ -d "$HOME/.codex" ]; then
+        codex_drift="$("$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1])
+from devflow.project import settings_drift
+for c in settings_drift(sys.argv[2], sys.argv[3])["hooks"]: print("MISS codex hook", c)' \
+            "$DEVFLOW_DIR/scripts" "$HOME/.codex/hooks.json" "$DEVFLOW_DIR/codex-hooks.example.json")" || issues=1
+        if [ -n "$codex_drift" ]; then
+            echo "$codex_drift"; issues=1
+            echo "(run ./install.sh to create $HOME/.codex/hooks.json, or merge codex-hooks.example.json into it by hand)"
         fi
     fi
     echo '(check mode — no changes made)'

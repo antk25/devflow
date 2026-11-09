@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # PreCompact: compaction is a session cut — write the task hand-off and tell the summary what to keep.
+host=claude
+[ "${1:-}" = --host ] && host="${2:-claude}"
 DEVFLOW_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
 IFS=$'\t' read -r session trigger cwd_dir tokens < <(python3 -c '
 import json, sys
@@ -23,8 +25,11 @@ print(d.get("session_id") or "-", trigger, d.get("cwd") or ".", tok, sep="\t")
 ' 2>/dev/null) || exit 0
 [ -n "${session:-}" ] && [ "$session" != - ] || exit 0
 [ -f "$cwd_dir/AGENTS.md" ] || exit 0
-args=(--cwd "$cwd_dir" handoff auto --session "$session" --trigger "$trigger" --host claude)
+args=(--cwd "$cwd_dir" handoff auto --session "$session" --trigger "$trigger" --host "$host")
 [ "$tokens" != - ] && args+=(--context-tokens "$tokens")
 "$DEVFLOW_DIR/scripts/devflow-cli.sh" "${args[@]}" 2>/dev/null \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["instructions"])' 2>/dev/null || true
+    | python3 -c 'import json,sys
+text = json.load(sys.stdin)["instructions"]
+# Codex accepts only JSON from PreCompact and has no field for the summary; the user sees systemMessage.
+print(json.dumps({"systemMessage": text}, ensure_ascii=False) if sys.argv[1] == "codex" else text)' "$host" 2>/dev/null || true
 exit 0

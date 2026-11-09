@@ -178,6 +178,27 @@ def test_pre_compact_writes_handoff_and_prints_instructions(tmp_path):
     assert not (project / '.devflow').exists()
 
 
+def test_pre_compact_codex_prints_system_message_json(tmp_path):
+    home, vault, project, env = compact_env(tmp_path)
+    write_ledger(home, 'DF-1')
+    event = json.dumps({'hook_event_name': 'PreCompact', 'session_id': SESSION, 'trigger': 'manual',
+                        'cwd': str(project), 'transcript_path': None, 'model': 'm', 'turn_id': 't'})
+    result = subprocess.run([str(PRE_COMPACT), '--host', 'codex'], input=event, capture_output=True, text=True,
+                            cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert list(out) == ['systemMessage'] and str(vault / 'notes' / 'handoff-df-1-x.md') in out['systemMessage']
+    log = (home / '.claude/devflow/compact-log.jsonl').read_text().splitlines()
+    assert json.loads(log[-1])['host'] == 'codex'
+
+
+def test_codex_hooks_example_matches_scripts():
+    data = json.loads((ROOT / 'codex-hooks.example.json').read_text())
+    commands = {e: [h['command'] for g in groups for h in g['hooks']] for e, groups in data['hooks'].items()}
+    assert commands == {'PreCompact': ['__DEVFLOW_ROOT__/.claude/hooks/pre-compact.sh --host codex'],
+                        'SessionStart': ['__DEVFLOW_ROOT__/.claude/hooks/project-restore.sh']}
+
+
 @pytest.mark.parametrize('event', ['not json', 'agents'])
 def test_pre_compact_silent_without_project(event, tmp_path):
     home, vault, project, env = compact_env(tmp_path)
