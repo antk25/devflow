@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import harness_claude, harness_pi
+from . import harness_claude, harness_codex, harness_pi
 from .documents import WorkflowError, artifact, document
 from .harness_pi import build_command
 from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
@@ -25,7 +25,7 @@ INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')
-HARNESSES = {'pi': harness_pi, 'claude': harness_claude}
+HARNESSES = {'pi': harness_pi, 'claude': harness_claude, 'codex': harness_codex}
 REQUIRED_SECTIONS = {'research': ('## Problem', '## Recommendation'), 'plan': ('## Steps',), 'implement': ()}
 LIMITS_STALE = 'limits stale'
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
@@ -390,6 +390,21 @@ def _claude_launch(ctx, phase, current, model, env):
     return chosen, 'override' if model else 'policy', launch
 
 
+def _codex_launch(ctx, phase, current, model, env):
+    spec = (current.get('launch') or {}).get('claude') or {}
+    from_policy = spec.get('id') if (current.get('launch') or {}).get('harness') == 'codex' else None
+    chosen = model or from_policy
+    if not chosen:
+        raise WorkflowError('Модель codex не задана: в policy нет строки harness: codex и нет --model')
+    body, _ = agent_body(phase)
+
+    def launch(message):
+        argv = harness_codex.build_command(chosen, spec.get('effort') if from_policy else None,
+                                           harness_codex.prompt(body, message), ctx['cwd'], add_dirs=(ctx['vault'],))
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+    return chosen, 'override' if model else 'policy', launch
+
+
 def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host='pi'):
     env = dict(os.environ if env is None else env)
     if host not in HARNESSES:
@@ -405,6 +420,8 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         raise WorkflowError(f'{host} CLI is missing from PATH')
     if host == 'claude':
         chosen, source, launch = _claude_launch(ctx, phase, current, model, env)
+    elif host == 'codex':
+        chosen, source, launch = _codex_launch(ctx, phase, current, model, env)
     else:
         chosen, source, launch = _pi_launch(ctx, phase, current, model, env)
     complexity = (current.get('complexity') or {}).get('value')

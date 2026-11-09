@@ -69,7 +69,7 @@ def test_every_run_adds_exactly_one_row(proj, writer, monkeypatch):
 
 def test_unknown_host_is_refused_before_launch(proj, writer):
     with pytest.raises(WorkflowError, match='не подключён'):
-        pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', env=writer, host='codex')
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', env=writer, host='bb')
     assert outcomes(proj['db']) == []
 
 
