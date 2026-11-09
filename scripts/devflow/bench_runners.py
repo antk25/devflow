@@ -7,6 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import harness_claude
 from .documents import WorkflowError, document
 from .pi import agent_body, build_command
 from .policy import PHASES
@@ -53,13 +54,7 @@ def pi_probe_command(model, effort, session_dir):
             '--model', f'{model}:{effort}', PROBE_MESSAGE]
 
 
-def claude_result(stdout):
-    """The JSON object of a `claude -p --output-format json` reply; None when stdout holds none."""
-    try:
-        data = json.loads(stdout)
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+claude_result = harness_claude.result
 
 
 def pi_records(session_dir):
@@ -172,20 +167,13 @@ def transcript_facts(paths):
 def claude_metrics(stdout, home, cwd, session_id=None):
     """One phase record from a `claude -p --output-format json` reply and the session transcript."""
     data = claude_result(stdout) or {}
+    totals, dominant, cost = harness_claude.usage(data)
     usage = data.get('modelUsage') or {}
-    totals = {'input': 0, 'output': 0, 'reasoning': 0, 'cache_read': 0, 'cache_write': 0}
-    for item in usage.values():
-        totals['input'] += int(item.get('inputTokens') or 0)
-        totals['output'] += int(item.get('outputTokens') or 0)
-        totals['reasoning'] += int(item.get('thinkingTokens') or 0)
-        totals['cache_read'] += int(item.get('cacheReadInputTokens') or 0)
-        totals['cache_write'] += int(item.get('cacheCreationInputTokens') or 0)
-    dominant = max(usage, key=lambda m: float(usage[m].get('costUSD') or 0), default=None)
     session_id = session_id or data.get('session_id')
     facts = transcript_facts(transcript_paths(home, cwd, session_id)) if session_id else transcript_facts([])
     return {'runner': 'claude', 'model_actual': dominant, 'models': sorted(usage) or facts['models'],
             'effort_actual': ','.join(facts['efforts']) or None, **totals,
-            'cost_usd': float(data.get('total_cost_usd') or 0), 'cost_source': 'anthropic-list',
+            'cost_usd': cost, 'cost_source': 'anthropic-list',
             'duration_s': round(float(data.get('duration_ms') or 0) / 1000, 1), 'turns': int(data.get('num_turns') or 0),
             'tools': facts['tools'], 'session_id': session_id,
             'is_error': bool(data.get('is_error')), 'subtype': data.get('subtype'), 'result': data.get('result')}

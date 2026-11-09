@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import harness_pi
+from . import harness_claude, harness_pi
 from .documents import WorkflowError, artifact, document
 from .harness_pi import build_command
 from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
@@ -25,7 +25,7 @@ INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')
-HARNESSES = {'pi': harness_pi}
+HARNESSES = {'pi': harness_pi, 'claude': harness_claude}
 REQUIRED_SECTIONS = {'research': ('## Problem', '## Recommendation'), 'plan': ('## Steps',), 'implement': ()}
 LIMITS_STALE = 'limits stale'
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
@@ -362,6 +362,34 @@ def phase_artifact(ctx, slug, phase, run=None):
     return Path(ctx['vault'], 'research' if phase == 'research' else 'plans', f'{slug}.md'), REQUIRED_SECTIONS[phase]
 
 
+def _pi_launch(ctx, phase, current, model, env):
+    body, tools = agent_body(phase)
+    policy = load(policy_path())
+    if policy and phase not in policy['pi']:
+        raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
+    from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
+    chosen = model_arg(env, model or from_policy)
+    source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
+    ensure_pi_model(chosen, settings_path(env))
+    shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
+    extension_path(env)
+    return chosen, source, lambda message: _run_process(ctx, phase, body, tools, chosen, message, env)
+
+
+def _claude_launch(ctx, phase, current, model, env):
+    spec = (current.get('launch') or {}).get('claude') or {}
+    chosen = model or spec.get('id') or spec.get('model')
+    if not chosen:
+        raise WorkflowError('Модель claude не задана: нет model-policy и --model')
+    tools = [t.strip() for t in str(document(AGENTS / f'{phase}.md')['meta'].get('tools', '')).split(',') if t.strip()]
+
+    def launch(message):
+        argv = harness_claude.build_command(spec.get('agent') or phase, chosen, spec.get('effort'), tools, message,
+                                            add_dirs=(ctx['vault'],))
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+    return chosen, 'override' if model else 'policy', launch
+
+
 def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host='pi'):
     env = dict(os.environ if env is None else env)
     if host not in HARNESSES:
@@ -373,18 +401,12 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         raise WorkflowError('--replan requires phase plan in state ready')
     if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
-    body, tools = agent_body(phase)
-    if not shutil.which('pi', path=env.get('PATH')):
-        raise WorkflowError('pi CLI is missing from PATH')
-    policy = load(policy_path())
-    if policy and phase not in policy['pi']:
-        raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
-    from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
-    chosen = model_arg(env, model or from_policy)
-    source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
-    ensure_pi_model(chosen, settings_path(env))
-    shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
-    extension_path(env)
+    if not shutil.which(host, path=env.get('PATH')):
+        raise WorkflowError(f'{host} CLI is missing from PATH')
+    if host == 'claude':
+        chosen, source, launch = _claude_launch(ctx, phase, current, model, env)
+    else:
+        chosen, source, launch = _pi_launch(ctx, phase, current, model, env)
     complexity = (current.get('complexity') or {}).get('value')
     run = None
     if phase == 'implement':
@@ -401,12 +423,12 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
 
     started_at = time.time() - 1
     try:
-        proc = _run_process(ctx, phase, body, tools, chosen, task_message(phase, ctx, current, step, run, note), env)
+        proc = launch(task_message(phase, ctx, current, step, run, note))
     except OSError as exc:
         outcome('failed', {})
         if run:
-            interrupt(db, run['run_id'], f'pi failed to launch: {exc}')
-        raise WorkflowError(f'pi failed to launch: {exc}')
+            interrupt(db, run['run_id'], f'{host} failed to launch: {exc}')
+        raise WorkflowError(f'{host} failed to launch: {exc}')
     parsed = harness.parse(proc.stdout, proc.stderr, proc.returncode)
     path, sections = phase_artifact(ctx, current['slug'], phase, run)
     check = check_artifact(path, started_at, sections)
@@ -416,7 +438,7 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
     result = {'phase': phase, 'slug': current['slug'], 'host': host, 'status': status,
               'artifact': str(path) if path else None, 'tokens': parsed['tokens'], 'cost': parsed['cost'],
               'session_id': parsed['session_id'], 'model': chosen, 'model_source': source,
-              'exit_code': proc.returncode, 'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
+              'exit_code': proc.returncode, 'report': parsed.get('report', proc.stdout), 'stderr': proc.stderr, 'route': after}
     if status == 'failed':
         result['reason'] = check if check != 'ok' else 'ошибка процесса или пустой ответ'
     warnings = []
