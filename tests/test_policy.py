@@ -340,3 +340,39 @@ def test_resume_returns_task_state_without_launch(ready, monkeypatch):
     assert out['state'] == 'ready' and out['slug'] == 'x'
     assert not LAUNCH_FIELDS & set(out)
     assert 'launch' in workflow.route(ctx, db, 'x')
+
+
+def test_old_policy_without_harness_reads_session_as_harness(tmp_path, example):
+    for host in ('claude', 'pi'):
+        for phase, columns in example[host].items():
+            if phase != 'roles':
+                for entry in columns.values():
+                    entry.pop('harness', None)
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    old = policy.load(path)
+    assert policy.resolve(old, 'claude', 'plan')['harness'] == 'claude'
+    assert policy.resolve(old, 'pi', 'implement')['harness'] == 'pi'
+
+
+def test_route_harness_comes_from_policy_row(proj, monkeypatch, tmp_path, example):
+    example['claude']['plan']['default']['harness'] = 'codex'
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(path))
+    out = workflow.route(proj['ctx'], proj['db'], 'x')
+    assert out['state'] == 'plan' and out['launch']['harness'] == 'codex'
+
+
+def test_fallback_carries_its_own_harness(example):
+    example['claude']['implement']['fallback']['harness'] = 'codex'
+    assert policy.resolve(example, 'claude', 'implement', exhausted=True)['harness'] == 'codex'
+    assert policy.resolve(example, 'claude', 'implement')['harness'] == 'claude'
+
+
+def test_pi_row_with_harness_claude_is_a_config_error(tmp_path, example):
+    example['pi']['implement']['default']['harness'] = 'claude'
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    with pytest.raises(WorkflowError, match='pi/implement/default: a pi session cannot run harness claude'):
+        policy.load(path)

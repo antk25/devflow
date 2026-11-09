@@ -366,6 +366,13 @@ Jev (`source=jev`, `applied=false`) для калибровки. `devflow route`
 для Claude Code — имя агента (`plan` или `plan-high`) и алиас модели при fallback, для pi —
 `provider/id:level` (`launch.pi.model`; приоритет `--model` > policy > `PI_*` > дефолт pi).
 
+**Харнес.** Каждая колонка строки может нести `harness` — кто исполняет фазу (`claude`, `codex`,
+`pi` или любой новый). Списка харнесов в коде нет: новый добавляется строкой policy. `route`
+отдаёт харнес колонки сессии Claude Code в `launch.harness`, харнес pi — в `launch.pi.harness`;
+у `fallback` свой `harness`. Без поля колонка читается как харнес своей сессии (`claude` или
+`pi`), поэтому старая policy работает без правок. Колонка pi с `harness: claude` — ошибка
+конфигурации: сессия pi не запускает claude.
+
 **Лимиты Fable.** Поток: `statusline → rate-limits.json → route`. Claude Code передаёт
 `rate_limits` только в статусную строку, поэтому в свой `~/.claude/statusline.sh` сразу после
 `input=$(cat)` добавляется одна строка:
