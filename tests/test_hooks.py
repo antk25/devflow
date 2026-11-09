@@ -110,7 +110,7 @@ def test_restore(case, tmp_path):
     assert results[-1].stdout == case['expect_last']
 
 
-@pytest.mark.parametrize('source', ['clear', 'startup', 'resume'])
+@pytest.mark.parametrize('source', ['clear', 'startup', 'resume', 'compact'])
 @pytest.mark.parametrize('slug', ['df-pi-workflow-parity', 'DF-11'])
 def test_restore_handoff_from_either_host(source, slug, tmp_path):
     project = tmp_path / 'project'
@@ -135,6 +135,90 @@ def test_restore_handoff_from_either_host(source, slug, tmp_path):
     os.utime(notes / 'handoff-other.md', (0, 0))
     result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
     assert f'HANDOFF {handoff}' in result.stdout
+
+
+PRE_COMPACT = ROOT / '.claude' / 'hooks' / 'pre-compact.sh'
+GUARD_HOOK = ROOT / '.claude' / 'hooks' / 'context-guard.sh'
+SESSION = 'abcdef12-session'
+
+
+def compact_env(tmp_path, tasks=('df-1-x',)):
+    home, vault, project = tmp_path / 'home', tmp_path / 'vault', tmp_path / 'project'
+    for d in (home / '.claude' / 'devflow', vault / 'notes', vault / 'tz', project):
+        d.mkdir(parents=True)
+    for task in tasks:
+        (vault / 'tz' / f'{task}.md').write_text('# X\n')
+    (project / 'AGENTS.md').write_text(f'---\nproject: x\nvault: {vault}\n---\n')
+    env = {'PATH': '/usr/bin:/bin', 'HOME': str(home), 'XDG_RUNTIME_DIR': str(tmp_path)}
+    return home, vault, project, env
+
+
+def write_ledger(home, task):
+    (home / '.claude/devflow/task-ledger.jsonl').write_text(
+        json.dumps({'ts': '2026-11-09T10:00:00', 'session': SESSION, 'task': task}) + '\n')
+
+
+def transcript(tmp_path, tokens):
+    path = tmp_path / 't.jsonl'
+    path.write_text(json.dumps({'message': {'usage': {'input_tokens': 1000, 'cache_read_input_tokens': tokens - 1000}}}) + '\n')
+    return path
+
+
+def test_pre_compact_writes_handoff_and_prints_instructions(tmp_path):
+    home, vault, project, env = compact_env(tmp_path)
+    write_ledger(home, 'DF-1')
+    event = json.dumps({'hook_event_name': 'PreCompact', 'session_id': SESSION, 'trigger': 'auto',
+                        'cwd': str(project), 'transcript_path': str(transcript(tmp_path, 190000))})
+    result = subprocess.run([str(PRE_COMPACT)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    handoff = vault / 'notes' / 'handoff-df-1-x.md'
+    assert handoff.exists()
+    assert f'Передача задачи: {handoff}' in result.stdout
+    assert not result.stdout.lstrip().startswith('{')
+    assert not (project / '.devflow').exists()
+
+
+@pytest.mark.parametrize('event', ['not json', 'agents'])
+def test_pre_compact_silent_without_project(event, tmp_path):
+    home, vault, project, env = compact_env(tmp_path)
+    if event == 'agents':
+        (project / 'AGENTS.md').unlink()
+        event = json.dumps({'session_id': SESSION, 'trigger': 'manual', 'cwd': str(project)})
+    result = subprocess.run([str(PRE_COMPACT)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert (result.returncode, result.stdout) == (0, '')
+    assert not list((vault / 'notes').iterdir())
+
+
+@pytest.mark.parametrize('linked', [True, False])
+def test_restore_after_compact_picks_session_handoff(linked, tmp_path):
+    home, vault, project, env = compact_env(tmp_path, ('df-1-x', 'df-2-y'))
+    for slug in ('df-1-x', 'df-2-y'):
+        (vault / 'notes' / f'handoff-{slug}.md').write_text(f'---\ntype: handoff\ntask: {slug}\n---\n# П\n')
+    if linked:
+        write_ledger(home, 'DF-2')
+    event = json.dumps({'source': 'compact', 'session_id': SESSION})
+    result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    if linked:
+        assert f"HANDOFF {vault / 'notes' / 'handoff-df-2-y.md'}" in result.stdout
+        assert 'выберите полный slug явно' not in result.stdout
+    else:
+        assert 'выберите полный slug явно' in result.stdout
+    assert not (project / '.devflow').exists()
+
+
+@pytest.mark.parametrize('tokens, prefix', [(185000, 'CONTEXT_CUT 185K'), (125000, 'CONTEXT_WARN 125K'), (50000, '')])
+def test_context_guard_text_from_cli(tokens, prefix, tmp_path):
+    home, vault, project, env = compact_env(tmp_path)
+    event = json.dumps({'session_id': SESSION, 'transcript_path': str(transcript(tmp_path, tokens))})
+    result = subprocess.run([str(GUARD_HOOK)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith(prefix)
+    if not prefix:
+        assert result.stdout == ''
+    if tokens == 185000:
+        assert 'без спроса' in result.stdout
+    assert not (project / '.devflow').exists()
 
 
 def test_deny_survives_unwritable_journal(tmp_path):

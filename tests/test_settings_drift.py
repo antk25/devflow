@@ -10,11 +10,12 @@ def test_missing_actual_reports_everything(tmp_path):
     wanted = json.loads(EXAMPLE.read_text())
     drift = settings_drift(tmp_path / 'settings.json', EXAMPLE)
     assert drift['hooks'] == [
+        'PreCompact ' + wanted['hooks']['PreCompact'][0]['hooks'][0]['command'],
         'PreToolUse ' + wanted['hooks']['PreToolUse'][0]['hooks'][0]['command'],
         'SessionStart ' + wanted['hooks']['SessionStart'][0]['hooks'][0]['command'],
         'UserPromptSubmit ' + wanted['hooks']['UserPromptSubmit'][0]['hooks'][0]['command'],
     ]
-    assert drift['keys'] == ['autoCompactWindow=500000']
+    assert drift['keys'] == ['autoCompactWindow=230000']
     assert drift['allow'] == wanted['permissions']['allow']
     assert drift['ask'] == wanted['permissions']['ask']
     assert drift['deny'] == wanted['permissions']['deny']

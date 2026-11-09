@@ -25,6 +25,17 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__DEVFLOW_ROOT__/.claude/hooks/pre-compact.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -80,5 +91,5 @@
       "Bash(ssh:*)"
     ]
   },
-  "autoCompactWindow": 500000
+  "autoCompactWindow": 230000
 }
