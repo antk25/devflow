@@ -438,8 +438,20 @@ project context once per session (a marker under `$XDG_RUNTIME_DIR`, 10 s window
 and `resume` restore it again; after `clear` it also prints `HANDOFF <path>` when the latest `/cut`
 hand-off is under 30 minutes old. The UserPromptSubmit hook `context-guard.sh` tells the model the
 context size it can't see in the status line: `CONTEXT_WARN` from 120K, `CONTEXT_CUT` from 180K, so
-it offers `/cut` at a step boundary; `autoCompactWindow: 500000` keeps auto-compaction as a last
-resort only. A new environment setting goes to the global layer first; it becomes
+it offers `/cut` at a step boundary; on `CONTEXT_CUT` the model writes the hand-off without asking
+and keeps working. Compaction itself is treated as a session cut: the core lives in the CLI
+(`devflow handoff auto`, `handoff slug`, `context-level`), hosts only adapt to it. The Claude Code
+`PreCompact` hook (`pre-compact.sh`) and the pi `session_before_compact` handler call
+`handoff auto`: it appends a block to this session's hand-off, or creates a minimal one with the
+branch and route, never rewriting earlier text, and logs the event to
+`~/.claude/devflow/compact-log.jsonl` (with `tokens`). `autoCompactWindow: 230000`: the compaction
+threshold is the window minus the summary buffer and must stay above the 180K `CONTEXT_CUT` level;
+if the log shows compaction at ≤ 180K, adjust the window in the reference settings. Codex runs
+the same two scripts from `~/.codex/hooks.json` (reference `codex-hooks.example.json`, created by
+`./install.sh` when absent, checked by `--check`): `pre-compact.sh --host codex` on `PreCompact`
+and `project-restore.sh` on `SessionStart`, including `source=compact`. Codex's `PreCompact` output
+has no field for the summary, so the instructions only reach the user as `systemMessage`.
+`~/.codex/AGENTS.md` adds the rule to read the hand-off at session start. A new environment setting goes to the global layer first; it becomes
 per-project only when added to both `project init` and `project sync`.
 
 ---

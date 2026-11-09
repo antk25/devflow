@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-33: сжатие контекста как разрез сессии
+- **Ядро в CLI:** `devflow handoff auto` (дописывает блок к передаче своей сессии или создаёт минимальную с веткой и route, прежний текст не меняет; событие пишется в `~/.claude/devflow/compact-log.jsonl` с `tokens`), `handoff slug`, `context-level` — пороги 120K/180K в одном месте.
+- **Адаптеры:** хук Claude Code `PreCompact` (`pre-compact.sh`), `context-guard.sh` берёт уровни из CLI; в pi — обработчик `session_before_compact` и уровни из CLI. Codex — только запасное правило: передача после каждого шага, `handoff latest` при старте; его хуки `PreCompact`/`SessionStart` пока не подключены.
+- **`autoCompactWindow: 230000`** вместо 500000: порог сжатия (окно минус буфер сводки) должен быть выше 180K, чтобы сначала сработал `CONTEXT_CUT`.
+- **`/cut`:** поле `session` во frontmatter передачи; режим `CONTEXT_CUT` — передача без спроса, без строки продолжения, работа продолжается.
+
 ### Changed — DF-26: оценка сложности отдельным модулем
 - Оценка сложности (`df complexity`, тень Jev, факты) переехала из `workflow.py` в `scripts/devflow/complexity.py`; `workflow.route` знает о ней только через `user_complexity`. Поиск секции документа — одна функция `documents.section`, `section_items` строится поверх неё; лимит входа Jev — `jev.INPUT_LIMIT`. Вывод `df route` и `df complexity` не изменился.
 - `workflow.task_state` — чистое состояние задачи без `launch`/`complexity`/`policy*`/`limits`; его читают `df active` (хук SessionStart, лаунчер pi), `board`, `approve`, `start`, `resume`. Поля запуска отдают только `df route`/`status` и `pi.run_phase`; `df resume` возвращает чистое состояние.

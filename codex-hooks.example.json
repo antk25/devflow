@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__DEVFLOW_ROOT__/.claude/hooks/pre-compact.sh --host codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__DEVFLOW_ROOT__/.claude/hooks/project-restore.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
