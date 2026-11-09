@@ -4,12 +4,13 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import devflow from '../../pi/extensions/devflow.ts';
+import devflow, { registerDevflow } from '../../pi/extensions/devflow.ts';
 
-function harness(t) {
+function harness(t, options) {
   const dir = mkdtempSync(join(tmpdir(), 'df-context-'));
   const rules = join(dir, 'rules.md');
   writeFileSync(rules, 'Общие правила');
+  writeFileSync(join(dir, 'AGENTS.md'), '---\nproject: p\n---\n');
   const previous = process.env.DEVFLOW_INSTRUCTIONS;
   process.env.DEVFLOW_INSTRUCTIONS = rules;
   t.after(() => {
@@ -33,7 +34,7 @@ function harness(t) {
       const run = spawnSync(command, args, { encoding: 'utf8' });
       return { code: run.status, stdout: run.stdout, stderr: run.stderr };
     } };
-  devflow(api);
+  if (options) registerDevflow(api, options); else devflow(api);
   const before = async () => {
     const event = { systemPromptOptions: { sections: {} } };
     await handlers.before_agent_start(event, ctx);
@@ -99,6 +100,18 @@ test('сжатие пишет передачу через handoff auto --host pi
   await h.handlers.session_compact({ reason: 'threshold' }, h.ctx);
   assert.deepEqual(h.calls.at(-1)[1].slice(1), ['--restore-context']);
   assert.match(h.messages.at(-1).content, /handoff-df-pi-workflow-parity/);
+});
+
+test('сжатие вне проекта DevFlow и в дочерней сессии не пишет передачу', async t => {
+  const h = harness(t);
+  rmSync(join(h.ctx.cwd, 'AGENTS.md'));
+  assert.equal(await h.handlers.session_before_compact({ reason: 'threshold' }, h.ctx), undefined);
+  assert.equal(h.cli.filter(args => args.includes('handoff')).length, 0);
+  assert.equal(h.messages.length, 0);
+  writeFileSync(join(h.ctx.cwd, 'AGENTS.md'), '---\nproject: p\n---\n');
+  const child = harness(t, { restoreContext: false });
+  await child.handlers.session_before_compact({ reason: 'threshold' }, child.ctx);
+  assert.equal(child.cli.filter(args => args.includes('handoff')).length, 0);
 });
 
 test('new/resume/reload заново читают общий контекст, не выполняют переходы состояния', async t => {

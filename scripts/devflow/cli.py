@@ -75,7 +75,7 @@ def parser():
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
     handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
-    a = handoff_commands.add_parser('latest'); a.add_argument('--task'); a.add_argument('--fresh-minutes', type=int)
+    a = handoff_commands.add_parser('latest'); a.add_argument('--task'); a.add_argument('--fresh-minutes', type=int); a.add_argument('--session')
     a = handoff_commands.add_parser('auto'); a.add_argument('--session', required=True); a.add_argument('--trigger', choices=['auto', 'manual'], required=True)
     a.add_argument('--context-tokens', type=int); a.add_argument('--host', choices=['claude', 'pi', 'codex'])
     a = handoff_commands.add_parser('slug'); a.add_argument('--session', required=True)
@@ -116,7 +116,8 @@ def execute(args):
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
     if args.command == 'handoff':
-        doc = handoff_latest(ctx['vault'], args.task, args.fresh_minutes)
+        own = compact.find_session_handoff(ctx['vault'], args.task, args.session) if args.task and args.session else None
+        doc = document(own) if own else handoff_latest(ctx['vault'], args.task, args.fresh_minutes)
         if doc is None:
             return {'path': None}
         return {'path': doc['path'], 'created': str(doc['meta'].get('created', '')),

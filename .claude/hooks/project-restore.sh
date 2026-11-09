@@ -24,7 +24,7 @@ if [[ "$source" = clear || "$source" = startup || "$source" = resume || "$source
     if [ -n "$session_id" ]; then
         task="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff slug --session "$session_id" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("slug") or "")' 2>/dev/null || true)"
-        [ -n "$task" ] && latest+=(--task "$task")
+        [ -n "$task" ] && latest+=(--task "$task" --session "$session_id")
     fi
     if handoff_json="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" "${latest[@]}" 2>&1)"; then
         handoff="$(printf '%s' "$handoff_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path") or "")')"

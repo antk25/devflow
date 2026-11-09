@@ -87,6 +87,15 @@ def find_session_handoff(vault, slug, session):
     return None
 
 
+def _unclaimed_fresh(path, now, minutes=30):
+    # A /cut hand-off without `session` written moments ago belongs to the session being compacted.
+    try:
+        meta = document(path)['meta']
+    except Exception:
+        return False
+    return not meta.get('session') and now.timestamp() - path.stat().st_mtime < minutes * 60
+
+
 def _route(cwd, slug):
     if not (Path(cwd) / '.devflow/project.json').exists():
         return None
@@ -132,8 +141,12 @@ def write_auto_handoff(vault, cwd, slug, session, trigger, now):
         atomic_write(existing, raw + ('' if raw.endswith('\n') else '\n') + '\n' + block)
         return existing, 'appended'
     path = notes / f'handoff-{slug}.md'
+    if path.exists() and _unclaimed_fresh(path, now):
+        raw = path.read_text(encoding='utf-8')
+        atomic_write(path, raw + ('' if raw.endswith('\n') else '\n') + '\n' + block)
+        return path, 'appended'
     if path.exists():
-        path = notes / f'handoff-{slug}-auto-{session[:8]}.md'
+        path = notes / f'handoff-{slug}-auto-{session}.md'
     project = Path(cwd).name
     try:
         from .documents import context

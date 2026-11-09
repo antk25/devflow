@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -97,6 +97,7 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 	}
 	pi.on("turn_end", (_event, ctx) => contextWarning(ctx));
 	pi.on("session_before_compact", async (event, ctx) => {
+		if (options.restoreContext === false || !ctx.cwd || !existsSync(join(ctx.cwd, "AGENTS.md"))) return;
 		const session = sessionId(ctx);
 		if (!session) return;
 		const args = ["handoff", "auto", "--session", session,

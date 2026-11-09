@@ -69,10 +69,42 @@ def test_foreign_handoff_untouched(env, session_line):
     path = env['vault'] / 'notes' / 'handoff-df-1-x.md'
     before = f'---\ntype: handoff\ntask: df-1-x\n{session_line}---\n\n# Чужая\n'
     path.write_text(before, encoding='utf-8')
+    os.utime(path, (0, 0))
     result = auto(env)
     assert path.read_bytes() == before.encode('utf-8')
-    assert result['path'] == str(env['vault'] / 'notes' / f'handoff-df-1-x-auto-{S1[:8]}.md')
+    assert result['path'] == str(env['vault'] / 'notes' / f'handoff-df-1-x-auto-{S1}.md')
     assert result['action'] == 'created'
+
+
+def test_appends_to_fresh_cut_handoff_without_session(env):
+    ledger(env, 'DF-1')
+    path = env['vault'] / 'notes' / 'handoff-df-1-x.md'
+    before = '---\ntype: handoff\ntask: df-1-x\n---\n\n# Ручная от /cut\n'
+    path.write_text(before, encoding='utf-8')
+    result = auto(env)
+    assert result['action'] == 'appended' and result['path'] == str(path)
+    assert path.read_text(encoding='utf-8').startswith(before)
+    assert not list((env['vault'] / 'notes').glob('handoff-df-1-x-auto-*.md'))
+
+
+def test_sessions_sharing_prefix_get_separate_files(env):
+    ledger(env, 'DF-1', session='abcdef12-0001')
+    path = env['vault'] / 'notes' / 'handoff-df-1-x.md'
+    path.write_text('---\ntype: handoff\ntask: df-1-x\nsession: other\n---\n', encoding='utf-8')
+    first = auto(env, session='abcdef12-0001')['path']
+    ledger(env, 'DF-1', session='abcdef12-0002')
+    second = auto(env, session='abcdef12-0002')['path']
+    assert first != second and Path(first).exists() and Path(second).exists()
+
+
+def test_latest_prefers_own_session(env):
+    ledger(env, 'DF-1')
+    notes = env['vault'] / 'notes'
+    own = notes / 'handoff-df-1-x.md'
+    own.write_text(f'---\ntype: handoff\ntask: df-1-x\ncreated: 2026-11-08\nsession: {S1}\n---\n', encoding='utf-8')
+    (notes / 'handoff-df-1-x-auto-0ther.md').write_text(
+        '---\ntype: handoff\ntask: df-1-x\ncreated: 2026-11-09\nsession: 0ther\n---\n', encoding='utf-8')
+    assert run(env, 'handoff', 'latest', '--task', 'df-1-x', '--session', S1)['path'] == str(own)
 
 
 def test_branch_fallback_and_main(env):
@@ -111,7 +143,7 @@ def test_handoff_slug_from_ledger(env):
 def test_latest_treats_auto_handoff_as_same_task(env):
     notes = env['vault'] / 'notes'
     (notes / 'handoff-df-1-x.md').write_text('---\ncreated: 2026-11-01\ntype: handoff\ntask: df-1-x\n---\n', encoding='utf-8')
-    newer = notes / f'handoff-df-1-x-auto-{S1[:8]}.md'
+    newer = notes / f'handoff-df-1-x-auto-{S1}.md'
     newer.write_text('---\ncreated: 2026-11-09\ntype: handoff\ntask: df-1-x\n---\n', encoding='utf-8')
     assert run(env, 'handoff', 'latest', '--task', 'df-1')['path'] == str(newer)
 
