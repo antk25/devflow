@@ -11,8 +11,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import harness_pi
 from .documents import WorkflowError, artifact, document
-from .policy import PHASES, load, policy_path, resolve_pi_role
+from .harness_pi import build_command
+from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
+from .storage import record_outcome
 from .workflow import interrupt, route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
@@ -22,6 +25,9 @@ INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')
+HARNESSES = {'pi': harness_pi}
+REQUIRED_SECTIONS = {'research': ('## Problem', '## Recommendation'), 'plan': ('## Steps',), 'implement': ()}
+LIMITS_STALE = 'limits stale'
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
          'Write': ('write',), 'Edit': ('edit',)}
 CODEX_WARNING = 'Модели openai-codex в pi не запускаются — только в Codex'
@@ -166,11 +172,6 @@ def task_message(phase, ctx, state, step=None, run=None, note=None):
     if note:
         lines += ['', 'Замечание пользователя:', note.strip()]
     return '\n'.join(lines) + '\n'
-
-
-def build_command(body_file, tools, model_arg, message, options=('--no-session',)):
-    return ['pi', '-p', *options, '--append-system-prompt', str(body_file), '--tools', ','.join(tools),
-            *(['--model', model_arg] if model_arg else []), message]
 
 
 def _cleanup_process_group(child, grace=2.0):
@@ -340,8 +341,32 @@ def run_agent(ctx, role, message, model=None, env=None, timeout=600):
     return result
 
 
-def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False):
+def check_artifact(path, started_at, required_sections):
+    """'ok' when the file was written by this run and has every required section, else the reason."""
+    if not path or not Path(path).is_file():
+        return 'артефакт не найден'
+    path = Path(path)
+    if path.stat().st_mtime < started_at:
+        return f'артефакт не изменён этим запуском: {path}'
+    text = path.read_text(encoding='utf-8')
+    lines = {line.rstrip() for line in text.splitlines()}
+    missing = [s for s in required_sections if s not in lines and not s.startswith('<!--')]
+    missing += [s for s in required_sections if s.startswith('<!--') and s not in text]
+    return 'нет разделов: ' + ', '.join(missing) if missing else 'ok'
+
+
+def phase_artifact(ctx, slug, phase, run=None):
+    if phase == 'implement':
+        found = sorted(Path(ctx['vault'], 'changelog').glob(f'*-{slug}.md'))
+        return (found[0] if len(found) == 1 else None), (f"<!-- devflow-run: {run['run_id']} -->",) if run else ()
+    return Path(ctx['vault'], 'research' if phase == 'research' else 'plans', f'{slug}.md'), REQUIRED_SECTIONS[phase]
+
+
+def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host='pi'):
     env = dict(os.environ if env is None else env)
+    if host not in HARNESSES:
+        raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))
+    harness = HARNESSES[host]
     current = route(ctx, db, slug)
     at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
     if replan and (phase != 'plan' or current['state'] != 'ready'):
@@ -360,6 +385,7 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
     ensure_pi_model(chosen, settings_path(env))
     shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
     extension_path(env)
+    complexity = (current.get('complexity') or {}).get('value')
     run = None
     if phase == 'implement':
         step = step or current['step']
@@ -368,17 +394,38 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         run = start(ctx, db, current['slug'], step, current['revision'])
         if step != current['step']:
             current = dict(current, n=None)
+
+    def outcome(status, parsed):
+        record_outcome(db, current['slug'], phase, host, chosen, complexity, status,
+                       parsed.get('tokens'), parsed.get('cost'), run and run['run_id'])
+
+    started_at = time.time() - 1
     try:
         proc = _run_process(ctx, phase, body, tools, chosen, task_message(phase, ctx, current, step, run, note), env)
     except OSError as exc:
+        outcome('failed', {})
         if run:
             interrupt(db, run['run_id'], f'pi failed to launch: {exc}')
         raise WorkflowError(f'pi failed to launch: {exc}')
+    parsed = harness.parse(proc.stdout, proc.stderr, proc.returncode)
+    path, sections = phase_artifact(ctx, current['slug'], phase, run)
+    check = check_artifact(path, started_at, sections)
+    status = 'ok' if parsed['status'] == 'ok' and check == 'ok' else 'failed'
+    outcome(status, parsed)
     after = route(ctx, db, current['slug'])
-    result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'model_source': source, 'exit_code': proc.returncode,
-              'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
+    result = {'phase': phase, 'slug': current['slug'], 'host': host, 'status': status,
+              'artifact': str(path) if path else None, 'tokens': parsed['tokens'], 'cost': parsed['cost'],
+              'session_id': parsed['session_id'], 'model': chosen, 'model_source': source,
+              'exit_code': proc.returncode, 'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
+    if status == 'failed':
+        result['reason'] = check if check != 'ok' else 'ошибка процесса или пустой ответ'
+    warnings = []
     if run:
         result['run_id'] = run['run_id']
         if after['state'] == 'running':
-            result['warning'] = RUNNING_WARNING
+            warnings.append(RUNNING_WARNING)
+    if current.get('policy') and current.get('limits') is None and limits_path().is_file():
+        warnings.append(LIMITS_STALE)
+    if warnings:
+        result['warning'] = '; '.join(warnings)
     return result
