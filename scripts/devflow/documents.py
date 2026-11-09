@@ -104,7 +104,7 @@ def handoff_latest(vault, task=None, fresh_minutes=None):
     tasks = set()
     requested = resolve_slug(Path(vault), task) if task else None
     if requested and re.fullmatch(r'[a-z]+-\d+', requested):
-        aliases = {p.stem.removeprefix('handoff-').lower()
+        aliases = {re.sub(r'-auto-[0-9a-f]+$', '', p.stem.removeprefix('handoff-').lower())
                    for p in (Path(vault) / 'notes').glob('handoff-' + requested + '-*.md')}
         if len(aliases) > 1:
             raise WorkflowError('Ambiguous handoff; use --task with a full slug: ' + ', '.join(sorted(aliases)))
@@ -123,7 +123,7 @@ def handoff_latest(vault, task=None, fresh_minutes=None):
         identity = str(meta.get('task', '')).lower()
         if not identity:
             continue
-        filename_task = path.stem.lower().removeprefix('handoff-')
+        filename_task = re.sub(r'-auto-[0-9a-f]+$', '', path.stem.lower().removeprefix('handoff-'))
         if re.fullmatch(r'[a-z]+-\d+', identity) and filename_task.startswith(identity + '-'):
             identity = filename_task
         if requested is not None and identity != requested and not requested.startswith(identity + '-'):

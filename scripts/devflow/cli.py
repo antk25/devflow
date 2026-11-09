@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import bench, board, codex_review, pi, project
+from . import bench, board, codex_review, compact, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
@@ -76,6 +76,10 @@ def parser():
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
     handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
     a = handoff_commands.add_parser('latest'); a.add_argument('--task'); a.add_argument('--fresh-minutes', type=int)
+    a = handoff_commands.add_parser('auto'); a.add_argument('--session', required=True); a.add_argument('--trigger', choices=['auto', 'manual'], required=True)
+    a.add_argument('--context-tokens', type=int); a.add_argument('--host', choices=['claude', 'pi', 'codex'])
+    a = handoff_commands.add_parser('slug'); a.add_argument('--session', required=True)
+    a = commands.add_parser('context-level'); a.add_argument('--tokens', type=int, required=True); a.add_argument('--window', type=int); a.add_argument('--session')
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
     a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true')
     agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
@@ -95,7 +99,13 @@ def execute(args):
         return board.snapshot(refresh=args.refresh)
     if args.command == 'bench':
         return bench.command(args)
+    if args.command == 'context-level':
+        return compact.context_level(args.tokens, args.window, args.session)
     ctx = context(args.cwd)
+    if args.command == 'handoff' and args.handoff_command == 'auto':
+        return compact.auto(ctx, args.session, args.trigger, ctx['cwd'], args.context_tokens, args.host)
+    if args.command == 'handoff' and args.handoff_command == 'slug':
+        return {'slug': compact.session_slug(ctx['vault'], args.session) or compact.branch_slug(ctx['vault'], ctx['cwd'])}
     if args.command == 'codex-review':
         return codex_review.run_review(ctx, base=args.base, commit=args.commit,
                                        uncommitted=args.uncommitted, message_file=args.message_file,
