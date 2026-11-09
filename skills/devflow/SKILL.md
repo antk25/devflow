@@ -67,7 +67,7 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `ready` | Name step `n` of `total`, start that step as below |
 | `completed` | Show changelog; run the final crossreview protocol below |
 | `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
-| `blocked` | Show reason; stop. Resume only after the user decides how to proceed |
+| `blocked` | Show reason; stop. Resume only after the user decides how to proceed. Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |
 | `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
 | `migration_required` / `migration_pending` | Follow the migration flow below |
 | `legacy_review` / CLI error | Show the diagnostic; resolve the ambiguity before proceeding |
