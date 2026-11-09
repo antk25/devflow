@@ -74,6 +74,17 @@ load_env
 
 (( $# >= 1 )) || refuse "usage: devflow-browser start [--insecure] [--task <slug>] | devflow-browser <id> <tool> [args…] | devflow-browser <id> stop" 2
 
+if [[ "$1" == stop-task ]]; then
+  [[ "${2:-}" =~ ^[a-z0-9-]+$ && $# == 2 ]] || refuse "stop-task expects a slug." 2
+  task=$2 rc=0
+  for marker in "$SESSIONS_DIR"/*; do
+    [[ -f "$marker" ]] || continue
+    [[ "$(cat "$marker")" == "$task" ]] || continue
+    "$0" "${marker##*/}" stop || rc=$?
+  done
+  exit "$rc"
+fi
+
 if [[ "$1" == start ]]; then
   shift
   extra=() task=""
@@ -89,8 +100,16 @@ if [[ "$1" == start ]]; then
   done
   id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
   mkdir -p "$SESSIONS_DIR"
-  run_cli start --isolated --headless --redactNetworkHeaders "${extra[@]}" --sessionId "$id" >&2
   printf '%s' "$task" > "$SESSIONS_DIR/$id"
+  # Register before start: a timeout may interrupt the CLI after Chrome is already running.
+  rc=0
+  run_cli start --isolated --headless --redactNetworkHeaders "${extra[@]}" --sessionId "$id" >&2 || rc=$?
+  if (( rc != 0 )); then
+    if run_cli stop --sessionId "$id" >/dev/null 2>&1; then
+      rm -f "$SESSIONS_DIR/$id"
+    fi
+    exit "$rc"
+  fi
   touch_activity
   echo "$id"
   exit 0

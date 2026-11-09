@@ -16,7 +16,7 @@ result in the vault. **You change nothing in the repository.**
 - The project cwd, the task slug, and the base branch — given to you by the driver.
 - Optionally `second-opinion:` with a findings list — the driver's second launch after
   `SECOND_OPINION_NEEDED`. Then do Step 1 (skip the `codex login status` check), take your own
-  list from the `## Claude (Opus 5.5)` section of the draft note instead of redoing Step 2, use the
+  list from `## Собственное ревью (host=… model=…)` (старый `## Claude (Opus 5.5)` также допустим) of the draft note instead of redoing Step 2, use the
   given list in place of Codex and continue from Step 4.
 
 ## Step 1: Context
@@ -25,7 +25,11 @@ result in the vault. **You change nothing in the repository.**
    If the driver gave no base, use `Base branch` from `AGENTS.md`.
 2. Confirm the branch: `git rev-parse --abbrev-ref HEAD`. Target is `<base>...HEAD`. The base is
    the **local** branch — `git fetch` is blocked.
-3. `codex login status` — expect «Logged in using ChatGPT». Remember the result; it decides Step 3.
+3. Запиши `git rev-parse <base> HEAD` и `git diff <base>...HEAD --binary | git hash-object --stdin`.
+   Сохрани base, HEAD и хеш diff в черновике. При повторном запуске сравни все три: изменение
+   делает черновик и запасное мнение устаревшими. Не используй их; верни `REVIEW_STALE <slug>`
+   драйверу для нового независимого цикла. Старый черновик без этих полей тоже устарел.
+4. `codex login status` — expect «Logged in using ChatGPT». Remember the result; it decides Step 3.
 
 ## Step 2: Your own review — before Codex
 Read the diff (`git diff <base>...HEAD`) and, for every touched file, enough of the neighbours
@@ -39,36 +43,48 @@ Write your findings down **now**, before Step 3, so Codex's list can't reshape y
 - `path/to/file.ext:<line>` — <what is wrong, one sentence>
 ```
 
-Nothing found → `Claude: находок нет`. An empty list is a real answer.
+Nothing found → `находок нет`. An empty list is a real answer.
 
 Save the list right away as a draft of the note (Step 5 format, only the heading and the
-`## Claude (Opus 5.5)` section) — a second launch picks it up from there.
+`## Собственное ревью (host=<host> model=<model>)` section и base/HEAD/diff hash) — a second launch picks it up from there.
 
 ## Step 3: Codex review
-`codex review` prints the whole diff before its verdict, so it always goes to a file:
+Из cwd репозитория выполни один простой вызов без перенаправлений и подстановок:
 
 ```bash
-OUT=<scratchpad>/crossreview-<slug>.md
-cd <repo>
-codex review --base <base> --title "<slug>" </dev/null > "$OUT" 2>&1
-sed -n '/^codex$/,$p' "$OUT"
+devflow codex-review --base <base> --title "<slug>"
 ```
 
-`</dev/null` is mandatory — otherwise a confirmation prompt hangs the call. Timeout 600000 ms.
-Read only the verdict. «tests could not be run» is expected (no PHP/node on the host) and is not
-a finding. «No actionable regressions» on a static read is a weak signal, not a green light.
+Обёртка использует DEVNULL stdin и таймаут 600 секунд; request, полные раздельные stdout/stderr
+и manifest сохраняются в новом каталоге вне репозитория при любом исходе. Вход независим:
+не передавай собственные находки или историю. Для другой ветки/диапазона/focus используй
+`devflow codex-review --message-file <tmp>/request.md`: точная цель, команда diff и инструкция
+только читать, без своих находок; не сочетай с target-флагами. SHA и незакоммиченные изменения:
+`devflow codex-review --commit <sha>` либо `devflow codex-review --uncommitted`.
 
-**Codex unavailable** — not logged in (Step 1), `codex` missing, non-zero exit, usage limit, or no
-`codex` verdict block in `$OUT`. You can't spawn agents, so hand the second opinion to the driver:
+После запуска и до чтения чужого ответа заново проверь base/HEAD/diff hash из Step 1.
+Дрейф → `REVIEW_STALE <slug>`, не используй устаревшее мнение. Сравни также до/после
+`git status --porcelain=v1 --untracked-files=all`, `git diff HEAD --binary` и содержимое untracked-файлов;
+чужие изменения не откатывай. Через read прочитай полные request/stdout/stderr/manifest из JSON.
+Проверь exit_code, timed_out и error. Код транспорта 0 без вердикта не означает успешное мнение.
+«tests could not be run» само по себе не находка. «No actionable regressions» при статическом
+чтении — слабый сигнал, не зелёный свет. Отдельный процесс не является песочницей ОС.
+
+**Codex unavailable** — нет авторизации (Step 1), бинаря, непустого ответа или вердикта;
+ненулевой exit, сигнал, timeout, ошибка cleanup, stderr с ошибкой авторизации/лимита.
+Частичный текст не означает успешное мнение. Передай запасное мнение драйверу:
 stop and reply exactly
 
 ```
 SECOND_OPINION_NEEDED <slug> base=<base> reason=<one line>
 ```
 
-The driver runs `second-opinion` (Fable 5.1 high) and launches you again with its findings
-(see Inputs); in the note the section becomes
-`## Fable 5.1 (вместо Codex: <reason>)`.
+Драйвер запускает независимый `second-opinion` и передаёт его ответ дословно (см. Inputs).
+Claude сохраняет Fable 5.1 high; pi использует отдельный процесс и свою настройку роли.
+Заголовок: `## Второе мнение (host=<host> model=<model>; вместо Codex: <reason>)`.
+Timeout Codex также требует запасного мнения. Ошибка, пустой ответ или отсутствие вердикта
+запасной роли — явная незавершённость, не «находок нет»; сохрани черновик и верни причину.
+Не читай запасной ответ до проверки base/HEAD/diff hash.
 
 ## Step 4: Verify every finding
 Take both lists together. For each finding, establish one of three verdicts by looking at the code,
@@ -91,7 +107,9 @@ line. For a confirmed finding, add the smallest fix that would close it, as a pr
 
 Ветка `<branch>` против `<base>`, <N> коммитов.
 
-## Claude (Opus 5.5)
+Base: `<base SHA>`; HEAD: `<HEAD SHA>`; Diff: `<hash>`.
+
+## Собственное ревью (host=<host> model=<model>)
 <findings, or «находок нет»>
 
 ## Codex
@@ -108,7 +126,7 @@ line. For a confirmed finding, add the smallest fix that would close it, as a pr
 Reply with the summary only — no diff, no raw Codex output:
 
 ```
-Кросс-ревью <slug>: Claude <n> находок, Codex|Fable <m>. Подтверждено <k>, не подтверждено <p>, не проверить <q>.
+Кросс-ревью <slug>: <host/model> <n> находок, <второй источник/модель> <m>. Подтверждено <k>, не подтверждено <p>, не проверить <q>.
 Первым чинить: <one line, or «нечего»>.
 Заметка: <absolute path>
 ```

@@ -8,6 +8,10 @@ DevFlow does **not** branch, commit, or push. The driver routes by artifacts and
 
 ---
 
+## Совместимость хостов
+
+Pi поддерживает основной цикл через существующий `devflow-pi` и общий CLI; завершённая живая совместимость с Claude Code пока не подтверждена. [Матрица, результаты и оставшиеся пользовательские проверки](docs/host-parity.md). Статистика/токены pi, timesheet/recap, board, standup/Jira и прочие вспомогательные skills отложены: таблица ниже не обещает их совместимость с pi.
+
 ## Skills
 
 | Command | What it does | Output |
@@ -181,6 +185,22 @@ After install, skills and agents are available in any Claude Code session. The s
 `~/.claude/skills/devflow/devflow`, or `./scripts/devflow-cli.sh` from this checkout.
 `DEVFLOW_CLAUDE_DIR` and `DEVFLOW_PI_DIR` override the symlink destinations for isolated installation checks.
 
+Общие инструкции устанавливаются из `devflow-instructions.example.md` в
+`~/.claude/devflow-instructions.md`; Claude подключает их импортом в глобальном `CLAUDE.md`
+(прежний текст сохраняется, перед добавлением импорта создаётся `.devflow.bak`). Pi читает
+тот же файл через глобальное расширение `~/.pi/agent/extensions/devflow.ts`, в именованный
+системный раздел `devflow_shared`; правила хоста находятся отдельно в `devflow_host`.
+Проектные `.pi/` и AGENTS.md менять не нужно. `DEVFLOW_INSTRUCTIONS` задаёт другой общий путь
+для установки и запуска; при нестандартном каталоге pi используйте `DEVFLOW_PI_DIR` при установке
+и штатный `PI_CODING_AGENT_DIR` при запуске.
+
+Существующий пользовательский файл инструкций установщик не заменяет: выводит `REVIEW`,
+сохраняет резервную копию с хешем и кладёт эталон рядом как `.proposed` для ручного объединения.
+Сравните его со своими правилами, особенно запреты публикации и размер implement-запуска:
+общий порядок допускает публикацию текущей feature-ветки драйвером, но implement не публикует
+и выполняет ровно один шаг. Повторная установка не перезаписывает резервную копию и предложение;
+`--check` только диагностирует, `--remove` сохраняет инструкции, импорт и резервные копии.
+
 ---
 
 ## Launching a project
@@ -200,6 +220,32 @@ environment. A project without `AGENTS.md` is not launched blind: the launcher p
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
+### Ограничения инструментов pi
+
+Глобальное расширение проверяет каждый `tool_call` до исполнения через
+`devflow guard --host pi` (один JSON-запрос в stdin → `decision`, `rule`, `reason`).
+Claude PreToolUse сохраняет прежний протокол. Настройки берутся из действующего
+`~/.claude/settings.json` и `.claude/settings{,.local}.json` в cwd и его предках;
+пользовательские файлы не перезаписываются. Приоритет: deny → ask → allow.
+Проектный запрет нельзя отменить глобальным allow. Без подходящего правила остаётся
+обычное поведение pi, а не скрытый классификатор Claude auto-mode.
+
+| Ограничение | Pi |
+|---|---|
+| Bash prefix `:*`, glob `*`, имена инструментов | Действующие allow/ask/deny |
+| `autoMode.soft_deny` с явными правилами | Отдельное подтверждение; `$defaults` и текстовые эвристики Claude не воспроизводятся |
+| `env`, `rtk`, абсолютные пути, `bash -c`, `git -C`, составные команды | Проверка нормализованных команд; запрет в любом сегменте сильнее разрешения |
+| Подстановки, перенаправления, неоднозначные опции оболочки | Отказ с просьбой разбить вызов на простые команды |
+| Защищённые ветки, force, удаление, mirror | Отказ даже при общем разрешении push |
+| Write/Edit и пути Read/Glob/Grep | Применение доступных файловых правил, включая `~/`, `//` для абсолютного пути и проектные пути |
+| Прямой вызов `claude`/`claude-bridge` | Всегда запрещён |
+
+Ask показывает точные аргументы данного вызова и требует отдельного ответа в UI.
+Отмена, отсутствие UI (print/JSON), ошибка UI, ошибка/тайм-аут процесса, неверный JSON
+или повреждённые настройки блокируют вызов. Расширение не повторяет отказ автоматически.
+Это ограничение инструментов, **не изоляция ОС или сети**: произвольный Python-код,
+содержимое скриптов и скрытые эвристики Claude не анализируются.
+
 ### Launching pi instead of Claude Code
 
 ```bash
@@ -208,14 +254,23 @@ devflow-pi <name> --model openai-codex/gpt-6-astra  # explicit model; otherwise 
 ```
 
 `devflow-pi` (`bin/devflow-pi`, linked into `~/.local/bin` by `install.sh`) runs the same launcher as
-`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared. pi has no
-SessionStart hook, so the launcher writes what the hook would print — `PROJECT_RESTORE`,
-`OBSIDIAN_CONTEXT`, the latest `/cut` hand-off of the active task (`devflow handoff latest --task <key>`)
-and a short block of pi rules (state moves only through `devflow`, never call `claude`, `approve` only
-on the user's word, on `running` inspect before `finish`/`resume`/`interrupt`) — to a temp file and
-starts `pi --append-system-prompt <file>`. Nothing is written into the project: no state database is
-created, a project without `AGENTS.md` gets a warning and a bare pi. If the model would resolve to
-`claude-bridge`, a warning goes to stderr before launch.
+`start.sh` with `--agent pi`: registry, directory and `AGENTS.md` checks are shared.
+Launcher передаёт только проектный контекст: `PROJECT_RESTORE`, `OBSIDIAN_CONTEXT` и последнюю
+передачу `/cut` активной задачи (`devflow handoff latest --task <key>`), через временный файл
+`--append-system-prompt`. Общие инструкции загружает расширение, одинаково в драйвере и фазах;
+перечитывание перед запросом не накапливает копии раздела после `/reload` или `/new`.
+Отсутствующий, пустой или нечитаемый общий файл останавливает управляемый запуск с диагностикой.
+В проект ничего не записывается, БД не создаётся; без AGENTS.md pi запускается с предупреждением,
+но с общими правилами.
+
+`claude-bridge` отклоняется до запуска и до `devflow start`: для явного `--model`, выбора через
+`PI_PROVIDER`/`PI_MODEL` и глобального значения по умолчанию. При выборе bridge внутри сессии
+расширение отменяет текущую работу и возвращает прежнюю модель либо завершает сессию.
+Прямой `anthropic/*` разрешён. Управляемый запуск принимает явную модель только как
+`provider/id[:thinking]`, без неоднозначного короткого имени или шаблона провайдера.
+Это проверка выбора провайдера, не изоляция ОС и не проверка
+произвольных shell-команд (за неё отвечает отдельный механизм ограничений). Модели Claude и
+его запуск через `start.sh` не меняются.
 
 `/devflow <slug>` in pi is the same driver skill as in Claude Code; only the launch layer differs.
 Where Claude Code spawns a phase through the `Agent` tool, pi runs
@@ -228,6 +283,62 @@ itself before the process; if the step ends without `devflow finish`, `route` st
 result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through
 `finish`/`resume`/`interrupt`, never by relaunching the step. `claude` is never called from pi.
 
+### Пилот pi-subagents: NO-GO
+
+Для `nicobailon/pi-subagents@0.80.0` на Pi 1.4.0 выбран **NO-GO**.
+Необязательный адаптер `pi/pilots/review-standards.ts` при явном
+`DEVFLOW_SUBAGENTS_PILOT_PACKAGE` регистрирует команду, но возвращает
+`unavailable/lifecycle_unverifiable` до delegation. Launcher пилот не подключает;
+Пакет не заменяет Python runner и обычный рабочий процесс.
+
+Публичный `src/api/delegation.d.ts` пакета описывает started/update/response/cancel,
+но не подтверждение полного shutdown и отсутствия всей активной работы.
+В `src/runs/shared/child-session.js` ожидание shutdown ограничено `Promise.race`;
+после таймера `dispose` может завершиться без ошибки, пока обработчик ещё работает.
+Terminal, завершившийся dispose и отсутствие активных tools не доказывают отсутствие
+всей работы. `session_shutdown` Pi также не даёт родительскому адаптеру подтверждения
+завершения последующих обработчиков.
+
+Детерминированная проверка без provider:
+
+```bash
+DEVFLOW_SUBAGENTS_PILOT_PACKAGE=/home/smg25/.local/state/devflow/pi-subagents-pilot/package-0.80.0/package python3 -m pytest -q tests/test_pi_subagents.py
+```
+
+Повторная итоговая попытка `verify-pilot-c132f9bc` хранится вне репозитория в
+`~/.local/state/devflow/pi-subagents-pilot/`: версии, integrity tarball и равенство
+693 опубликованных файлов, команды с кодами/stdout/stderr, соответствие прежних шести
+и двух дополнительных P2 тестам. Безопасная регрессия — 230 PASS, включая актуальные
+`tests/test_review_skills.py` и `tests/test_codex_review.py`; матрица пилота — 8 PASS.
+Фиктивного секрет-маркера нет во всех новых категориях, включая транспортные
+`/tmp/devflow-codex-review-*`. Старые свидетельства, включая `verify-pilot-86a9212d`,
+`verify-pilot-35f92843` и `lifecycle-contract-XitL96`, сохранены без изменений.
+
+Дополнительные P2 закрыты проверками двух простых независимых команд review и
+узкого транспорта `devflow codex-review`: четыре режима цели, DEVNULL stdin,
+раздельные полные stdout/stderr и manifest вне репозитория, ограниченная очистка
+собственной группы. Ошибка, timeout, пустой ответ или код 0 без вердикта не означают
+полученного мнения; инструкции сохраняют проверку свежести base/HEAD/diff.
+Это проверки подменённых процессов и инструкций, не реальный запрос Codex.
+
+Повторно проверены ограничения Glob для ls, повторная остановка после ошибки
+браузера, очистка собственных групп browser/waiter и обычных ролей, две прямые
+команды review и информационное наследование модели. Обычный runner использует
+отдельную группу процессов с ограниченной очисткой TERM/KILL, сохраняет раздельный
+частичный вывод и код 124 при timeout. `model_note` сообщает о наследовании;
+`warning` означает незавершённость, а не сам факт наследования. Проверки процессов
+используют подмены и безвредные локальные деревья с гарантированной очисткой;
+provider, Claude/claude-bridge и Chrome не запускаются.
+Матрица проверяет guard настоящего SDK без модельного запроса и отдельно настоящую
+пакетную factory с **fake SDK** и удерживаемым shutdown. Synthetic terminal и два
+synthetic подтверждения редуктора — не реальная модельная сессия.
+
+**Реальное ревью, фактическая модель/thinking и подтверждённая отмена не проверены.**
+Зелёная отрицательная матрица не означает совместимость. Возобновление положительных
+испытаний требует нового согласованного исследования и плана с доказуемой публичной
+границей; собственный runner, патч пакета и повторная установка не являются решением
+этого пилота.
+
 ### Model per phase
 
 Модель и effort фазового агента не зашиты в агентах и драйвере — это правило в
@@ -238,7 +349,9 @@ result carries a `warning` — the driver then inspects (`git status`, changelog
 |------|-------------------------|-------------------|
 | `research`, `plan` | Opus 5.5 high | Opus 5.5 medium |
 | `implement` | Fable 5.1 low; кончились лимиты Fable — Opus 5.5 low (`fallback`) | то же |
-| в pi | `gpt-6-astra` high | `gpt-6-astra` medium; `implement` — low |
+| в pi | только `implement` — `openrouter/z-ai/glm-5.3-flash` low | то же |
+
+`research` и `plan` в pi не запускаются: фазы без записи в разделе `pi` policy отклоняются, модели `openai-codex` в pi запрещены — они идут в Codex. Роли pi (`pi.roles`) задаются там же.
 
 Вышла новая модель — меняется одна строка в JSON, затем `./install.sh`: агенты `research`,
 `research-high`, `plan`, `plan-high`, `implement` в `~/.claude/agents/` генерируются из тела

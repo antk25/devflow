@@ -76,7 +76,8 @@
       "Bash(git push * production)",
       "Bash(rm -rf /)",
       "Bash(curl:*)",
-      "Bash(wget:*)"
+      "Bash(wget:*)",
+      "Bash(ssh:*)"
     ]
   },
   "autoCompactWindow": 500000

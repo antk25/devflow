@@ -65,7 +65,7 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `plan` / `plan_outdated` | Spawn plan with the current `research_revision` |
 | `approval_required` | Show the named artifact and hold its phase gate |
 | `ready` | Name step `n` of `total`, start that step as below |
-| `completed` | Show changelog; stop |
+| `completed` | Show changelog; run the final crossreview protocol below |
 | `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
 | `blocked` | Show reason; stop. Resume only after the user decides how to proceed |
 | `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
@@ -103,7 +103,19 @@ succeeds. Each run covers one step. On return, route again: continue only on `re
 A prose claim of success (or a `phase run` exit 0 with `warning`) without a recorded result does not
 close a step. If the implement reply contains a `Browser:` block, show it to the user verbatim, then `route`.
 
-On `completed`, in Claude Code spawn **one** `crossreview` agent with cwd, slug and the base branch from `AGENTS.md`.
+On `completed`, launch **one** `crossreview` with cwd, slug and the base branch from `AGENTS.md`:
+
+| Роль | Claude Code | pi |
+|---|---|---|
+| crossreview | `Agent(subagent_type="crossreview")`, прежние Opus 5.5 medium | `devflow agent run crossreview --message-file <input.md> --timeout 900` |
+| second-opinion | `Agent(subagent_type="second-opinion")`, прежние Fable 5.1 high | `devflow agent run second-opinion --message-file <independent.md>` |
+| Повторный crossreview | новый Agent crossreview | новый `agent run crossreview --message-file <resume.md> --timeout 900` |
+
+Pi: каждый вход — отдельный файл, stdin закрыт; JSON `host/model/model_source/executor`,
+`exit_code/report/stderr/warning` описывает процесс, не предметный успех. Ошибка/timeout/сигнал,
+пустой ответ или отсутствие итогового вердикта — показать незавершённость, не «чисто».
+Модель: `--model` → глобальный `pi.roles.<role>` (`model`, `effort`) → текущая PI-модель/default;
+second-opinion имеет независимый ключ, наследование явно видно. Не менять PHASES или модели Claude.
 It reviews the whole branch itself, gets a second opinion from Codex, verifies every finding in the
 code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repository. Show its
 summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
@@ -112,7 +124,10 @@ If it replies `SECOND_OPINION_NEEDED <slug> base=<base> reason=…` (Codex unava
 `second-opinion` agent with cwd, slug and base, then a fresh `crossreview` with the same inputs plus
 `second-opinion:` and its findings list verbatim. Its own review is already saved as a draft note, so
 the second launch only verifies both lists and writes the note.
-In pi there is no `crossreview` launch yet: show the changelog and stop.
+В обоих хостах второе мнение получает только cwd/slug/base и base/HEAD/diff hash из черновика,
+никогда собственные находки первого обзора. Дословный ответ передаётся только новому crossreview.
+При `REVIEW_STALE` начни независимый цикл заново: устаревшие списки не переиспользовать.
+Не вызывай `start/finish/approve`: ревью всей ветки не создаёт implement-run.
 On `completed` in both hosts also list the `browser:` items of the plan's `## Acceptance (overall)`
 as checks after deploy, each as a ready line `/smoke env: staging; slug: <slug>; save; <Дано …;
 Когда …; Тогда …>` — the user types it in the main session once the deploy is done; the driver
@@ -128,6 +143,8 @@ never runs them.
   re-route before spawning anything. A partial attempt's changes must be inspected before retry.
 - Use `df history <slug>` and `df artifact <slug> <phase> --revision <hash>` to compare saved versions.
 - Replanning is an explicit user-selected phase; spawn plan, then route and hold the new gate.
+  In pi, from `ready` use `devflow phase run <slug> plan --replan --note "<user decision>"`;
+  this does not start a run or approve the revised plan.
 - To redo a done step, after the user's decision run
   `df reopen <slug> --step <id> --revision <current-plan-hash> --reason <decision>`.
   This also reopens dependent steps and requires plan approval again. Never reopen silently.

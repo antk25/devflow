@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Локальная проверка DevFlow</title>
+<h1>Браузерная проверка</h1>
+<form id="check-form">
+  <label>Фиктивный секрет <input id="secret" type="password" autocomplete="off"></label>
+  <button type="submit">Проверить</button>
+</form>
+<p id="result" role="status">Ожидание</p>
+<script>
+document.querySelector('form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const fail = new URLSearchParams(location.search).get('fail') === '1';
+  const response = await fetch('/api/check' + (fail ? '?fail=1' : ''));
+  const data = await response.json();
+  document.querySelector('#result').textContent = data.status;
+});
+</script>
+</html>

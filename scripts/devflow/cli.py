@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import bench, board, pi, project
+from . import bench, board, codex_review, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
@@ -39,6 +39,11 @@ def parser():
     commands = p.add_subparsers(dest='command', required=True)
     a = commands.add_parser('init'); a.add_argument('--fresh-state', action='store_true', help='Explicitly create empty state for an existing identity with a missing database')
     commands.add_parser('context')
+    a = commands.add_parser('codex-review')
+    g = a.add_mutually_exclusive_group(required=True)
+    g.add_argument('--base'); g.add_argument('--commit'); g.add_argument('--uncommitted', action='store_true')
+    g.add_argument('--message-file', type=Path)
+    a.add_argument('--title')
     a = commands.add_parser('active'); a.add_argument('--limit', type=int, default=5)
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
@@ -70,9 +75,13 @@ def parser():
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
     handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
-    a = handoff_commands.add_parser('latest'); a.add_argument('--task')
+    a = handoff_commands.add_parser('latest'); a.add_argument('--task'); a.add_argument('--fresh-minutes', type=int)
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
-    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model')
+    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true')
+    agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
+    a = agent_commands.add_parser('run'); a.add_argument('role', choices=pi.ROLES)
+    a.add_argument('--message-file', required=True, type=Path); a.add_argument('--model')
+    a.add_argument('--timeout', type=int, default=600)
     return p
 
 
@@ -87,10 +96,17 @@ def execute(args):
     if args.command == 'bench':
         return bench.command(args)
     ctx = context(args.cwd)
+    if args.command == 'codex-review':
+        return codex_review.run_review(ctx, base=args.base, commit=args.commit,
+                                       uncommitted=args.uncommitted, message_file=args.message_file,
+                                       title=args.title)
+    if args.command == 'agent':
+        return pi.run_agent(ctx, args.role, args.message_file.read_text(encoding='utf-8'),
+                            model=args.model, timeout=args.timeout)
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
     if args.command == 'handoff':
-        doc = handoff_latest(ctx['vault'], args.task)
+        doc = handoff_latest(ctx['vault'], args.task, args.fresh_minutes)
         if doc is None:
             return {'path': None}
         return {'path': doc['path'], 'created': str(doc['meta'].get('created', '')),
@@ -130,7 +146,7 @@ def execute(args):
         if args.command == 'finish':
             return finish(ctx, db, args.run_id, args.status, args.changelog, args.reason)
         if args.command == 'phase':
-            return pi.run_phase(ctx, db, args.slug, args.phase, step=args.step, note=args.note, model=args.model)
+            return pi.run_phase(ctx, db, args.slug, args.phase, step=args.step, note=args.note, model=args.model, replan=args.replan)
         if args.command == 'check':
             return check(ctx, db, args.slug, args.run, args.all, args.plan)
         if args.command == 'interrupt':

@@ -1,6 +1,7 @@
 """Read workflow documents; definitions live in Markdown, execution lives in SQLite."""
 import hashlib
 import re
+import time
 import textwrap
 from pathlib import Path
 
@@ -97,10 +98,21 @@ def artifact(vault, folder, slug):
     return document(matches[0]) if matches else None
 
 
-def handoff_latest(vault, task=None):
+def handoff_latest(vault, task=None, fresh_minutes=None):
     """Latest /cut hand-off by frontmatter `created`; ties go to the newer mtime."""
     best, best_key = None, None
+    tasks = set()
+    requested = resolve_slug(Path(vault), task) if task else None
+    if requested and re.fullmatch(r'[a-z]+-\d+', requested):
+        aliases = {p.stem.removeprefix('handoff-').lower()
+                   for p in (Path(vault) / 'notes').glob('handoff-' + requested + '-*.md')}
+        if len(aliases) > 1:
+            raise WorkflowError('Ambiguous handoff; use --task with a full slug: ' + ', '.join(sorted(aliases)))
+        requested = next(iter(aliases), requested)
+    cutoff = time.time() - fresh_minutes * 60 if fresh_minutes is not None else None
     for path in (Path(vault) / 'notes').glob('handoff-*.md'):
+        if cutoff is not None and path.stat().st_mtime < cutoff:
+            continue
         try:
             doc = document(path)
         except (WorkflowError, yaml.YAMLError):
@@ -108,11 +120,26 @@ def handoff_latest(vault, task=None):
         meta = doc['meta']
         if meta.get('type') != 'handoff':
             continue
-        if task is not None and str(meta.get('task', '')).lower() != task.lower():
+        identity = str(meta.get('task', '')).lower()
+        if not identity:
             continue
+        filename_task = path.stem.lower().removeprefix('handoff-')
+        if re.fullmatch(r'[a-z]+-\d+', identity) and filename_task.startswith(identity + '-'):
+            identity = filename_task
+        if requested is not None and identity != requested and not requested.startswith(identity + '-'):
+            continue
+        identity = resolve_slug(Path(vault), identity)
+        if requested is not None and identity != requested:
+            # Old /cut stored only the Jira key, even when the file used a full slug.
+            if not (re.fullmatch(r'[a-z]+-\d+', identity) and requested.startswith(identity + '-')
+                    and path.stem.lower() in ('handoff-' + identity, 'handoff-' + requested)):
+                continue
+        tasks.add(identity)
         key = (str(meta.get('created', '')), path.stat().st_mtime)
         if best_key is None or key > best_key:
             best, best_key = doc, key
+    if task is None and len(tasks) > 1:
+        raise WorkflowError('Ambiguous handoff; use --task with a full slug: ' + ', '.join(sorted(tasks)))
     return best
 
 

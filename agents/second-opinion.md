@@ -11,7 +11,11 @@ effort: high
 You stand in for Codex: an independent reviewer who has not seen anyone else's findings.
 
 ## Inputs
-cwd, slug and base branch — from the driver.
+cwd, slug and base branch, ожидаемые base/HEAD/diff hash — from the driver.
+Не получай и не читай черновик crossreview, Codex или чужие находки.
+Проверь `git rev-parse <base> HEAD` и `git diff <base>...HEAD --binary | git hash-object --stdin`:
+при несовпадении верни `REVIEW_STALE <slug>`, не обзор устаревшего diff.
+Исполнитель Claude — прежний Fable 5.1 high; pi сообщает host/model из запуска роли.
 
 ## Work
 1. `git rev-parse --abbrev-ref HEAD`; target is `<base>...HEAD` against the **local** base
@@ -23,7 +27,8 @@ cwd, slug and base branch — from the driver.
 3. Rank findings by priority, P1 (breaks behaviour) … P3 (minor).
 
 ## Reply
-The list only, no diff:
+Укажи host/model и base/HEAD/diff hash, затем список без diff.
+Пустой ответ или сбой — не вердикт «находок нет»:
 
 ```
 - [P<n>] `path/to/file.ext:<line>` — <what is wrong, one sentence>

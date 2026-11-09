@@ -18,8 +18,15 @@ printf 'PROJECT_RESTORE\n'
 "$DEVFLOW_DIR/scripts/devflow-cli.sh" context
 printf 'OBSIDIAN_CONTEXT\n'
 "$DEVFLOW_DIR/scripts/devflow-cli.sh" active
-# /cut writes the handoff right before /clear: a fresh one means this session continues it.
-if [ "$source" = clear ]; then
-    handoff="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff latest | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path") or "")' 2>/dev/null || true)"
-    if [ -n "$handoff" ] && [ -n "$(find "$handoff" -mmin -30 2>/dev/null)" ]; then printf 'HANDOFF %s\n' "$handoff"; fi
+# A fresh, unambiguous handoff can also come from pi, not only from /clear.
+if [[ "$source" = clear || "$source" = startup || "$source" = resume ]]; then
+    if handoff_json="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff latest --fresh-minutes 30 2>&1)"; then
+        handoff="$(printf '%s' "$handoff_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path") or "")')"
+        if [ -n "$handoff" ] && [ -n "$(find "$handoff" -mmin -30 2>/dev/null)" ]; then
+            printf 'HANDOFF %s\n' "$handoff"
+            printf 'После чтения передачи выполните devflow route <полный slug>; recovery только по явному решению, без автоматических approve/finish/resume.\n'
+        fi
+    else
+        printf 'HANDOFF: выберите полный slug явно; %s\n' "$handoff_json"
+    fi
 fi

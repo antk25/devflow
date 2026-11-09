@@ -14,16 +14,9 @@
     }
   },
   "pi": {
-    "research": {
-      "high": {"model": "openai-codex/gpt-6-astra", "effort": "high"},
-      "default": {"model": "openai-codex/gpt-6-astra", "effort": "medium"}
-    },
-    "plan": {
-      "high": {"model": "openai-codex/gpt-6-astra", "effort": "high"},
-      "default": {"model": "openai-codex/gpt-6-astra", "effort": "medium"}
-    },
+    "roles": {},
     "implement": {
-      "default": {"model": "openai-codex/gpt-6-astra", "effort": "low"}
+      "default": {"model": "openrouter/z-ai/glm-5.3-flash", "effort": "low"}
     }
   },
   "limits": {"threshold": 95, "max_age_min": 10}

@@ -66,6 +66,43 @@ def test_handoff_latest_skips_broken_frontmatter_and_other_types(tmp_path):
     assert documents.handoff_latest(tmp_path)['path'] == str(good)
 
 
+def test_handoff_full_slug_and_legacy_jira(tmp_path):
+    (tmp_path / 'notes').mkdir()
+    (tmp_path / 'plans').mkdir()
+    (tmp_path / 'plans/df-11-pi.md').write_text('# Plan')
+    old = _handoff(tmp_path, 'handoff-df-11', task='DF-11')
+    assert documents.handoff_latest(tmp_path, 'df-11-pi')['path'] == str(old)
+    full = _handoff(tmp_path, 'handoff-df-pi-workflow-parity', task='df-pi-workflow-parity')
+    assert documents.handoff_latest(tmp_path, 'df-pi-workflow-parity')['path'] == str(full)
+    assert documents.handoff_latest(tmp_path, 'df-11')['path'] == str(old)
+
+
+def test_handoff_ambiguity_never_selects_newest_foreign_task(tmp_path):
+    import pytest
+    (tmp_path / 'notes').mkdir()
+    _handoff(tmp_path, 'handoff-a', task='df-pi-workflow-parity')
+    _handoff(tmp_path, 'handoff-b', task='other-task', created='2026-10-01')
+    with pytest.raises(documents.WorkflowError, match='Ambiguous handoff'):
+        documents.handoff_latest(tmp_path)
+    assert documents.handoff_latest(tmp_path, 'missing-task') is None
+    (tmp_path / 'plans').mkdir()
+    for name in ('df-11-a', 'df-11-b'):
+        (tmp_path / f'plans/{name}.md').write_text('# Plan')
+    _handoff(tmp_path, 'handoff-df-11', task='DF-11')
+    with pytest.raises(documents.WorkflowError, match='Ambiguous task'):
+        documents.handoff_latest(tmp_path, 'df-11-a')
+
+
+def test_handoff_legacy_key_with_distinct_full_filenames_is_ambiguous(tmp_path):
+    import pytest
+    (tmp_path / 'notes').mkdir()
+    for slug in ('df-11-a', 'df-11-b'):
+        _handoff(tmp_path, f'handoff-{slug}', task='DF-11')
+    with pytest.raises(documents.WorkflowError, match='Ambiguous handoff'):
+        documents.handoff_latest(tmp_path)
+    assert documents.handoff_latest(tmp_path, 'df-11-a')['path'].endswith('handoff-df-11-a.md')
+
+
 def test_handoff_latest_none_when_empty(tmp_path):
     (tmp_path / 'notes').mkdir()
     assert documents.handoff_latest(tmp_path) is None

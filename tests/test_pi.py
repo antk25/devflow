@@ -15,13 +15,20 @@ ACTIVE = {'project': 'demo', 'vault': '/v', 'tz': [], 'research': [],
 HANDOFF = {'path': '/v/notes/handoff-df-11.md', 'body': '# Передача\n\nГде остановились.\n'}
 
 
-def test_preamble_has_markers_json_handoff_and_rules():
+@pytest.fixture(autouse=True)
+def shared_rules(tmp_path, monkeypatch):
+    path = tmp_path / 'shared.md'
+    path.write_text('# Общие правила\nОдно выполнение — один шаг.\n')
+    monkeypatch.setenv('DEVFLOW_INSTRUCTIONS', str(path))
+
+
+def test_preamble_has_markers_json_handoff_and_no_shared_rules():
     text = pi.preamble(CTX, ACTIVE, HANDOFF)
     assert text.startswith('PROJECT_RESTORE\n{')
     assert 'OBSIDIAN_CONTEXT\n{' in text
     assert json.dumps(ACTIVE, ensure_ascii=False, indent=2) in text
     assert 'HANDOFF /v/notes/handoff-df-11.md\n# Передача' in text
-    assert 'DEVFLOW_RULES' in text and '`claude`' in text and 'approve' in text
+    assert 'DEVFLOW_RULES' not in text and 'Общие правила' not in text
     assert text == pi.preamble(CTX, ACTIVE, HANDOFF)
 
 
@@ -31,10 +38,8 @@ def test_preamble_without_handoff_has_no_handoff_section():
 
 def test_preamble_rules_cover_interrupted_run():
     text = pi.preamble(CTX, ACTIVE, None)
-    assert '`running`' in text
-    assert 'git status' in text and 'changelog' in text
-    assert 'finish' in text and 'resume' in text and 'interrupt' in text
-    assert 'phase run … implement` для того же шага не запускай' in text
+    assert '"status": "running"' in text
+    assert 'DEVFLOW_RULES' not in text
 
 
 def test_task_key_prefers_most_advanced_active_task():
@@ -103,7 +108,8 @@ def approve_research(proj):
 
 
 @pytest.fixture
-def fake_pi(tmp_path):
+def fake_pi(tmp_path, monkeypatch):
+    monkeypatch.setattr(pi, 'PI_SETTINGS', tmp_path / 'pi-settings.json')
     exe = tmp_path / 'bin' / 'pi'
     exe.parent.mkdir()
     exe.write_text(FAKE_PI)
@@ -165,18 +171,18 @@ def test_run_phase_refuses_wrong_state(proj, fake_pi):
 
 def test_run_phase_launches_fake_pi_with_model_from_env(proj, fake_pi):
     approve_research(proj)
-    env = {**fake_pi['env'], 'PI_PROVIDER': 'openai-codex', 'PI_MODEL': 'gpt-6-astra', 'PI_REASONING_LEVEL': 'low'}
+    env = {**fake_pi['env'], 'PI_PROVIDER': 'openrouter', 'PI_MODEL': 'z-ai/glm-5.3-flash', 'PI_REASONING_LEVEL': 'low'}
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', note='коротко', env=env)
     argv = fake_pi['argv']()
     for flag in ('-p', '--no-session', '--append-system-prompt', '--tools'):
         assert flag in argv
-    assert argv[argv.index('--model') + 1] == 'openai-codex/gpt-6-astra:low'
+    assert argv[argv.index('--model') + 1] == 'openrouter/z-ai/glm-5.3-flash:low'
     assert argv[argv.index('--tools') + 1] == 'read,grep,find,ls,bash,write'
     assert 'Замечание пользователя:\nкоротко' in fake_pi['log'].read_text()
     assert not any('claude' in a for a in argv)
     assert fake_pi['stdin'].read_text().strip() == 'closed'
     assert out['exit_code'] == 0 and out['report'].strip() == 'отчёт фазы'
-    assert out['model'] == 'openai-codex/gpt-6-astra:low' and out['phase'] == 'plan'
+    assert out['model'] == 'openrouter/z-ai/glm-5.3-flash:low' and out['phase'] == 'plan'
     assert out['model_source'] == 'env'
     assert out['route']['state'] == 'plan'
     assert not Path(argv[argv.index('--append-system-prompt') + 1]).exists()
@@ -193,19 +199,32 @@ def test_run_phase_nonzero_exit_is_reported_not_raised(proj, fake_pi):
 EXAMPLE_POLICY = Path(__file__).resolve().parents[1] / 'model-policy.example.json'
 
 
-def test_run_phase_takes_model_from_policy_over_env(proj, fake_pi, monkeypatch):
+def test_run_phase_refuses_phase_absent_from_pi_policy(proj, fake_pi, monkeypatch):
     monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
     approve_research(proj)
-    env = {**fake_pi['env'], 'PI_PROVIDER': 'anthropic', 'PI_MODEL': 'x', 'PI_REASONING_LEVEL': 'low'}
-    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=env)
-    argv = fake_pi['argv']()
-    assert argv[argv.index('--model') + 1] == 'openai-codex/gpt-6-astra:medium'
-    assert out['model'] == 'openai-codex/gpt-6-astra:medium' and out['model_source'] == 'policy'
+    with pytest.raises(WorkflowError, match='Фаза plan в pi не запускается'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', model='openrouter/z-ai/glm-5.3-flash', env=fake_pi['env'])
+    assert not fake_pi['log'].exists()
 
 
-def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch):
-    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
+@pytest.mark.parametrize('model,settings', [
+    ('openai-codex/gpt-6-astra', None),
+    (None, '{"defaultProvider": "openai-codex"}'),
+])
+def test_refuses_openai_codex_in_pi(tmp_path, model, settings):
+    path = tmp_path / 'settings.json'
+    if settings:
+        path.write_text(settings)
+    with pytest.raises(WorkflowError, match='только в Codex'):
+        pi.ensure_pi_model(model, path)
+
+
+def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch, tmp_path):
+    data = json.loads(EXAMPLE_POLICY.read_text())
+    data['pi']['plan'] = {'default': {'model': 'openrouter/z-ai/glm-5.3-flash', 'effort': 'medium'}}
+    (tmp_path / 'policy.json').write_text(json.dumps(data))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(tmp_path / 'policy.json'))
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
     approve_research(proj)
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', model='x/y:z', env=fake_pi['env'])
@@ -218,15 +237,15 @@ def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch):
     ({'PI_PROVIDER': 'claude-bridge', 'PI_MODEL': 'claude-opus-5-5'}, None),
     ({}, '{"defaultProvider": "claude-bridge"}'),
 ])
-def test_run_phase_warns_about_claude_bridge_but_runs(proj, fake_pi, tmp_path, monkeypatch, capsys, env_model, settings):
+def test_run_phase_refuses_claude_bridge(proj, fake_pi, tmp_path, monkeypatch, env_model, settings):
     approve_research(proj)
     settings_path = tmp_path / 'settings.json'
     if settings:
         settings_path.write_text(settings)
     monkeypatch.setattr(pi, 'PI_SETTINGS', settings_path)
-    pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], **env_model})
-    assert 'claude-bridge' in capsys.readouterr().err
-    assert fake_pi['log'].exists()
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], **env_model})
+    assert not fake_pi['log'].exists()
 
 
 def test_cli_phase_run_exit_code_only_in_json(proj, fake_pi, monkeypatch, capsys):
@@ -273,6 +292,24 @@ def approve_plan(proj):
 
 def runs(proj):
     return [dict(r) for r in proj['db'].execute('SELECT * FROM runs')]
+
+
+def test_replan_requires_explicit_flag_and_does_not_start_run(proj, fake_pi):
+    approve_plan(proj)
+    before = workflow.route(proj['ctx'], proj['db'], 'x')
+    with pytest.raises(WorkflowError, match='state ready'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=fake_pi['env'])
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', replan=True, env=fake_pi['env'])
+    assert out['exit_code'] == 0
+    assert out['route'] == before
+    assert runs(proj) == []
+
+
+@pytest.mark.parametrize('phase', ['research', 'implement', 'plan'])
+def test_replan_refuses_other_phases_and_unapproved_research(proj, fake_pi, phase):
+    with pytest.raises(WorkflowError, match='--replan requires'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', phase, replan=True, env=fake_pi['env'])
+    assert runs(proj) == [] and not fake_pi['log'].exists()
 
 
 def test_implement_refuses_when_not_ready_without_start(proj, fake_pi):
@@ -361,8 +398,160 @@ def test_implement_launch_failure_interrupts_the_run(proj, fake_pi, monkeypatch)
 
     def boom(*a, **k):
         raise OSError('exec failed')
-    monkeypatch.setattr(pi.subprocess, 'run', boom)
+    monkeypatch.setattr(pi.subprocess, 'Popen', boom)
     with pytest.raises(WorkflowError, match='failed to launch'):
         pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
     assert [r['status'] for r in runs(proj)] == ['blocked']
     assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'blocked'
+
+
+@pytest.mark.parametrize('selection', ['override', 'env', 'default'])
+def test_bridge_refused_before_start(proj, fake_pi, tmp_path, monkeypatch, selection):
+    approve_plan(proj)
+    settings = tmp_path / 'pi-settings.json'
+    settings.write_text(json.dumps({'defaultProvider': 'claude-bridge'} if selection == 'default' else {}))
+    monkeypatch.setattr(pi, 'PI_SETTINGS', settings)
+    env = dict(fake_pi['env'])
+    if selection == 'env':
+        env.update(PI_PROVIDER='claude-bridge', PI_MODEL='test')
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
+                     model='claude-bridge/test' if selection == 'override' else None, env=env)
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'ready'
+
+
+def test_missing_shared_rules_refused_before_start(proj, fake_pi):
+    approve_plan(proj)
+    with pytest.raises(WorkflowError, match='Общие инструкции недоступны'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
+                     env={**fake_pi['env'], 'DEVFLOW_INSTRUCTIONS': '/nonexistent/rules.md'})
+    assert runs(proj) == [] and not fake_pi['log'].exists()
+
+
+def test_anthropic_override_allowed_over_bridge_default(proj, fake_pi, tmp_path, monkeypatch):
+    settings = tmp_path / 'settings.json'
+    settings.write_text('{"defaultProvider": "claude-bridge"}')
+    monkeypatch.setattr(pi, 'PI_SETTINGS', settings)
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', model='anthropic/test', env=fake_pi['env'])
+    assert out['exit_code'] == 0
+    assert str(pi.extension_path(fake_pi['env'])) in fake_pi['argv']()
+
+
+def test_launcher_refuses_bridge_and_loads_extension(proj, fake_pi, monkeypatch):
+    import launch
+    for key, value in fake_pi['env'].items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(WorkflowError, match='claude-bridge'):
+        launch.pi_command(proj['cwd'], 'claude-bridge/test')
+    _, argv = launch.pi_command(proj['cwd'], 'anthropic/test')
+    assert str(pi.extension_path(os.environ)) in argv
+    text = Path(argv[argv.index('--append-system-prompt') + 1]).read_text()
+    assert 'DEVFLOW_RULES' not in text
+
+
+def test_extension_uses_discovered_symlink_path(tmp_path):
+    installed = tmp_path / 'extensions/devflow.ts'
+    installed.parent.mkdir()
+    installed.symlink_to(pi.EXTENSION)
+    assert pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)}) == installed
+    installed.unlink()
+    installed.write_text('foreign')
+    with pytest.raises(WorkflowError, match='CONFLICT pi extension'):
+        pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+
+
+@pytest.mark.parametrize('model', ['opus', '*/opus', 'claude-bridge/test'])
+def test_ambiguous_or_bridge_model_refused(tmp_path, model):
+    with pytest.raises(WorkflowError):
+        pi.ensure_pi_model(model, tmp_path / 'settings.json')
+
+
+def test_real_pi_loader_does_not_duplicate_extension(tmp_path):
+    import shutil
+    import subprocess
+    executable = shutil.which('pi')
+    if not executable or not shutil.which('node'):
+        pytest.skip('pi/node are not installed')
+    loader = Path(executable).resolve().parents[1] / 'core/extensions/loader.js'
+    if not loader.exists():
+        pytest.skip('pi loader is not exposed by this installation')
+    installed = tmp_path / 'extensions/devflow.ts'
+    installed.parent.mkdir()
+    installed.symlink_to(pi.EXTENSION)
+    selected = pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+    script = f'''import {{discoverAndLoadExtensions}} from {json.dumps(loader.as_uri())};
+const r = await discoverAndLoadExtensions([{json.dumps(str(selected))}], {json.dumps(str(tmp_path))}, {json.dumps(str(tmp_path))});
+if (r.errors.length || r.extensions.length !== 1) throw new Error(JSON.stringify({{count: r.extensions.length, errors: r.errors}}));
+console.log('1 extension, 0 errors');'''
+    result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == '1 extension, 0 errors'
+
+
+def test_task_slug_keeps_non_jira_and_requires_explicit_choice():
+    assert pi.task_slug({'plans': [{'name': 'df-pi-workflow-parity', 'status': 'running'}]}) == 'df-pi-workflow-parity'
+    assert pi.task_slug({'plans': [{'name': 'df-1-old', 'status': 'invalid'}]}) is None
+    with pytest.raises(WorkflowError, match='Неоднозначная задача'):
+        pi.task_slug({'plans': [{'name': 'a', 'status': 'ready'}, {'name': 'b', 'status': 'ready'}]})
+
+
+def test_handoff_restore_preserves_running_and_approvals(proj):
+    import launch
+    approve_plan(proj)
+    state = workflow.route(proj['ctx'], proj['db'], 'x')
+    workflow.start(proj['ctx'], proj['db'], 'x', state['frontier'][0], state['plan_revision'])
+    notes = proj['vault'] / 'notes'
+    notes.mkdir()
+    (notes / 'handoff-x.md').write_text('---\ntype: handoff\ntask: x\ncreated: 2026-10-22\n---\n# Передача\n')
+    before = list(proj['db'].iterdump())
+    for _ in range(3):
+        text = launch.restore_context(proj['cwd'])
+        assert 'HANDOFF ' in text and 'devflow route' in text
+        assert 'recovery требует явного решения' in text
+        assert '"status": "running"' in text
+    assert before == list(proj['db'].iterdump())
+
+
+def test_handoff_restore_no_jira_and_ambiguity_without_db(proj):
+    import launch
+    # A project without an identity must remain without SQLite state.
+    import shutil
+    shutil.rmtree(proj['cwd'] / '.devflow')
+    (proj['vault'] / 'tz/x.md').unlink()
+    slug = 'df-pi-workflow-parity'
+    (proj['vault'] / f'tz/{slug}.md').write_text('# Task')
+    notes = proj['vault'] / 'notes'
+    notes.mkdir()
+    (notes / f'handoff-{slug}.md').write_text(f'---\ntype: handoff\ntask: {slug}\n---\n# Из pi в Claude\n')
+    assert f'handoff-{slug}.md' in launch.restore_context(proj['cwd'])
+    (proj['vault'] / 'tz/other.md').write_text('# Other')
+    assert f'handoff-{slug}.md' in launch.restore_context(proj['cwd'])
+    (notes / 'handoff-other.md').write_text('---\ntype: handoff\ntask: other\n---\n# Другая\n')
+    text = launch.restore_context(proj['cwd'])
+    assert 'Выберите задачу явно' in text and 'HANDOFF ' not in text
+    assert not (proj['cwd'] / '.devflow').exists()
+
+
+def test_resume_handoff_corrupt_or_missing_database_is_not_recreated(proj):
+    import launch
+    import sqlite3
+    path = Path(proj['db'].execute('PRAGMA database_list').fetchone()['file'])
+    proj['db'].close()
+    path.write_bytes(b'not a sqlite database')
+    for _ in range(3):
+        with pytest.raises(sqlite3.DatabaseError):
+            launch.restore_context(proj['cwd'])
+        assert path.read_bytes() == b'not a sqlite database'
+    path.unlink()
+    with pytest.raises(WorkflowError, match='database is missing'):
+        launch.restore_context(proj['cwd'])
+    assert not path.exists()
+
+
+def test_custom_agent_directory_settings(tmp_path):
+    path = pi.settings_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
+    assert path == tmp_path / 'settings.json'
+    path.write_text('not-json')
+    with pytest.raises(WorkflowError, match='Cannot read pi settings'):
+        pi.ensure_pi_model(None, path)
