@@ -51,39 +51,77 @@ export async function guardTool(event: any, ctx: ExtensionContext, check = check
 	}
 }
 
+function devflowRoot() {
+	return resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
+}
+
 export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: boolean } = {}) {
 	let level = "";
 	let restored = "";
-	function contextWarning(ctx: ExtensionContext) {
+	function tell(ctx: ExtensionContext, text: string, kind: "info" | "warning" | "error" = "warning") {
+		if (ctx.hasUI) ctx.ui.notify(text, kind);
+		else console.error(text);
+		pi.sendMessage({ customType: "devflow-context", content: text, display: true }, { triggerTurn: false });
+	}
+	function sessionId(ctx: ExtensionContext) {
+		try { return ctx.sessionManager?.getSessionId?.() || ""; } catch { return ""; }
+	}
+	function knownTokens(ctx: ExtensionContext) {
 		const usage = ctx.getContextUsage?.();
 		const tokens = usage?.tokens;
+		return typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0
+			? { tokens, window: usage!.contextWindow } : undefined;
+	}
+	async function contextWarning(ctx: ExtensionContext) {
+		const usage = knownTokens(ctx);
 		let next = "unknown";
-		if (typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0) {
-			next = tokens >= 180000 ? "cut" : tokens >= 120000 ||
-				(usage!.contextWindow > 0 && tokens >= usage!.contextWindow * 0.75) ? "warn" : "ok";
+		let text = "CONTEXT_UNKNOWN: размер контекста неизвестен; это не нулевой контекст. Перед большой работой проверьте /session.";
+		if (usage) {
+			const args = ["context-level", "--tokens", String(usage.tokens)];
+			if (usage.window > 0) args.push("--window", String(usage.window));
+			const session = sessionId(ctx);
+			if (session) args.push("--session", session);
+			try {
+				const result = await pi.exec(join(devflowRoot(), "scripts/devflow-cli.sh"), args, { cwd: ctx.cwd, timeout: 10000 });
+				if (result.code !== 0) throw new Error(result.stderr || `exit ${result.code}`);
+				({ level: next, text } = JSON.parse(result.stdout));
+			} catch (error) {
+				next = "error";
+				text = `DevFlow: devflow context-level недоступен (${error}); порог контекста не проверен.`;
+			}
 		}
 		if (next === level) return;
 		level = next;
 		if (next === "ok") return;
-		const text = next === "unknown"
-			? "CONTEXT_UNKNOWN: размер контекста неизвестен; это не нулевой контекст. Перед большой работой проверьте /session."
-			: `${next === "cut" ? "CONTEXT_CUT" : "CONTEXT_WARN"} ${Math.floor(tokens! / 1000)}K: ` +
-				(next === "cut" ? "не начинай новую большую работу. " : "закончи текущий шаг. ") +
-				"Предложи /cut; после записи передачи пользователь сам выполняет /new.";
-		if (ctx.hasUI) ctx.ui.notify(text, "warning");
-		else console.error(text);
-		pi.sendMessage({ customType: "devflow-context", content: text, display: true }, { triggerTurn: false });
+		tell(ctx, text, next === "error" ? "error" : "warning");
 	}
-	pi.on("turn_end", (_event, ctx) => { contextWarning(ctx); });
-	pi.on("session_before_compact", (event, ctx) => {
-		if (event.reason === "manual" || level === "warn" || level === "cut") return;
-		level = "warn";
-		const text = "CONTEXT_WARN: приближается штатное сжатие контекста. Сохрани решения через /cut; /new выполняет пользователь. Сжатие не отменяется.";
-		if (ctx.hasUI) ctx.ui.notify(text, "warning");
-		else console.error(text);
-		pi.sendMessage({ customType: "devflow-context", content: text, display: true }, { triggerTurn: false });
+	pi.on("turn_end", (_event, ctx) => contextWarning(ctx));
+	pi.on("session_before_compact", async (event, ctx) => {
+		const session = sessionId(ctx);
+		if (!session) return;
+		const args = ["handoff", "auto", "--session", session,
+			"--trigger", event.reason === "manual" ? "manual" : "auto", "--host", "pi"];
+		const usage = knownTokens(ctx);
+		if (usage) args.push("--context-tokens", String(usage.tokens));
+		try {
+			const result = await pi.exec(join(devflowRoot(), "scripts/devflow-cli.sh"), ["--cwd", ctx.cwd, ...args],
+				{ cwd: ctx.cwd, timeout: 10000 });
+			if (result.code !== 0) throw new Error(result.stderr || `exit ${result.code}`);
+			const handoff = result.stdout.trim() ? JSON.parse(result.stdout) : undefined;
+			if (handoff?.instructions) tell(ctx, handoff.instructions, "info");
+		} catch (error) {
+			tell(ctx, `DevFlow: передача при сжатии не записана (${error}). Сжатие не отменяется.`, "error");
+		}
 	});
-	pi.on("session_compact", () => { level = ""; });
+	pi.on("session_compact", async (_event, ctx) => {
+		level = "";
+		if (options.restoreContext === false || !pi.exec || !ctx.cwd) return;
+		const result = await pi.exec("python3", [join(devflowRoot(), "scripts/launch.py"), "--restore-context"],
+			{ cwd: ctx.cwd, timeout: 10000 });
+		restored = result.code === 0 ? result.stdout :
+			`Восстановление недоступно: ${result.stderr}. Не создавай новое состояние; сначала устрани ошибку.`;
+		if (restored) tell(ctx, restored, result.code === 0 ? "info" : "error");
+	});
 	pi.on("tool_call", (event, ctx) => guardTool(event, ctx));
 	function stop(ctx: ExtensionContext, message: string) {
 		if (ctx.hasUI) ctx.ui.notify(message, "error");
@@ -106,8 +144,7 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 			instructions();
 			if (ctx.model?.provider === "claude-bridge") { stop(ctx, reason); return; }
 			if (options.restoreContext !== false && pi.exec && ctx.cwd) {
-				const root = resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
-				const result = await pi.exec("python3", [join(root, "scripts/launch.py"), "--restore-context"],
+				const result = await pi.exec("python3", [join(devflowRoot(), "scripts/launch.py"), "--restore-context"],
 					{ cwd: ctx.cwd, timeout: 10000 });
 				restored = result.code === 0 ? result.stdout :
 					`Восстановление недоступно: ${result.stderr}. Не создавай новое состояние; сначала устрани ошибку.`;
@@ -118,12 +155,12 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 		}
 	});
 
-	pi.on("before_agent_start", (event, ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		if (ctx.model?.provider === "claude-bridge") {
 			stop(ctx, reason);
 			return;
 		}
-		if (ctx.getContextUsage) contextWarning(ctx);
+		if (ctx.getContextUsage) await contextWarning(ctx);
 		if (restored) event.systemPromptOptions.sections.devflow_restore =
 			"Актуальное восстановление (заменяет снимок launcher):\n" + restored;
 		try {
