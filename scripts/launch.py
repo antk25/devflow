@@ -122,8 +122,10 @@ def restore_context(path):
         if db:
             db.close()
     try:
-        slug = pi.task_slug(items)
-        handoff = handoff_latest(ctx['vault'], slug)
+        try:
+            handoff = handoff_latest(ctx['vault'], pi.task_slug(items))
+        except WorkflowError:
+            handoff = handoff_latest(ctx['vault'], fresh_minutes=30)
     except WorkflowError as exc:
         return pi.preamble(ctx, items, None) + f'Выберите задачу явно: {exc}\n'
     return pi.preamble(ctx, items, handoff)

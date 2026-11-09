@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -131,6 +132,9 @@ def test_restore_handoff_from_either_host(source, slug, tmp_path):
     result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
     assert 'выберите полный slug явно' in result.stdout
     assert f'HANDOFF {handoff}' not in result.stdout
+    os.utime(notes / 'handoff-other.md', (0, 0))
+    result = subprocess.run([str(RESTORE)], input=event, capture_output=True, text=True, cwd=project, env=env)
+    assert f'HANDOFF {handoff}' in result.stdout
 
 
 def test_deny_survives_unwritable_journal(tmp_path):

@@ -20,7 +20,7 @@ printf 'OBSIDIAN_CONTEXT\n'
 "$DEVFLOW_DIR/scripts/devflow-cli.sh" active
 # A fresh, unambiguous handoff can also come from pi, not only from /clear.
 if [[ "$source" = clear || "$source" = startup || "$source" = resume ]]; then
-    if handoff_json="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff latest 2>&1)"; then
+    if handoff_json="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff latest --fresh-minutes 30 2>&1)"; then
         handoff="$(printf '%s' "$handoff_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path") or "")')"
         if [ -n "$handoff" ] && [ -n "$(find "$handoff" -mmin -30 2>/dev/null)" ]; then
             printf 'HANDOFF %s\n' "$handoff"

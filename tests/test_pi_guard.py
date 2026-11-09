@@ -257,3 +257,11 @@ def test_protocol(tmp_path):
                             input='{broken', text=True, capture_output=True)
     assert result.returncode == 0
     assert json.loads(result.stdout)['decision'] == 'deny'
+
+
+def test_allow_requires_every_segment(tmp_path):
+    config = tmp_path / 'settings.json'
+    config.write_text(json.dumps({'permissions': {'allow': ['Bash(ls:*)']}}))
+    run = lambda c: permission_decision({'toolName': 'bash', 'input': {'command': c}, 'cwd': str(tmp_path)}, [config])['rule']
+    assert run('ls -la') == 'Bash(ls:*)'
+    assert run('ls && rm -rf x') != 'Bash(ls:*)'

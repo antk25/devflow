@@ -526,6 +526,8 @@ def test_handoff_restore_no_jira_and_ambiguity_without_db(proj):
     (notes / f'handoff-{slug}.md').write_text(f'---\ntype: handoff\ntask: {slug}\n---\n# Из pi в Claude\n')
     assert f'handoff-{slug}.md' in launch.restore_context(proj['cwd'])
     (proj['vault'] / 'tz/other.md').write_text('# Other')
+    assert f'handoff-{slug}.md' in launch.restore_context(proj['cwd'])
+    (notes / 'handoff-other.md').write_text('---\ntype: handoff\ntask: other\n---\n# Другая\n')
     text = launch.restore_context(proj['cwd'])
     assert 'Выберите задачу явно' in text and 'HANDOFF ' not in text
     assert not (proj['cwd'] / '.devflow').exists()

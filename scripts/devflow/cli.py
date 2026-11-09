@@ -75,7 +75,7 @@ def parser():
     a = project_commands.add_parser('init'); a.add_argument('path'); a.add_argument('--name'); a.add_argument('--agents-draft', type=Path); a.add_argument('--dry-run', action='store_true')
     a = project_commands.add_parser('sync'); a.add_argument('names', nargs='*'); a.add_argument('--all', action='store_true'); a.add_argument('--dry-run', action='store_true')
     handoff_commands = commands.add_parser('handoff').add_subparsers(dest='handoff_command', required=True)
-    a = handoff_commands.add_parser('latest'); a.add_argument('--task')
+    a = handoff_commands.add_parser('latest'); a.add_argument('--task'); a.add_argument('--fresh-minutes', type=int)
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
     a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true')
     agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
@@ -106,7 +106,7 @@ def execute(args):
     if args.command == 'context':
         return {k: str(v) for k, v in ctx.items()}
     if args.command == 'handoff':
-        doc = handoff_latest(ctx['vault'], args.task)
+        doc = handoff_latest(ctx['vault'], args.task, args.fresh_minutes)
         if doc is None:
             return {'path': None}
         return {'path': doc['path'], 'created': str(doc['meta'].get('created', '')),

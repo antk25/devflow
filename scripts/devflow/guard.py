@@ -248,7 +248,12 @@ def verdict(decision, rule, reason):
     return {'decision': decision, 'rule': rule, 'reason': reason}
 
 
-def command_forms(command, cwd, depth=0):
+def command_forms(command, cwd):
+    return [form for group in command_groups(command, cwd) for form in group]
+
+
+def command_groups(command, cwd, depth=0):
+    """One list of equivalent forms per pipeline segment."""
     if depth > 8:
         raise ValueError('Слишком много вложенных оболочек')
     # Arbitrary shell evaluation is not a permission boundary: require confirmation.
@@ -268,7 +273,7 @@ def command_forms(command, cwd, depth=0):
         raise ValueError('Незакрытая кавычка')
     if re.search(r'\b(?:env|sudo|nice|nohup|time|rtk|exec)\s+-', command):
         raise ValueError('Опции обёртки требуют отдельного простого вызова')
-    forms = []
+    groups = []
     for tokens in segments(command, posix=True):
         name = Path(tokens[0]).name
         if name in ('eval', 'source', '.'):
@@ -282,12 +287,13 @@ def command_forms(command, cwd, depth=0):
             index = tokens.index('-c')
             if index != 1 or index + 2 != len(tokens):
                 raise ValueError('Неоднозначный вызов оболочки')
-            forms.extend(command_forms(tokens[index + 1], cwd, depth + 1))
+            groups.extend(command_groups(tokens[index + 1], cwd, depth + 1))
             continue
         normalized = [str(Path(t).expanduser()) if t.startswith('~/') else t for t in tokens]
         if name in ('git', 'gh', 'curl', 'wget', 'ssh', 'scp', 'rsync', 'bash', 'sh', 'claude', 'claude-bridge'):
             normalized[0] = name
-        forms.append((' '.join(normalized), cwd))
+        forms = [(' '.join(normalized), cwd)]
+        groups.append(forms)
         if name in ('bash', 'sh') and len(normalized) > 1 and not normalized[1].startswith('-'):
             forms.append((' '.join(normalized[1:]), cwd))
         if name == 'git':
@@ -303,7 +309,7 @@ def command_forms(command, cwd, depth=0):
                 else:
                     raise ValueError('Неизвестная глобальная опция git')
             forms.append((' '.join(['git', *tokens[index:]]), cwd))
-    return forms
+    return groups
 
 
 def rule_matches(rule, tool, value, cwd):
@@ -375,7 +381,8 @@ def permission_decision(event, settings_paths):
             if not isinstance(command, str):
                 raise ValueError('Отсутствует command')
             try:
-                forms = command_forms(command, cwd)
+                groups = command_groups(command, cwd)
+                forms = [form for group in groups for form in group]
             except ValueError as exc:
                 return verdict('deny', 'shell-uncertain', f'{exc}; упростите вызов до отдельных команд без вычислений оболочки.')
             for value, directory in forms:
@@ -394,11 +401,14 @@ def permission_decision(event, settings_paths):
                         return verdict('deny', 'push-delete', 'Удаление и зеркалирование выполняет пользователь.')
         else:
             forms = [(data.get('path', data.get('file_path', '')), cwd)]
+            groups = [forms]
         matches = {}
         for action in ('deny', 'ask', 'allow'):
             for rule, base in rules[action]:
-                if any(rule_matches(rule, tool, value if tool == 'Bash' else str((directory / Path(value).expanduser()).resolve()),
-                                    directory if tool == 'Bash' else base) for value, directory in forms):
+                hit = lambda group: any(rule_matches(rule, tool, value if tool == 'Bash' else str((directory / Path(value).expanduser()).resolve()),
+                                                     directory if tool == 'Bash' else base) for value, directory in group)
+                # An allowed segment must not carry the rest of a compound command through.
+                if (all if action == 'allow' else any)(hit(group) for group in groups):
                     matches[action] = rule
                     break
         for action in ('deny', 'ask', 'allow'):

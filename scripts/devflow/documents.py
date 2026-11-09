@@ -1,6 +1,7 @@
 """Read workflow documents; definitions live in Markdown, execution lives in SQLite."""
 import hashlib
 import re
+import time
 import textwrap
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def artifact(vault, folder, slug):
     return document(matches[0]) if matches else None
 
 
-def handoff_latest(vault, task=None):
+def handoff_latest(vault, task=None, fresh_minutes=None):
     """Latest /cut hand-off by frontmatter `created`; ties go to the newer mtime."""
     best, best_key = None, None
     tasks = set()
@@ -108,7 +109,10 @@ def handoff_latest(vault, task=None):
         if len(aliases) > 1:
             raise WorkflowError('Ambiguous handoff; use --task with a full slug: ' + ', '.join(sorted(aliases)))
         requested = next(iter(aliases), requested)
+    cutoff = time.time() - fresh_minutes * 60 if fresh_minutes is not None else None
     for path in (Path(vault) / 'notes').glob('handoff-*.md'):
+        if cutoff is not None and path.stat().st_mtime < cutoff:
+            continue
         try:
             doc = document(path)
         except (WorkflowError, yaml.YAMLError):
