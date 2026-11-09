@@ -384,7 +384,7 @@ def test_implement_launch_failure_interrupts_the_run(proj, fake_pi, monkeypatch)
 
     def boom(*a, **k):
         raise OSError('exec failed')
-    monkeypatch.setattr(pi.subprocess, 'run', boom)
+    monkeypatch.setattr(pi.subprocess, 'Popen', boom)
     with pytest.raises(WorkflowError, match='failed to launch'):
         pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement', env=fake_pi['env'])
     assert [r['status'] for r in runs(proj)] == ['blocked']
