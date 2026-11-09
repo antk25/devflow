@@ -35,7 +35,10 @@ def load(path):
     missing = [k for k in REQUIRED if not isinstance(policy, dict) or k not in policy]
     if missing:
         raise WorkflowError(f'Model policy {path} lacks keys: ' + ', '.join(missing))
-    incomplete = [f'{host}/{phase}' for host in ('claude', 'pi') for phase in PHASES
+    required = [('claude', phase) for phase in PHASES] + [('pi', 'implement')]
+    if isinstance(policy['pi'], dict):
+        required += [('pi', phase) for phase in PHASES if phase != 'implement' and phase in policy['pi']]
+    incomplete = [f'{host}/{phase}' for host, phase in required
                   if not isinstance(policy[host], dict) or 'default' not in policy[host].get(phase, {})]
     if incomplete:
         raise WorkflowError(f'Model policy {path} has no default column for: ' + ', '.join(incomplete))
@@ -209,14 +212,14 @@ def launch(phase, complexity=None, now=None):
     signal = limits(limits_path(), cfg.get('threshold', 95), cfg.get('max_age_min', 10), time.time() if now is None else now)
     exhausted = bool(signal and signal['exhausted'])
     claude = resolve(policy, 'claude', phase, complexity, exhausted)
-    pi = resolve(policy, 'pi', phase, complexity, exhausted)
+    pi = resolve(policy, 'pi', phase, complexity, exhausted) if phase in policy['pi'] else None
     agent = f"{phase}-{claude['column']}" if f"{phase}-{claude['column']}" in agent_names(policy) else phase
     model = (alias(claude['model']) or claude['model']) if claude['column'] == 'fallback' else None
     return {'policy': str(path),
             'limits': signal,
             'policy_stale': installed_stale(policy),
             'launch': {'claude': {'id': claude['model'], 'effort': claude['effort'], 'model': model, 'agent': agent},
-                       'pi': {'model': pi_model(pi)}}}
+                       'pi': {'model': pi_model(pi)} if pi else None}}
 
 
 def main(argv):

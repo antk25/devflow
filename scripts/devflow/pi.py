@@ -24,6 +24,8 @@ RUNNING_WARNING = ('phase did not record finish; run is still running — inspec
                    'devflow finish/resume/interrupt; do not run phase run implement again')
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
          'Write': ('write',), 'Edit': ('edit',)}
+CODEX_WARNING = 'Модели openai-codex в pi не запускаются — только в Codex'
+PHASE_NOT_IN_PI = 'Фаза {} в pi не запускается по model-policy: research/plan — в Claude Code, при исчерпанных лимитах — в Codex'
 BRIDGE_WARNING = ('claude-bridge запрещён в pi; выберите --model provider/id или прямой anthropic/*')
 SHARED_INSTRUCTIONS = Path.home() / '.claude/devflow-instructions.md'
 EXTENSION = Path(__file__).resolve().parents[2] / 'pi/extensions/devflow.ts'
@@ -57,6 +59,8 @@ def ensure_pi_model(model, settings_path):
             raise WorkflowError(f'Cannot read pi settings {path}: {exc}')
     if isinstance(provider, str) and provider.lower() == 'claude-bridge':
         raise WorkflowError(BRIDGE_WARNING)
+    if isinstance(provider, str) and provider.lower() == 'openai-codex':
+        raise WorkflowError(CODEX_WARNING)
 
 
 def settings_path(env):
@@ -347,7 +351,10 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
     body, tools = agent_body(phase)
     if not shutil.which('pi', path=env.get('PATH')):
         raise WorkflowError('pi CLI is missing from PATH')
-    from_policy = current.get('launch', {}).get('pi', {}).get('model')
+    policy = load(policy_path())
+    if policy and phase not in policy['pi']:
+        raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
+    from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
     chosen = model_arg(env, model or from_policy)
     source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
     ensure_pi_model(chosen, settings_path(env))

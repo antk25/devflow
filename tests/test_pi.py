@@ -108,7 +108,8 @@ def approve_research(proj):
 
 
 @pytest.fixture
-def fake_pi(tmp_path):
+def fake_pi(tmp_path, monkeypatch):
+    monkeypatch.setattr(pi, 'PI_SETTINGS', tmp_path / 'pi-settings.json')
     exe = tmp_path / 'bin' / 'pi'
     exe.parent.mkdir()
     exe.write_text(FAKE_PI)
@@ -170,18 +171,18 @@ def test_run_phase_refuses_wrong_state(proj, fake_pi):
 
 def test_run_phase_launches_fake_pi_with_model_from_env(proj, fake_pi):
     approve_research(proj)
-    env = {**fake_pi['env'], 'PI_PROVIDER': 'openai-codex', 'PI_MODEL': 'gpt-6-astra', 'PI_REASONING_LEVEL': 'low'}
+    env = {**fake_pi['env'], 'PI_PROVIDER': 'openrouter', 'PI_MODEL': 'z-ai/glm-5.3-flash', 'PI_REASONING_LEVEL': 'low'}
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', note='коротко', env=env)
     argv = fake_pi['argv']()
     for flag in ('-p', '--no-session', '--append-system-prompt', '--tools'):
         assert flag in argv
-    assert argv[argv.index('--model') + 1] == 'openai-codex/gpt-6-astra:low'
+    assert argv[argv.index('--model') + 1] == 'openrouter/z-ai/glm-5.3-flash:low'
     assert argv[argv.index('--tools') + 1] == 'read,grep,find,ls,bash,write'
     assert 'Замечание пользователя:\nкоротко' in fake_pi['log'].read_text()
     assert not any('claude' in a for a in argv)
     assert fake_pi['stdin'].read_text().strip() == 'closed'
     assert out['exit_code'] == 0 and out['report'].strip() == 'отчёт фазы'
-    assert out['model'] == 'openai-codex/gpt-6-astra:low' and out['phase'] == 'plan'
+    assert out['model'] == 'openrouter/z-ai/glm-5.3-flash:low' and out['phase'] == 'plan'
     assert out['model_source'] == 'env'
     assert out['route']['state'] == 'plan'
     assert not Path(argv[argv.index('--append-system-prompt') + 1]).exists()
@@ -198,19 +199,32 @@ def test_run_phase_nonzero_exit_is_reported_not_raised(proj, fake_pi):
 EXAMPLE_POLICY = Path(__file__).resolve().parents[1] / 'model-policy.example.json'
 
 
-def test_run_phase_takes_model_from_policy_over_env(proj, fake_pi, monkeypatch):
+def test_run_phase_refuses_phase_absent_from_pi_policy(proj, fake_pi, monkeypatch):
     monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
     approve_research(proj)
-    env = {**fake_pi['env'], 'PI_PROVIDER': 'anthropic', 'PI_MODEL': 'x', 'PI_REASONING_LEVEL': 'low'}
-    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env=env)
-    argv = fake_pi['argv']()
-    assert argv[argv.index('--model') + 1] == 'openai-codex/gpt-6-astra:medium'
-    assert out['model'] == 'openai-codex/gpt-6-astra:medium' and out['model_source'] == 'policy'
+    with pytest.raises(WorkflowError, match='Фаза plan в pi не запускается'):
+        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', model='openrouter/z-ai/glm-5.3-flash', env=fake_pi['env'])
+    assert not fake_pi['log'].exists()
 
 
-def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch):
-    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
+@pytest.mark.parametrize('model,settings', [
+    ('openai-codex/gpt-6-astra', None),
+    (None, '{"defaultProvider": "openai-codex"}'),
+])
+def test_refuses_openai_codex_in_pi(tmp_path, model, settings):
+    path = tmp_path / 'settings.json'
+    if settings:
+        path.write_text(settings)
+    with pytest.raises(WorkflowError, match='только в Codex'):
+        pi.ensure_pi_model(model, path)
+
+
+def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch, tmp_path):
+    data = json.loads(EXAMPLE_POLICY.read_text())
+    data['pi']['plan'] = {'default': {'model': 'openrouter/z-ai/glm-5.3-flash', 'effort': 'medium'}}
+    (tmp_path / 'policy.json').write_text(json.dumps(data))
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(tmp_path / 'policy.json'))
     monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
     approve_research(proj)
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', model='x/y:z', env=fake_pi['env'])

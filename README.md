@@ -349,7 +349,9 @@ synthetic подтверждения редуктора — не реальна�
 |------|-------------------------|-------------------|
 | `research`, `plan` | Opus 5.5 high | Opus 5.5 medium |
 | `implement` | Fable 5.1 low; кончились лимиты Fable — Opus 5.5 low (`fallback`) | то же |
-| в pi | `gpt-6-astra` high | `gpt-6-astra` medium; `implement` — low |
+| в pi | только `implement` — `openrouter/z-ai/glm-5.3-flash` low | то же |
+
+`research` и `plan` в pi не запускаются: фазы без записи в разделе `pi` policy отклоняются, модели `openai-codex` в pi запрещены — они идут в Codex. Роли pi (`pi.roles`) задаются там же.
 
 Вышла новая модель — меняется одна строка в JSON, затем `./install.sh`: агенты `research`,
 `research-high`, `plan`, `plan-high`, `implement` в `~/.claude/agents/` генерируются из тела

@@ -22,9 +22,7 @@ def example():
     ('claude', 'implement', 'high', False, ('claude-fable-5-1', 'low', 'default')),
     ('claude', 'implement', None, True, ('claude-opus-5-5', 'low', 'fallback')),
     ('claude', 'research', None, True, ('claude-opus-5-5', 'medium', 'default')),
-    ('pi', 'research', 'high', False, ('openai-codex/gpt-6-astra', 'high', 'high')),
-    ('pi', 'plan', None, False, ('openai-codex/gpt-6-astra', 'medium', 'default')),
-    ('pi', 'implement', 'high', True, ('openai-codex/gpt-6-astra', 'low', 'default')),
+    ('pi', 'implement', 'high', True, ('openrouter/z-ai/glm-5.3-flash', 'low', 'default')),
 ])
 def test_resolve_follows_tz_table(example, host, phase, complexity, exhausted, expected):
     got = policy.resolve(example, host, phase, complexity, exhausted)
@@ -55,6 +53,16 @@ def test_load_requires_keys(tmp_path):
     p.write_text(json.dumps({'claude': {}}))
     with pytest.raises(WorkflowError, match='pi, limits'):
         policy.load(p)
+
+
+def test_load_accepts_pi_with_only_implement_and_rejects_incomplete_optional_phase(tmp_path, example):
+    path = tmp_path / 'p.json'
+    path.write_text(json.dumps(example))
+    assert set(policy.load(path)['pi']) == {'roles', 'implement'}
+    example['pi']['plan'] = {'high': {'model': 'openrouter/z-ai/glm-5.3', 'effort': 'high'}}
+    path.write_text(json.dumps(example))
+    with pytest.raises(WorkflowError, match='pi/plan'):
+        policy.load(path)
 
 
 def test_alias_and_pi_model():
@@ -95,7 +103,7 @@ def test_route_adds_launch_from_policy(proj, monkeypatch):
     assert out['policy'] == str(EXAMPLE)
     assert out['launch']['claude'] == {'id': 'claude-opus-5-5', 'effort': 'medium', 'model': None, 'agent': 'plan'}
     assert isinstance(out['policy_stale'], list)
-    assert out['launch']['pi'] == {'model': 'openai-codex/gpt-6-astra:medium'}
+    assert out['launch']['pi'] is None
 
 
 def test_route_without_policy_file(proj, monkeypatch, tmp_path):
