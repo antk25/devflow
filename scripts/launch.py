@@ -28,6 +28,7 @@ def main():
     p.add_argument('--current', '-c', action='store_true')
     p.add_argument('--agent', choices=['claude', 'pi'], default='claude')
     p.add_argument('--model', help='claude: overrides DEVFLOW_MODEL; pi: provider/id[:thinking]')
+    p.add_argument('--effort', help='claude: overrides DEVFLOW_EFFORT (default high)')
     args = p.parse_args()
     if args.current and args.project:
         p.error('Use a project name or --current, not both')
@@ -71,8 +72,7 @@ def main():
         else:
             ctx = context(path)
             connect(ctx, create=True).close()
-        model = args.model or os.environ.get('DEVFLOW_MODEL', 'claude-fable-5-1')
-        argv = [executable, '--model', model]
+        argv = claude_command(executable, args.model, args.effort)
     previous = data.get('active')
     os.chdir(path)
     select(registry, selected)
@@ -87,6 +87,12 @@ def main():
             latest['active'] = previous
             atomic_write(registry, json.dumps(latest, ensure_ascii=False, indent=2) + '\n')
         raise
+
+
+def claude_command(executable, model=None, effort=None):
+    model = model or os.environ.get('DEVFLOW_MODEL', 'claude-opus-5-5')
+    effort = effort or os.environ.get('DEVFLOW_EFFORT', 'high')
+    return [executable, '--model', model, '--effort', effort]
 
 
 def pi_command(path, model):
