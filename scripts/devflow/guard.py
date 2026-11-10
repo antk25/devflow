@@ -21,7 +21,10 @@ EXTERNAL_HTTP = ('curl/wget заблокированы (защита от уте
 HISTORY_REWRITE = ('Перезапись удалённой истории делает пользователь. Запушь без `--force`/`+refspec`: '
                    '`git push -u origin <ветка>`, а если нужен force — попроси пользователя выполнить его самому.')
 
-PUSH_PROTECTED = 'Пушить можно только feature-ветку; слияние делает пользователь. Используй `git push -u origin {branch}`.'
+BB_INTERACTION = ('Отвечать на вопросы потоков bb (гейты) может только пользователь в интерфейсе bb; '
+                  'спроси его в своей сессии.')
+
+PUSH_PROTECTED ='Пушить можно только feature-ветку; слияние делает пользователь. Используй `git push -u origin {branch}`.'
 
 
 HEREDOC = re.compile(r'<<(-?)\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\2')
@@ -177,11 +180,31 @@ def rewrites_history(args):
     return False
 
 
+def bb_interaction(tokens):
+    name = Path(tokens[0]).name
+    if name == 'bb':
+        rest = tokens[1:]
+    elif name == 'npx':
+        rest = [t for t in tokens[1:] if t not in ('-y', '--yes')]
+        if not rest or rest[0] != 'bb-app':
+            return False
+        rest = rest[1:]
+    else:
+        return False
+    words = [t for t in rest if not t.startswith('-')]
+    if words[:1] != ['thread']:
+        return False
+    return words[1:2] == ['tell'] or (
+        words[1:2] == ['interactions'] and words[2:3] in (['answer'], ['respond'], ['approve'], ['grant'], ['deny']))
+
+
 def decide(command, cwd):
     for tokens in segments(command):
         name = Path(tokens[0]).name
         if name in ('curl', 'wget'):
             return 'external-http', EXTERNAL_HTTP
+        if bb_interaction(tokens):
+            return 'bb-interaction', BB_INTERACTION
         if name == 'cd' and len(tokens) > 1:
             cwd = cwd / tokens[1]
             continue
