@@ -178,15 +178,24 @@ def test_cli_without_repo_keeps_root_behaviour(transport, monkeypatch):
 @pytest.mark.parametrize('repo', ['../outside', 'plain', None])
 def test_bad_repository_refused_before_spawn(transport, monkeypatch, repo):
     ctx, calls, _, _ = transport
-    meta = ctx['cwd'] / 'meta'
+    meta = ctx['cwd'].parent / 'meta'
     (meta / 'plain').mkdir(parents=True)
-    (ctx['cwd'] / 'outside' / '.git').mkdir(parents=True)
+    (ctx['cwd'].parent / 'outside' / '.git').mkdir(parents=True)
     monkeypatch.setattr(cli, 'context', lambda cwd: {'cwd': meta})
     result = cli.execute(cli.parser().parse_args(
         ['--cwd', str(meta), 'codex-review', '--base', 'main'] + (['--repo', repo] if repo else [])))
     assert calls == [] and result['exit_code'] == 1 and result['argv'] == []
     assert ('outside project' if repo == '../outside' else '--repo') in result['error']
     evidence(result, {'cwd': meta})
+
+
+def test_subdirectory_of_plain_repository_names_its_root(transport, monkeypatch):
+    ctx, calls, _, _ = transport
+    nested = ctx['cwd'] / 'src'
+    nested.mkdir()
+    monkeypatch.setattr(cli, 'context', lambda cwd: {'cwd': nested})
+    result = cli.execute(cli.parser().parse_args(['--cwd', str(nested), 'codex-review', '--base', 'main']))
+    assert calls == [] and 'not its root' in result['error'] and '--repo' not in result['error']
 
 
 def test_safe_fake_process_uses_existing_group_cleanup(tmp_path, monkeypatch):
@@ -282,24 +291,28 @@ def test_review_repos_metarepo(tmp_path, monkeypatch):
     make_repo(tmp_path / 'idle', branches=['SE-7'])
     make_repo(tmp_path / 'many', branches=['SE-7-a', 'SE-7-b'])
     make_repo(tmp_path / 'other', branches=['SE-8'], checkout='SE-8')
+    make_repo(tmp_path / 'similar', branches=['SE-70-y', 'ASE-7'], checkout='SE-70-y')
+    make_repo(tmp_path / 'remoteonly', default='trunk', branches=['SE-7'], checkout='SE-7')
+    git(tmp_path / 'remoteonly', 'branch', '-D', 'trunk')
     make_repo(tmp_path / 'noorigin', branches=['SE-7'], checkout='SE-7')
     git(tmp_path / 'noorigin', 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD')
     make_repo(tmp_path / '.wt', branches=['SE-7'], checkout='SE-7')
     result = cli.execute(cli.parser().parse_args(['--cwd', str(tmp_path), 'review-repos', 'se-7-faster']))
     assert result['key'] == 'SE-7'
     repos = {r['repo']: r for r in result['repos']}
-    assert list(repos) == ['api', 'idle', 'many', 'noorigin', 'shop']
+    assert list(repos) == ['api', 'idle', 'many', 'noorigin', 'remoteonly', 'shop']
     assert (repos['api']['branch'], repos['api']['base'], repos['api']['error']) == ('SE-7-x', 'main', None)
     assert (repos['shop']['branch'], repos['shop']['base'], repos['shop']['error']) == ('feature/se-7', 'master', None)
     assert repos['api']['head'] and repos['api']['path'] == str(tmp_path / 'api')
     assert 'not checked out' in repos['idle']['error']
     assert 'Several' in repos['many']['error'] and repos['many']['branch'] is None
     assert repos['noorigin']['error'] == 'No origin/HEAD'
+    assert 'no local branch' in repos['remoteonly']['error'] and repos['remoteonly']['base'] == 'trunk'
 
 
 def test_review_repos_single_repository_root(tmp_path):
     (tmp_path / 'AGENTS.md').write_text('---\nproject: one\nvault: v\n---\n- Base branch: `dev`\n')
-    make_repo(tmp_path, branches=['df-9-x'], checkout='df-9-x')
+    make_repo(tmp_path, branches=['dev', 'df-9-x'], checkout='df-9-x')
     result = codex_review.review_repos({'cwd': tmp_path}, 'df-9-x')
     assert [(r['repo'], r['branch'], r['base'], r['error']) for r in result['repos']] == [('.', 'df-9-x', 'dev', None)]
 
