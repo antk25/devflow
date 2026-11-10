@@ -41,7 +41,7 @@ def parse(stdout, stderr, exit_code):
             completed = True
             usage = event.get('usage') or {}
             tokens = (tokens or 0) + sum(int(usage.get(k) or 0) for k in (
-                'input_tokens', 'cached_input_tokens', 'output_tokens', 'reasoning_output_tokens'))
+                'input_tokens', 'output_tokens'))
         elif kind in ('turn.failed', 'error'):
             failed = True
     ok = exit_code == 0 and completed and not failed

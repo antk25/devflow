@@ -81,7 +81,7 @@ def parser():
     a = handoff_commands.add_parser('slug'); a.add_argument('--session', required=True)
     a = commands.add_parser('context-level'); a.add_argument('--tokens', type=int, required=True); a.add_argument('--window', type=int); a.add_argument('--session')
     phase_commands = commands.add_parser('phase').add_subparsers(dest='phase_command', required=True)
-    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true'); a.add_argument('--host', choices=['pi', 'claude', 'codex'], default='pi')
+    a = phase_commands.add_parser('run'); a.add_argument('slug'); a.add_argument('phase', choices=pi.PHASES); a.add_argument('--step'); a.add_argument('--note'); a.add_argument('--model'); a.add_argument('--replan', action='store_true'); a.add_argument('--host', choices=['pi', 'claude', 'codex'])
     agent_commands = commands.add_parser('agent').add_subparsers(dest='agent_command', required=True)
     a = agent_commands.add_parser('run'); a.add_argument('role', choices=pi.ROLES)
     a.add_argument('--message-file', required=True, type=Path); a.add_argument('--model')

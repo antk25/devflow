@@ -14,6 +14,7 @@ from pathlib import Path
 from . import harness_claude, harness_codex, harness_pi, transcripts
 from .documents import WorkflowError, artifact, document
 from .harness_pi import build_command
+from .policy import launch as launch_for
 from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
 from .storage import record_outcome
 from .workflow import interrupt, route, start
@@ -359,15 +360,21 @@ def phase_artifact(ctx, slug, phase, run=None):
     if phase == 'implement':
         found = sorted(Path(ctx['vault'], 'changelog').glob(f'*-{slug}.md'))
         return (found[0] if len(found) == 1 else None), (f"<!-- devflow-run: {run['run_id']} -->",) if run else ()
-    return Path(ctx['vault'], 'research' if phase == 'research' else 'plans', f'{slug}.md'), REQUIRED_SECTIONS[phase]
+    folder = Path(ctx['vault'], 'research' if phase == 'research' else 'plans')
+    found = [p for p in folder.glob('*.md') if p.stem.lower() == slug.lower()]
+    return (found[0] if len(found) == 1 else folder / f'{slug}.md'), REQUIRED_SECTIONS[phase]
 
 
 def _pi_launch(ctx, phase, current, model, env):
     body, tools = agent_body(phase)
     policy = load(policy_path())
+    spec = (current.get('launch') or {}).get('claude') or {}
     if policy and phase not in policy['pi']:
-        raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
-    from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
+        if (current.get('launch') or {}).get('harness') != 'pi':
+            raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
+        from_policy = spec['id'] + (':' + spec['effort'] if spec.get('effort') else '')
+    else:
+        from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
     chosen = model_arg(env, model or from_policy)
     source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
     ensure_pi_model(chosen, settings_path(env))
@@ -391,8 +398,13 @@ def _claude_launch(ctx, phase, current, model, env):
 
 
 def _codex_launch(ctx, phase, current, model, env):
-    spec = (current.get('launch') or {}).get('claude') or {}
-    from_policy = spec.get('id') if (current.get('launch') or {}).get('harness') == 'codex' else None
+    launch_spec = current.get('launch') or {}
+    spec, from_policy = launch_spec.get('claude') or {}, None
+    if launch_spec.get('harness') == 'codex':
+        from_policy = spec.get('id')
+    elif (launch_spec.get('pi') or {}).get('harness') == 'codex':
+        from_policy, _, effort = launch_spec['pi']['model'].partition(':')
+        spec = {'id': from_policy, 'effort': effort or None}
     chosen = model or from_policy
     if not chosen:
         raise WorkflowError('Модель codex не задана: в policy нет строки harness: codex и нет --model')
@@ -405,12 +417,15 @@ def _codex_launch(ctx, phase, current, model, env):
     return chosen, 'override' if model else 'policy', launch
 
 
-def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host='pi'):
+def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host=None):
     env = dict(os.environ if env is None else env)
+    current = route(ctx, db, slug)
+    if current.get('phase') not in (None, phase) and current.get('policy'):
+        current = {**current, **launch_for(phase, (current.get('complexity') or {}).get('value'))}
+    host = host or ((current.get('launch') or {}).get('pi') or {}).get('harness') or 'pi'
     if host not in HARNESSES:
         raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))
     harness = HARNESSES[host]
-    current = route(ctx, db, slug)
     at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
     if replan and (phase != 'plan' or current['state'] != 'ready'):
         raise WorkflowError('--replan requires phase plan in state ready')
