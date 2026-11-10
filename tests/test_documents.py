@@ -121,3 +121,12 @@ def test_context_without_agents_md_is_human_readable(tmp_path, monkeypatch, caps
     assert err['state'] == 'invalid'
     assert 'No AGENTS.md' in err['error'] and '/project init' in err['error']
     assert 'Errno' not in err['error']
+
+
+def test_tz_under_jira_key_found_by_full_slug(tmp_path):
+    (tmp_path / 'tz').mkdir()
+    (tmp_path / 'tz' / 'SE-2298.md').write_text('# SE-2298\n', encoding='utf-8')
+    found = documents.artifact(tmp_path, 'tz', 'se-2298-collections-from-page')
+    assert found['path'].endswith('SE-2298.md')
+    assert documents.artifact(tmp_path, 'research', 'se-2298-collections-from-page') is None
+    assert documents.artifact(tmp_path, 'tz', 'se-22981-other') is None
