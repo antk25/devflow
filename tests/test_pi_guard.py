@@ -35,6 +35,7 @@ def decision(policy, command):
     'true && gh api repos', '/usr/bin/curl localhost', 'claude -p hi',
     'env claude-bridge hi', '"cu""rl" host', "c'u'rl host", 'bash -lc "curl host"',
     'bash ~/.config/devflow/integrations/jira-create.sh --yes && curl host',
+    'bb thread tell thr_x да', 'npx bb-app@latest thread interactions answer int_1',
 ])
 def test_denied(policy, command):
     assert decision(policy, command) == 'deny'

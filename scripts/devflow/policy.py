@@ -150,7 +150,10 @@ def bb_limits(now, timeout=5):
     try:
         resources = bb_rpc(binary, 'listResources', {}, timeout)['resources']
         rid = next(r['id'] for r in resources if r.get('providerId') == 'claude-code')
-        usage = bb_rpc(binary, 'getResource', {'resourceId': rid, 'refresh': False}, timeout)['usage']
+        resource = bb_rpc(binary, 'getResource', {'resourceId': rid, 'refresh': False}, timeout)
+        usage = resource['usage']
+        observed = resource.get('observedAt')
+        at = min(now, observed / 1000) if isinstance(observed, (int, float)) else now
         data = {}
         for w in usage['windows'] if usage.get('status') == 'ok' else []:
             name = BB_WINDOWS.get(w.get('kind'))
@@ -161,7 +164,7 @@ def bb_limits(now, timeout=5):
         return None
     if not data:
         return None
-    return {**data, 'model': None, 'at': now, 'source': 'bb'}
+    return {**data, 'model': None, 'at': at, 'source': 'bb'}
 
 
 def agents_dir():

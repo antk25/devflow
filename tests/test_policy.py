@@ -382,12 +382,14 @@ BB_USAGE = documents.Path(__file__).resolve().parent / 'fixtures/bb-provider-usa
 BB_RESOURCES = '{"resources": [{"id": "[\\"host_x\\",\\"claude-code\\"]", "providerId": "claude-code"}]}'
 
 
-def fake_bb(tmp_path, monkeypatch, body=None):
+def fake_bb(tmp_path, monkeypatch, body=None, observed=None):
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
     calls = tmp_path / 'bb-calls'
+    usage = tmp_path / 'bb-usage.json'
+    usage.write_text(json.dumps({**json.loads(BB_USAGE.read_text()), 'observedAt': int((observed or time.time()) * 1000)}))
     body = body or (f'case "$5" in *listResources) echo \'{BB_RESOURCES}\';; '
-                    f'*getResource) cat >/dev/null; cat {BB_USAGE};; esac')
+                    f'*getResource) cat >/dev/null; cat {usage};; esac')
     script = bin_dir / 'bb'
     script.write_text(f'#!/bin/sh\necho "$*" >> {calls}\n{body}\n')
     script.chmod(0o755)
@@ -413,6 +415,12 @@ def test_route_takes_limits_from_bb_when_file_stale(bb_route, ready, monkeypatch
     saved = json.loads(bb_route.read_text())
     assert saved['source'] == 'bb' and saved['seven_day']['used_percentage'] == 51
     assert 'getResource' in calls.read_text()
+
+
+def test_bb_limits_keep_observed_time_of_cached_snapshot(bb_route, monkeypatch, tmp_path):
+    observed = time.time() - 7200
+    fake_bb(tmp_path, monkeypatch, observed=observed)
+    assert abs(policy.bb_limits(time.time())['at'] - observed) < 1
 
 
 def test_route_outside_bb_thread_never_calls_bb(bb_route, ready, monkeypatch, tmp_path):

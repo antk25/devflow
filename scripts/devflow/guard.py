@@ -186,7 +186,7 @@ def bb_interaction(tokens):
         rest = tokens[1:]
     elif name == 'npx':
         rest = [t for t in tokens[1:] if t not in ('-y', '--yes')]
-        if not rest or rest[0] != 'bb-app':
+        if not rest or rest[0].split('@')[0] != 'bb-app':
             return False
         rest = rest[1:]
     else:
