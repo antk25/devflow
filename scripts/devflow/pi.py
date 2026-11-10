@@ -467,7 +467,7 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
     status = 'ok' if parsed['status'] == 'ok' and check == 'ok' else 'failed'
     outcome(status, parsed)
     if host == 'claude' and parsed.get('session_id'):
-        transcripts.mark_session(parsed['session_id'], current['slug'])
+        transcripts.mark_session(parsed['session_id'], current['slug'], phase=phase)
     after = route(ctx, db, current['slug'])
     result = {'phase': phase, 'slug': current['slug'], 'host': host, 'status': status,
               'artifact': str(path) if path else None, 'tokens': parsed['tokens'], 'cost': parsed['cost'],

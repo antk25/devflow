@@ -51,11 +51,13 @@ def user_text(message):
     return re.sub(r"<system-reminder>.*?</system-reminder>", " ", text, flags=re.S)
 
 
-def mark_session(session, slug, now=None):
+def mark_session(session, slug, now=None, phase=None):
     """Pin a non-interactive session to its task: the ledger is what /tokens attributes by."""
     m = re.match(r"([a-z]+-\d+)", slug.lower())
     entry = {"ts": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"), "session": session,
              "task": (m[1] if m else slug).upper()}
+    if phase:
+        entry["phase"] = phase
     LEDGER.parent.mkdir(parents=True, exist_ok=True)
     with LEDGER.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -77,6 +79,20 @@ def load_ledger():
         if sid and task:
             by_session[sid].append((parse_ts(entry.get("ts")), task.upper()))
     return by_session
+
+
+def load_phases():
+    """Phase of each `claude -p` session: its transcript has no attributionAgent."""
+    phases = {}
+    if LEDGER.exists():
+        for line in LEDGER.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("session") and entry.get("phase"):
+                phases[entry["session"]] = entry["phase"]
+    return phases
 
 
 def assign_tasks(msgs, marks):

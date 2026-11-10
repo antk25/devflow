@@ -18,41 +18,44 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-from devflow.transcripts import (LEDGER, NO_TASK, PROJECTS_ROOT, assign_tasks, load_ledger,  # noqa: E402
+from devflow.transcripts import (LEDGER, NO_TASK, PROJECTS_ROOT, assign_tasks, load_ledger, load_phases,  # noqa: E402
                                  parse_ts, project_of, user_text)
 
-# $ за 1M токенов, прайс-лист Anthropic. cache write ×1.25 (5m) / ×2.0 (1h), cache read ×0.1.
+# $ за 1M токенов, прайс-лист Anthropic. cache write ×1.25 (5m) / ×2.0 (1h).
+# Третье число — чтение кеша, если оно не ×0.1 от входа.
 PRICES = {
-    "claude-fable-5-1": (10.0, 50.0),
+    "claude-fable-5-1": (10.0, 50.0, 0.25),
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5-1": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
-    "claude-opus-5-5": (4.0, 20.0),
+    "claude-opus-5-5": (4.0, 20.0, 0.2),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     "claude-opus-4-5": (5.0, 25.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-haiku-5-5": (0.1, 0.5),
     "claude-haiku-4-5": (1.0, 5.0),
 }
-FAST_PRICES = {"claude-opus-5": (10.0, 50.0), "claude-opus-4-8": (10.0, 50.0)}
+FAST_PRICES = {"claude-opus-5-5": (8.0, 40.0, 0.4), "claude-opus-5": (10.0, 50.0),
+               "claude-opus-4-8": (10.0, 50.0)}
 DEFAULT_PRICE = (5.0, 25.0)
 
 METRICS = ("input", "output", "cache_write", "cache_read", "cost")
 
 
 def price_for(model, speed):
-    if speed == "fast" and model in FAST_PRICES:
-        return FAST_PRICES[model]
-    return PRICES.get(model, DEFAULT_PRICE)
+    price = FAST_PRICES[model] if speed == "fast" and model in FAST_PRICES else PRICES.get(model, DEFAULT_PRICE)
+    return price if len(price) == 3 else (*price, price[0] * 0.1)
 
 
 def scan(root, key_re, ledger):
     """Читает транскрипты и возвращает список записей ассистентских сообщений."""
-    records, seen_msgs = [], set()
+    records, seen_msgs, ledger_phases = [], set(), load_phases()
     paths = sorted([*root.glob("*/*.jsonl"), *root.glob("*/*/subagents/*.jsonl")])
     for path in paths:
         # транскрипт субагента лежит в <сессия>/subagents/ — задача у него общая с родителем
@@ -85,13 +88,13 @@ def scan(root, key_re, ledger):
                     cw_5m = usage.get("cache_creation_input_tokens", 0)
                 seen_sids.add(entry.get("sessionId") or stem)
                 model = msg.get("model") or "?"
-                p_in, p_out = price_for(model, usage.get("speed"))
+                p_in, p_out, p_cr = price_for(model, usage.get("speed"))
                 tok_in = usage.get("input_tokens", 0)
                 tok_out = usage.get("output_tokens", 0)
                 tok_cr = usage.get("cache_read_input_tokens", 0)
                 cost = (tok_in * p_in + tok_out * p_out
                         + cw_5m * p_in * 1.25 + cw_1h * p_in * 2.0
-                        + tok_cr * p_in * 0.1) / 1_000_000
+                        + tok_cr * p_cr) / 1_000_000
                 msgs.append({
                     "ts": ts,
                     "day": ts.astimezone(timezone.utc).strftime("%Y-%m-%d") if ts else "?",
@@ -99,7 +102,8 @@ def scan(root, key_re, ledger):
                     "project": project_of(entry.get("cwd")),
                     "model": model,
                     "phase": (entry.get("attributionAgent")
-                              or entry.get("attributionSkill") or "—"),
+                              or entry.get("attributionSkill")
+                              or ledger_phases.get(entry.get("sessionId") or stem) or "—"),
                     "input": tok_in,
                     "output": tok_out,
                     "cache_write": cw_5m + cw_1h,
