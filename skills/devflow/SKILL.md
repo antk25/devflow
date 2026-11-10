@@ -109,7 +109,7 @@ succeeds. Each run covers one step. On return, route again: continue only on `re
 A prose claim of success (or a `phase run` exit 0 with `warning`) without a recorded result does not
 close a step. If the implement reply contains a `Browser:` block, show it to the user verbatim, then `route`.
 
-On `completed`, launch **one** `crossreview` with cwd, slug and the base branch from `AGENTS.md`:
+On `completed`, launch **one** `crossreview` with cwd and slug (it finds repos/base via `review-repos`):
 
 | Роль | Claude Code | pi |
 |---|---|---|
@@ -126,11 +126,11 @@ It reviews the whole branch itself, gets a second opinion from Codex, verifies e
 code and writes `<vault>/notes/<slug>-cross-review.md`; it never edits the repository. Show its
 summary and hold: the user decides whether to fix in session, `df reopen` a step, or close the
 finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
-If it replies `SECOND_OPINION_NEEDED <slug> base=<base> reason=…` (Codex unavailable), spawn a
-`second-opinion` agent with cwd, slug and base, then a fresh `crossreview` with the same inputs plus
-`second-opinion:` and its findings list verbatim. Its own review is already saved as a draft in `/tmp/devflow-crossreview/<slug>.md`, so
+On each `SECOND_OPINION_NEEDED <slug> repo=<r> base=<base> reason=…` line spawn a `second-opinion`
+for that repo (cwd, slug, repo, path, base), then a fresh `crossreview` with the same inputs plus
+`second-opinion: repo=<r>` and each findings list verbatim. Its own review is already saved as a draft in `/tmp/devflow-crossreview/<slug>.md`, so
 the second launch only verifies both lists and writes the note.
-В обоих хостах второе мнение получает только cwd/slug/base и base/HEAD/diff hash из черновика,
+В обоих хостах второе мнение получает только cwd/slug/repo/base и base/HEAD/diff hash из черновика,
 никогда собственные находки первого обзора. Дословный ответ передаётся только новому crossreview.
 При `REVIEW_STALE` начни независимый цикл заново: устаревшие списки не переиспользовать.
 Не вызывай `start/finish/approve`: ревью всей ветки не создаёт implement-run.

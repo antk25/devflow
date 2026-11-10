@@ -18,8 +18,9 @@ def test_codex_failure_and_resume_contract():
         assert marker in text
     assert text.index('## Step 2:') < text.index('## Step 3:')
     assert 'Save the list right away' in text
-    assert 'git rev-parse <base> HEAD' in text
+    assert 'git -C <path> rev-parse <base> HEAD' in text
     assert 'git hash-object --stdin' in text
+    assert 'git rev-parse <base> HEAD' not in text
     assert 'не проверить' in text and 'Заметка: <absolute path>' in text
 
 
@@ -27,6 +28,7 @@ def test_independent_fallback_and_completed_only():
     second = body('second-opinion')
     assert 'Не получай и не читай черновик' in second
     assert 'REVIEW_STALE' in second
+    assert 'repo=<r>' in second and 'git -C <path> rev-parse <base> HEAD' in second
     driver = (ROOT / 'skills/devflow/SKILL.md').read_text()
     assert 'devflow agent run crossreview' in driver
     assert 'devflow agent run second-opinion' in driver
@@ -52,3 +54,16 @@ def test_legacy_draft_and_host_neutral_headers():
     assert 'старый `## Claude (Opus 5.5)` также допустим' in text
     assert '## Собственное ревью (host=<host> model=<model>)' in text
     assert 'Старый черновик без этих полей тоже устарел' in text
+
+
+def test_multirepo_protocol():
+    text = body('crossreview')
+    assert 'devflow review-repos <slug>' in text
+    assert 'devflow codex-review --repo <repo> --base <base> --title "<slug>"' in text
+    assert 'SECOND_OPINION_NEEDED <slug> repo=<repo> base=<base>' in text
+    assert 'second-opinion: repo=<r>' in text
+    assert 'blocked: вопрос:' in text and '### <repo>' in text
+    driver = (ROOT / 'skills/devflow/SKILL.md').read_text()
+    assert 'SECOND_OPINION_NEEDED <slug> repo=<r>' in driver
+    assert 'second-opinion: repo=<r>' in driver
+    assert 'review-repos' in driver

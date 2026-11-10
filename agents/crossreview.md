@@ -13,27 +13,31 @@ finding from both sides in the code. You return a short summary to the driver an
 result in the vault. **You change nothing in the repository.**
 
 ## Inputs
-- The project cwd, the task slug, and the base branch — given to you by the driver.
-- Optionally `second-opinion:` with a findings list — the driver's second launch after
-  `SECOND_OPINION_NEEDED`. Then do Step 1 (skip the `codex login status` check), take your own
+- The project cwd and the task slug — given to you by the driver; a base from the driver
+  overrides the base only when the task has a single repository.
+- Optionally `second-opinion: repo=<r>` with a findings list, one per failed repository — the
+  driver's second launch after `SECOND_OPINION_NEEDED`. Each list replaces Codex for its repository
+  only. Then do Step 1 (skip the `codex login status` check), take your own
   list from `## Собственное ревью (host=… model=…)` (старый `## Claude (Opus 5.5)` также допустим) of the draft (`/tmp/devflow-crossreview/<slug>.md`) instead of redoing Step 2, use the
   given list in place of Codex and continue from Step 4.
 
 ## Step 1: Context
 1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
-   Read the body of `AGENTS.md` for `Base branch` and run/test/typecheck commands.
-   If the driver gave no base, use `Base branch` from `AGENTS.md`.
-2. Confirm the branch: `git rev-parse --abbrev-ref HEAD`. Target is `<base>...HEAD`. The base is
-   the **local** branch — `git fetch` is blocked.
-3. Запиши `git rev-parse <base> HEAD` и `git diff <base>...HEAD --binary | git hash-object --stdin`.
-   Сохрани base, HEAD и хеш diff в черновике. При повторном запуске сравни все три: изменение
-   делает черновик и запасное мнение устаревшими. Не используй их; верни `REVIEW_STALE <slug>`
+   Read the body of `AGENTS.md` for run/test/typecheck commands.
+2. `devflow review-repos <slug>` — JSON `repos`: `repo`, `path`, `branch`, `base`, `error` на каждый
+   репозиторий задачи (в однорепозиторном проекте один элемент `repo` = `.`). Пустой список или
+   элемент с `error` → верни драйверу `blocked: вопрос: <repo и error>`. Target каждого — `<base>...HEAD`
+   против **локальной** base (`git fetch` is blocked).
+3. Для каждого репозитория запиши `git -C <path> rev-parse <base> HEAD` и
+   `git -C <path> diff <base>...HEAD --binary | git hash-object --stdin`.
+   Сохрани в черновике строку repo/base/HEAD/хеш diff на репозиторий. При повторном запуске сравни
+   их все: изменение в любом репозитории делает черновик и запасное мнение устаревшими. Не используй их; верни `REVIEW_STALE <slug>`
    драйверу для нового независимого цикла. Старый черновик без этих полей тоже устарел.
 4. Read the decisions journal `<vault>/notes/decisions-<slug>.md` if it exists — its answers bind the review.
 5. `codex login status` — expect «Logged in using ChatGPT». Remember the result; it decides Step 3.
 
 ## Step 2: Your own review — before Codex
-Read the diff (`git diff <base>...HEAD`) and, for every touched file, enough of the neighbours
+Read every repository's diff (`git -C <path> diff <base>...HEAD`) and, for every touched file, enough of the neighbours
 to see the real behaviour. Look for **correctness**: wrong types, nulls that reach code expecting
 values, changed error modes, broken invariants, missing test coverage for changed behaviour.
 Conventions and TZ-conformance belong to `/review` — not here.
@@ -41,8 +45,10 @@ Conventions and TZ-conformance belong to `/review` — not here.
 Write your findings down **now**, before Step 3, so Codex's list can't reshape yours. Each one:
 
 ```
-- `path/to/file.ext:<line>` — <what is wrong, one sentence>
+- `<repo>/path/to/file.ext:<line>` — <what is wrong, one sentence>
 ```
+
+Path is from the project root (`<repo>/` is omitted when `repo` = `.`).
 
 Nothing found → `находок нет`. An empty list is a real answer.
 
@@ -52,11 +58,14 @@ Save the list right away as a draft (Step 5 format, only the heading and the
 the repo: Codex reads both and would copy your list instead of giving its own.
 
 ## Step 3: Codex review
-Из cwd репозитория выполни один простой вызов без перенаправлений и подстановок:
+Из корня проекта — по одному простому вызову на репозиторий, без перенаправлений и подстановок:
 
 ```bash
-devflow codex-review --base <base> --title "<slug>"
+devflow codex-review --repo <repo> --base <base> --title "<slug>"
 ```
+
+Путь к manifest успешного вызова запиши в черновик рядом с репозиторием: повторный запуск берёт
+его оттуда и Codex по этому репозиторию не вызывает.
 
 Обёртка использует DEVNULL stdin и таймаут 600 секунд; request, полные раздельные stdout/stderr
 и manifest сохраняются в новом каталоге вне репозитория при любом исходе. Вход независим:
@@ -73,13 +82,13 @@ devflow codex-review --base <base> --title "<slug>"
 «tests could not be run» само по себе не находка. «No actionable regressions» при статическом
 чтении — слабый сигнал, не зелёный свет. Отдельный процесс не является песочницей ОС.
 
-**Codex unavailable** — нет авторизации (Step 1), бинаря, непустого ответа или вердикта;
-ненулевой exit, сигнал, timeout, ошибка cleanup, stderr с ошибкой авторизации/лимита.
+**Codex unavailable** — нет авторизации (Step 1), бинаря, непустого ответа или verdict block;
+non-zero exit, сигнал, timeout, ошибка cleanup, stderr с ошибкой авторизации или usage limit.
 Частичный текст не означает успешное мнение. Передай запасное мнение драйверу:
-stop and reply exactly
+after all repositories are tried, stop and reply exactly one line per failed repository
 
 ```
-SECOND_OPINION_NEEDED <slug> base=<base> reason=<one line>
+SECOND_OPINION_NEEDED <slug> repo=<repo> base=<base> reason=<one line>
 ```
 
 Драйвер запускает независимый `second-opinion` и передаёт его ответ дословно (см. Inputs).
@@ -108,15 +117,17 @@ line. For a confirmed finding, add the smallest fix that would close it, as a pr
 ```markdown
 # <slug> — кросс-ревью <YYYY-MM-DD>
 
-Ветка `<branch>` против `<base>`, <N> коммитов.
+Ветка `<branch>`; репозитории: `<repo>` (<N> коммитов против `<base>`), …
 
-Base: `<base SHA>`; HEAD: `<HEAD SHA>`; Diff: `<hash>`.
+Base/HEAD/Diff (по строке на репозиторий):
+- `<repo>` против `<base>`: Base `<base SHA>`; HEAD `<HEAD SHA>`; Diff `<hash>`.
 
 ## Собственное ревью (host=<host> model=<model>)
 <findings, or «находок нет»>
 
 ## Codex
-<findings as Codex reported them, priority kept, or «находок нет» / «пропущен: <why>»>
+### <repo>
+<findings as Codex reported them, priority kept, paths prefixed with `<repo>/`, or «находок нет» / «пропущен: <why>»>
 
 ## Проверка
 - <finding> — **<verdict>**. <what was run / what guards it>. Правка: `<one line>` (only if confirmed)
