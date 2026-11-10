@@ -2,8 +2,11 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from .documents import WorkflowError
@@ -126,6 +129,41 @@ def limits(path, threshold, max_age_min, now):
     return {'exhausted': blown(pct, resets_at), 'window': name, 'used_percentage': pct, 'resets_at': resets_at, 'at': at}
 
 
+BB_PLUGIN = 'provider-claude-code'
+BB_WINDOWS = {'five-hour': 'five_hour', 'weekly': 'seven_day'}
+
+
+def bb_rpc(binary, method, payload, timeout):
+    out = subprocess.run([binary, 'plugin', 'rpc', 'call', BB_PLUGIN, f'provider-usage.v1.{method}',
+                          '--input-file', '/dev/stdin', '--json'],
+                         input=json.dumps(payload), capture_output=True, text=True, timeout=timeout, check=True)
+    return json.loads(out.stdout)
+
+
+def bb_limits(now, timeout=5):
+    """Window percentages from bb's `provider-usage` RPC in rate-limits.json shape; None outside a bb thread or on any failure."""
+    if not os.environ.get('BB_THREAD_ID'):
+        return None
+    binary = shutil.which('bb')
+    if not binary:
+        return None
+    try:
+        resources = bb_rpc(binary, 'listResources', {}, timeout)['resources']
+        rid = next(r['id'] for r in resources if r.get('providerId') == 'claude-code')
+        usage = bb_rpc(binary, 'getResource', {'resourceId': rid, 'refresh': False}, timeout)['usage']
+        data = {}
+        for w in usage['windows'] if usage.get('status') == 'ok' else []:
+            name = BB_WINDOWS.get(w.get('kind'))
+            if name and w.get('model') is None and name not in data and isinstance(w.get('usedPercent'), (int, float)):
+                reset = datetime.fromisoformat(w['resetsAt'].replace('Z', '+00:00')).timestamp() if w.get('resetsAt') else None
+                data[name] = {'used_percentage': w['usedPercent'], 'resets_at': int(reset) if reset else None}
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError, StopIteration):
+        return None
+    if not data:
+        return None
+    return {**data, 'model': None, 'at': now, 'source': 'bb'}
+
+
 def agents_dir():
     return claude_dir() / 'agents'
 
@@ -221,7 +259,15 @@ def launch(phase, complexity=None, now=None):
     if policy is None:
         return {'policy': None}
     cfg = policy['limits']
-    signal = limits(limits_path(), cfg.get('threshold', 95), cfg.get('max_age_min', 10), time.time() if now is None else now)
+    now = time.time() if now is None else now
+    args = (cfg.get('threshold', 95), cfg.get('max_age_min', 10), now)
+    signal = limits(limits_path(), *args)
+    if signal is None and (fresh := bb_limits(now)):
+        try:
+            atomic_write(limits_path(), json.dumps(fresh) + '\n')
+            signal = limits(limits_path(), *args)
+        except OSError:
+            pass
     exhausted = bool(signal and signal['exhausted'])
     claude = resolve(policy, 'claude', phase, complexity, exhausted)
     pi = resolve(policy, 'pi', phase, complexity, exhausted) if phase in policy['pi'] else None

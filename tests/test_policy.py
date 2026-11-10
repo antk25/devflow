@@ -376,3 +376,71 @@ def test_pi_row_with_harness_claude_is_a_config_error(tmp_path, example):
     path.write_text(json.dumps(example))
     with pytest.raises(WorkflowError, match='pi/implement/default: a pi session cannot run harness claude'):
         policy.load(path)
+
+
+BB_USAGE = documents.Path(__file__).resolve().parent / 'fixtures/bb-provider-usage.json'
+BB_RESOURCES = '{"resources": [{"id": "[\\"host_x\\",\\"claude-code\\"]", "providerId": "claude-code"}]}'
+
+
+def fake_bb(tmp_path, monkeypatch, body=None):
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    calls = tmp_path / 'bb-calls'
+    body = body or (f'case "$5" in *listResources) echo \'{BB_RESOURCES}\';; '
+                    f'*getResource) cat >/dev/null; cat {BB_USAGE};; esac')
+    script = bin_dir / 'bb'
+    script.write_text(f'#!/bin/sh\necho "$*" >> {calls}\n{body}\n')
+    script.chmod(0o755)
+    monkeypatch.setenv('PATH', f'{bin_dir}:/usr/bin:/bin')
+    return calls
+
+
+@pytest.fixture
+def bb_route(ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('BB_THREAD_ID', 'thr_test')
+    rl = limits_file(tmp_path / 'rl.json', time.time(), at=time.time() - 3600)
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(rl))
+    return rl
+
+
+def test_route_takes_limits_from_bb_when_file_stale(bb_route, ready, monkeypatch, tmp_path):
+    calls = fake_bb(tmp_path, monkeypatch)
+    out = workflow.route(ready['ctx'], ready['db'], 'x')
+    assert out['limits']['window'] == 'five_hour' and out['limits']['used_percentage'] == 97
+    assert out['limits']['exhausted'] is True and abs(out['limits']['at'] - time.time()) < 60
+    assert out['launch']['claude']['model'] == 'opus'
+    saved = json.loads(bb_route.read_text())
+    assert saved['source'] == 'bb' and saved['seven_day']['used_percentage'] == 51
+    assert 'getResource' in calls.read_text()
+
+
+def test_route_outside_bb_thread_never_calls_bb(bb_route, ready, monkeypatch, tmp_path):
+    monkeypatch.delenv('BB_THREAD_ID')
+    calls = fake_bb(tmp_path, monkeypatch)
+    assert workflow.route(ready['ctx'], ready['db'], 'x')['limits'] is None
+    assert not calls.exists()
+
+
+@pytest.mark.parametrize('body', ['exit 3', 'echo not-json', 'sleep 3'])
+def test_route_bb_failure_leaves_limits_none(bb_route, ready, monkeypatch, tmp_path, body):
+    fake_bb(tmp_path, monkeypatch, body)
+    before = bb_route.read_text()
+    original = policy.bb_limits
+    monkeypatch.setattr(policy, 'bb_limits', lambda now: original(now, timeout=1))
+    assert workflow.route(ready['ctx'], ready['db'], 'x')['limits'] is None
+    assert bb_route.read_text() == before
+
+
+def test_route_without_bb_binary(bb_route, ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('PATH', str(tmp_path / 'empty'))
+    assert workflow.route(ready['ctx'], ready['db'], 'x')['limits'] is None
+
+
+def test_route_fresh_file_skips_bb(ready, monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE))
+    monkeypatch.setenv('BB_THREAD_ID', 'thr_test')
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(limits_file(tmp_path / 'rl.json', time.time())))
+    calls = fake_bb(tmp_path, monkeypatch)
+    assert workflow.route(ready['ctx'], ready['db'], 'x')['limits']['exhausted'] is True
+    assert not calls.exists()
