@@ -182,6 +182,8 @@ shares or reads when the task comes back.
 
 ## Проверка покрытия
 After Step 5, before Step 6, run `devflow check <slug> --run <run-id>`.
+`devflow check` и `devflow finish` — отдельными вызовами Bash, никогда через `;`/`&&`: `finish` только
+после того, как ты прочёл вывод `check` и разобрал флаги.
 Jev never blocks; it only points at criteria your changelog section doesn't evidence.
 - `skipped` because `jev` is not enabled in `AGENTS.md` → do nothing: no changelog line, no action.
 - Any other `skipped` → add one line to `### Tests`: «проверка Jev не выполнялась: <reason>».
@@ -197,6 +199,8 @@ Run `devflow finish <run-id> --status <done|partial|blocked>
 A done result requires unchanged approved documents. If it is rejected, report the error; never
 claim the step closed. The command is idempotent for the same run section. Reuse that section
 when recovering; do not append a duplicate run marker.
+Changelog задачи общий для всех прогонов: правь только свою секцию (от своего
+`<!-- devflow-run: <run-id> -->` до следующего), через Edit с уникальной строкой. `sed` по файлу целиком запрещён.
 
 ## Return to the driver
 Compact hand-off (goes to the driver, not the user):
