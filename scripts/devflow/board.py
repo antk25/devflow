@@ -565,6 +565,14 @@ def load(state: Path) -> dict | None:
         return None
 
 
+def local(registry: dict | None = None, now: datetime | None = None) -> dict:
+    """Tasks from df state and vaults only: no Jira, gh or transcripts, no snapshot write."""
+    now = now or datetime.now(timezone.utc)
+    collected = collect_tasks(registry or load_registry(registry_path(ROOT)), now)
+    return {'generated': now.isoformat(timespec='seconds'), 'tasks': order(collected['tasks'], now),
+            'errors': collected['errors']}
+
+
 def snapshot(state: Path = STATE_DIR, refresh: bool = False) -> dict:
     return (None if refresh else load(state)) or build(state)
 
@@ -572,8 +580,9 @@ def snapshot(state: Path = STATE_DIR, refresh: bool = False) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog='devflow board')
     ap.add_argument('--refresh', action='store_true')
+    ap.add_argument('--local', action='store_true')
     args = ap.parse_args(argv)
-    print(json.dumps(snapshot(refresh=args.refresh), ensure_ascii=False, indent=2))
+    print(json.dumps(local() if args.local else snapshot(refresh=args.refresh), ensure_ascii=False, indent=2))
     return 0
 
 

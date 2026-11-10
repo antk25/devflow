@@ -1,4 +1,4 @@
-"""Model/effort policy: host × phase × complexity → {model, effort}, read from a user-editable JSON."""
+"""Model/effort policy: session × phase × complexity → {harness, model, effort}, read from a user-editable JSON."""
 import json
 import os
 import re
@@ -42,6 +42,16 @@ def load(path):
                   if not isinstance(policy[host], dict) or 'default' not in policy[host].get(phase, {})]
     if incomplete:
         raise WorkflowError(f'Model policy {path} has no default column for: ' + ', '.join(incomplete))
+    for host in ('claude', 'pi'):
+        for phase, columns in policy[host].items():
+            if phase == 'roles' or not isinstance(columns, dict):
+                continue
+            for column, entry in columns.items():
+                harness = entry.get('harness', host) if isinstance(entry, dict) else None
+                if not isinstance(harness, str) or not harness:
+                    raise WorkflowError(f'Model policy {path} {host}/{phase}/{column}: harness must be a non-empty string')
+                if host == 'pi' and harness == 'claude':
+                    raise WorkflowError(f'Model policy {path} {host}/{phase}/{column}: a pi session cannot run harness claude')
     return policy
 
 
@@ -59,7 +69,7 @@ def resolve(policy, host, phase, complexity=None, exhausted=False):
     else:
         column = 'default'
     entry = columns[column]
-    return {'model': entry['model'], 'effort': entry['effort'], 'column': column}
+    return {'model': entry['model'], 'effort': entry['effort'], 'column': column, 'harness': entry.get('harness', host)}
 
 
 def alias(model_id):
@@ -218,8 +228,9 @@ def launch(phase, complexity=None, now=None):
     return {'policy': str(path),
             'limits': signal,
             'policy_stale': installed_stale(policy),
-            'launch': {'claude': {'id': claude['model'], 'effort': claude['effort'], 'model': model, 'agent': agent},
-                       'pi': {'model': pi_model(pi)} if pi else None}}
+            'launch': {'harness': claude['harness'],
+                       'claude': {'id': claude['model'], 'effort': claude['effort'], 'model': model, 'agent': agent},
+                       'pi': {'model': pi_model(pi), 'harness': pi['harness']} if pi else None}}
 
 
 def main(argv):

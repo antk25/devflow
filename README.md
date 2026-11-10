@@ -111,12 +111,12 @@ is read from the local transcripts in `~/.claude/projects/` — nothing leaves t
 **Launch:**
 
 ```
-./start.sh                 interactive project menu → fable 5.1 driver
-./start.sh <project>       switch project → fable 5.1 driver
-./start.sh --current       current project → fable 5.1 driver
+./start.sh                 interactive project menu → Opus 5.5 high driver
+./start.sh <project>       switch project → Opus 5.5 high driver
+./start.sh --current       current project → Opus 5.5 high driver
 ```
 
-The driver session runs on fable 5.1; each phase agent gets its own model and effort from `~/.claude/devflow/model-policy.json` — see [Model per phase](#model-per-phase).
+The driver session (orchestrator) runs on Opus 5.5 high; it launches every phase through `devflow phase run --host <launch.harness>` (a separate `claude -p` / `codex exec` / `pi` process, no `Agent` tool), and each phase gets its own model and effort from `~/.claude/devflow/model-policy.json` — see [Model per phase](#model-per-phase). Fallback orchestrator — gpt-sol high.
 
 ---
 
@@ -213,7 +213,7 @@ After install, skills and agents are available in any Claude Code session. The s
 
 `start.sh` validates the registry, directory, Claude executable and project metadata before changing
 `active`. On a project's first launch it creates the local identity and database. It then runs
-`claude --model ${DEVFLOW_MODEL:-claude-fable-5-1}` — nothing else: the SessionStart hook and Git publication rules come
+`claude --model ${DEVFLOW_MODEL:-claude-opus-5-5} --effort ${DEVFLOW_EFFORT:-high}` (`--model`/`--effort` override) — nothing else: the SessionStart hook and Git publication rules come
 from the global `~/.claude/settings.json`, so a bare `claude` in the project directory gets the same
 environment. A project without `AGENTS.md` is not launched blind: the launcher points to
 `/project init <path>` and asks before continuing without context. A cancelled launch or failed
@@ -358,13 +358,20 @@ synthetic подтверждения редуктора — не реальна�
 `agents/<phase>.md` и колонок policy (см. [Install](#install)); до перезапуска `--check` печатает
 `STALE`, а `route` — `policy_stale`. Драйвер, `/standup`, `/review`, ревью-агенты и встроенный
 `/code-review` модель не пинят и идут на модели сессии (`./start.sh` — `claude --model
-${DEVFLOW_MODEL:-claude-fable-5-1}`).
+${DEVFLOW_MODEL:-claude-opus-5-5} --effort ${DEVFLOW_EFFORT:-high}`).
 
 **Сложность.** На гейте research драйвер спрашивает сложность по критерию исследования и пишет
 `devflow complexity <slug> --set <high|medium|low> --gate research`; рядом ложится теневая оценка
 Jev (`source=jev`, `applied=false`) для калибровки. `devflow route` по выбору отдаёт `launch`:
 для Claude Code — имя агента (`plan` или `plan-high`) и алиас модели при fallback, для pi —
 `provider/id:level` (`launch.pi.model`; приоритет `--model` > policy > `PI_*` > дефолт pi).
+
+**Харнес.** Каждая колонка строки может нести `harness` — кто исполняет фазу (`claude`, `codex`,
+`pi` или любой новый). Списка харнесов в коде нет: новый добавляется строкой policy. `route`
+отдаёт харнес колонки сессии Claude Code в `launch.harness`, харнес pi — в `launch.pi.harness`;
+у `fallback` свой `harness`. Без поля колонка читается как харнес своей сессии (`claude` или
+`pi`), поэтому старая policy работает без правок. Колонка pi с `harness: claude` — ошибка
+конфигурации: сессия pi не запускает claude.
 
 **Лимиты Fable.** Поток: `statusline → rate-limits.json → route`. Claude Code передаёт
 `rate_limits` только в статусную строку, поэтому в свой `~/.claude/statusline.sh` сразу после
@@ -475,7 +482,7 @@ devflow/
 ├── AGENTS.md                  — devflow's own AGENTS.md
 ├── AGENTS.md.template         — copy into other projects
 ├── install.sh                 — symlinks skills → ~/.claude/skills/, agents → ~/.claude/agents/
-├── start.sh                   — project launcher (fable 5.1 driver)
+├── start.sh                   — project launcher (Opus 5.5 high driver)
 ├── agents/
 │   └── research.md  plan.md  implement.md  crossreview.md  second-opinion.md   — phase agents (model pinned in frontmatter)
 ├── skills/

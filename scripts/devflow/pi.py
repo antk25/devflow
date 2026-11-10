@@ -11,8 +11,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import harness_claude, harness_codex, harness_pi, transcripts
 from .documents import WorkflowError, artifact, document
-from .policy import PHASES, load, policy_path, resolve_pi_role
+from .harness_pi import build_command
+from .policy import launch as launch_for
+from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
+from .storage import record_outcome
 from .workflow import interrupt, route, start
 
 PI_SETTINGS = Path.home() / '.pi/agent/settings.json'
@@ -22,6 +26,9 @@ INACTIVE = ('needs_init', 'invalid', 'migration_required', 'completed')
 PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), 'implement': ('ready',)}
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')
+HARNESSES = {'pi': harness_pi, 'claude': harness_claude, 'codex': harness_codex}
+REQUIRED_SECTIONS = {'research': ('## Problem', '## Recommendation'), 'plan': ('## Steps',), 'implement': ()}
+LIMITS_STALE = 'limits stale'
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
          'Write': ('write',), 'Edit': ('edit',)}
 CODEX_WARNING = 'Модели openai-codex в pi не запускаются — только в Codex'
@@ -166,11 +173,6 @@ def task_message(phase, ctx, state, step=None, run=None, note=None):
     if note:
         lines += ['', 'Замечание пользователя:', note.strip()]
     return '\n'.join(lines) + '\n'
-
-
-def build_command(body_file, tools, model_arg, message, options=('--no-session',)):
-    return ['pi', '-p', *options, '--append-system-prompt', str(body_file), '--tools', ','.join(tools),
-            *(['--model', model_arg] if model_arg else []), message]
 
 
 def _cleanup_process_group(child, grace=2.0):
@@ -340,26 +342,104 @@ def run_agent(ctx, role, message, model=None, env=None, timeout=600):
     return result
 
 
-def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False):
-    env = dict(os.environ if env is None else env)
-    current = route(ctx, db, slug)
-    at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
-    if replan and (phase != 'plan' or current['state'] != 'ready'):
-        raise WorkflowError('--replan requires phase plan in state ready')
-    if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
-        raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
+def check_artifact(path, started_at, required_sections):
+    """'ok' when the file was written by this run and has every required section, else the reason."""
+    if not path or not Path(path).is_file():
+        return 'артефакт не найден'
+    path = Path(path)
+    if path.stat().st_mtime < started_at:
+        return f'артефакт не изменён этим запуском: {path}'
+    text = path.read_text(encoding='utf-8')
+    lines = {line.rstrip() for line in text.splitlines()}
+    missing = [s for s in required_sections if s not in lines and not s.startswith('<!--')]
+    missing += [s for s in required_sections if s.startswith('<!--') and s not in text]
+    return 'нет разделов: ' + ', '.join(missing) if missing else 'ok'
+
+
+def phase_artifact(ctx, slug, phase, run=None):
+    if phase == 'implement':
+        found = sorted(Path(ctx['vault'], 'changelog').glob(f'*-{slug}.md'))
+        return (found[0] if len(found) == 1 else None), (f"<!-- devflow-run: {run['run_id']} -->",) if run else ()
+    folder = Path(ctx['vault'], 'research' if phase == 'research' else 'plans')
+    found = [p for p in folder.glob('*.md') if p.stem.lower() == slug.lower()]
+    return (found[0] if len(found) == 1 else folder / f'{slug}.md'), REQUIRED_SECTIONS[phase]
+
+
+def _pi_launch(ctx, phase, current, model, env):
     body, tools = agent_body(phase)
-    if not shutil.which('pi', path=env.get('PATH')):
-        raise WorkflowError('pi CLI is missing from PATH')
     policy = load(policy_path())
+    spec = (current.get('launch') or {}).get('claude') or {}
     if policy and phase not in policy['pi']:
-        raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
-    from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
+        if (current.get('launch') or {}).get('harness') != 'pi':
+            raise WorkflowError(PHASE_NOT_IN_PI.format(phase))
+        from_policy = spec['id'] + (':' + spec['effort'] if spec.get('effort') else '')
+    else:
+        from_policy = (current.get('launch', {}).get('pi') or {}).get('model')
     chosen = model_arg(env, model or from_policy)
     source = 'override' if model else 'policy' if from_policy else 'env' if chosen else 'default'
     ensure_pi_model(chosen, settings_path(env))
     shared_instructions(Path(env.get('DEVFLOW_INSTRUCTIONS', SHARED_INSTRUCTIONS)))
     extension_path(env)
+    return chosen, source, lambda message: _run_process(ctx, phase, body, tools, chosen, message, env)
+
+
+def _claude_launch(ctx, phase, current, model, env):
+    spec = (current.get('launch') or {}).get('claude') or {}
+    chosen = model or spec.get('id') or spec.get('model')
+    if not chosen:
+        raise WorkflowError('Модель claude не задана: нет model-policy и --model')
+    tools = [t.strip() for t in str(document(AGENTS / f'{phase}.md')['meta'].get('tools', '')).split(',') if t.strip()]
+
+    def launch(message):
+        argv = harness_claude.build_command(spec.get('agent') or phase, chosen, spec.get('effort'), tools, message,
+                                            add_dirs=(ctx['vault'],))
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+    return chosen, 'override' if model else 'policy', launch
+
+
+def _codex_launch(ctx, phase, current, model, env):
+    launch_spec = current.get('launch') or {}
+    spec, from_policy = launch_spec.get('claude') or {}, None
+    if launch_spec.get('harness') == 'codex':
+        from_policy = spec.get('id')
+    elif (launch_spec.get('pi') or {}).get('harness') == 'codex':
+        from_policy, _, effort = launch_spec['pi']['model'].partition(':')
+        spec = {'id': from_policy, 'effort': effort or None}
+    chosen = model or from_policy
+    if not chosen:
+        raise WorkflowError('Модель codex не задана: в policy нет строки harness: codex и нет --model')
+    body, _ = agent_body(phase)
+
+    def launch(message):
+        argv = harness_codex.build_command(chosen, spec.get('effort') if from_policy else None,
+                                           harness_codex.prompt(body, message), ctx['cwd'], add_dirs=(ctx['vault'],))
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+    return chosen, 'override' if model else 'policy', launch
+
+
+def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host=None):
+    env = dict(os.environ if env is None else env)
+    current = route(ctx, db, slug)
+    if current.get('phase') not in (None, phase) and current.get('policy'):
+        current = {**current, **launch_for(phase, (current.get('complexity') or {}).get('value'))}
+    host = host or ((current.get('launch') or {}).get('pi') or {}).get('harness') or 'pi'
+    if host not in HARNESSES:
+        raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))
+    harness = HARNESSES[host]
+    at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
+    if replan and (phase != 'plan' or current['state'] != 'ready'):
+        raise WorkflowError('--replan requires phase plan in state ready')
+    if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
+        raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
+    if not shutil.which(host, path=env.get('PATH')):
+        raise WorkflowError(f'{host} CLI is missing from PATH')
+    if host == 'claude':
+        chosen, source, launch = _claude_launch(ctx, phase, current, model, env)
+    elif host == 'codex':
+        chosen, source, launch = _codex_launch(ctx, phase, current, model, env)
+    else:
+        chosen, source, launch = _pi_launch(ctx, phase, current, model, env)
+    complexity = (current.get('complexity') or {}).get('value')
     run = None
     if phase == 'implement':
         step = step or current['step']
@@ -368,17 +448,40 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         run = start(ctx, db, current['slug'], step, current['revision'])
         if step != current['step']:
             current = dict(current, n=None)
+
+    def outcome(status, parsed):
+        record_outcome(db, current['slug'], phase, host, chosen, complexity, status,
+                       parsed.get('tokens'), parsed.get('cost'), run and run['run_id'])
+
+    started_at = time.time() - 1
     try:
-        proc = _run_process(ctx, phase, body, tools, chosen, task_message(phase, ctx, current, step, run, note), env)
+        proc = launch(task_message(phase, ctx, current, step, run, note))
     except OSError as exc:
+        outcome('failed', {})
         if run:
-            interrupt(db, run['run_id'], f'pi failed to launch: {exc}')
-        raise WorkflowError(f'pi failed to launch: {exc}')
+            interrupt(db, run['run_id'], f'{host} failed to launch: {exc}')
+        raise WorkflowError(f'{host} failed to launch: {exc}')
+    parsed = harness.parse(proc.stdout, proc.stderr, proc.returncode)
+    path, sections = phase_artifact(ctx, current['slug'], phase, run)
+    check = check_artifact(path, started_at, sections)
+    status = 'ok' if parsed['status'] == 'ok' and check == 'ok' else 'failed'
+    outcome(status, parsed)
+    if host == 'claude' and parsed.get('session_id'):
+        transcripts.mark_session(parsed['session_id'], current['slug'])
     after = route(ctx, db, current['slug'])
-    result = {'phase': phase, 'slug': current['slug'], 'model': chosen, 'model_source': source, 'exit_code': proc.returncode,
-              'report': proc.stdout, 'stderr': proc.stderr, 'route': after}
+    result = {'phase': phase, 'slug': current['slug'], 'host': host, 'status': status,
+              'artifact': str(path) if path else None, 'tokens': parsed['tokens'], 'cost': parsed['cost'],
+              'session_id': parsed['session_id'], 'model': chosen, 'model_source': source,
+              'exit_code': proc.returncode, 'report': parsed.get('report', proc.stdout), 'stderr': proc.stderr, 'route': after}
+    if status == 'failed':
+        result['reason'] = check if check != 'ok' else 'ошибка процесса или пустой ответ'
+    warnings = []
     if run:
         result['run_id'] = run['run_id']
         if after['state'] == 'running':
-            result['warning'] = RUNNING_WARNING
+            warnings.append(RUNNING_WARNING)
+    if current.get('policy') and current.get('limits') is None and limits_path().is_file():
+        warnings.append(LIMITS_STALE)
+    if warnings:
+        result['warning'] = '; '.join(warnings)
     return result

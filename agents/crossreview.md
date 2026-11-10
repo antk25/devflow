@@ -29,7 +29,8 @@ result in the vault. **You change nothing in the repository.**
    Сохрани base, HEAD и хеш diff в черновике. При повторном запуске сравни все три: изменение
    делает черновик и запасное мнение устаревшими. Не используй их; верни `REVIEW_STALE <slug>`
    драйверу для нового независимого цикла. Старый черновик без этих полей тоже устарел.
-4. `codex login status` — expect «Logged in using ChatGPT». Remember the result; it decides Step 3.
+4. Read the decisions journal `<vault>/notes/decisions-<slug>.md` if it exists — its answers bind the review.
+5. `codex login status` — expect «Logged in using ChatGPT». Remember the result; it decides Step 3.
 
 ## Step 2: Your own review — before Codex
 Read the diff (`git diff <base>...HEAD`) and, for every touched file, enough of the neighbours
@@ -130,6 +131,11 @@ Reply with the summary only — no diff, no raw Codex output:
 Первым чинить: <one line, or «нечего»>.
 Заметка: <absolute path>
 ```
+
+## Развилка — blocked
+If an earlier note for this slug exists and this is the second review round without convergence,
+or a confirmed finding from the previous round came back, return
+`blocked: вопрос: <finding and the decision needed>` to the driver instead of the summary.
 
 ## Rules
 - **Read-only on the repository.** Your Write is for the vault note only. No edits, commits,

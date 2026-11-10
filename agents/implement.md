@@ -26,8 +26,9 @@ not "just finish the next one while you're here".
 2. Require the driver-provided **run ID, step ID and plan revision**. Run
    `devflow status <slug>` and verify this is the active run, step and revision, with `documents_changed: false`.
    Do not create a second run. Missing state or mismatched input → stop and report it.
-3. Read the returned `plan_path` and, if needed, `research_path`. Execute only the section `### <step-id>: <title>`.
-4. Note the current git branch. Do not push or create PRs from this agent; the driver or user publishes.
+3. Read the decisions journal `<vault>/notes/decisions-<slug>.md` if it exists — its answers bind this run.
+4. Read the returned `plan_path` and, if needed, `research_path`. Execute only the section `### <step-id>: <title>`.
+5. Note the current git branch. Do not push or create PRs from this agent; the driver or user publishes.
 
 ## Step 2: Execute your step
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.
@@ -85,6 +86,16 @@ and return to the driver if:
 - **The plan diverges from reality** — a step's assumption is false, a file/contract isn't as
   planned. Don't improvise a redesign; report it so the user can revise the plan.
 - A step turns out **much bigger** than planned.
+
+**Развилки (D3)** — stop as `blocked` with `--reason "вопрос: <one concrete question>"` when:
+1. **Вне плана** — a file or module outside the step's `Files` is needed.
+2. **Контракт** — a public contract changes (API, DB schema, migration, `df`/vault format).
+3. **Правка теста** — an existing test would have to change.
+4. **2 красные попытки** — tests are still red after two attempts to fix them.
+5. **Необратимое действие** — an irreversible or external action beyond the global conventions.
+6. **Бюджет** — the phase spent more than the router budget (tokens or harness limit).
+Everything else (names, internal structure, equivalent implementations) you decide yourself and
+append to the decisions journal.
 
 ## Красная петля — когда что-то сломалось
 Applies the moment you are about to explain **why** something fails — a red test, a wrong value, an

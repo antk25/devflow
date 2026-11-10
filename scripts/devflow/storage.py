@@ -10,6 +10,11 @@ from pathlib import Path
 
 from .documents import WorkflowError
 
+OUTCOMES = '''
+CREATE TABLE IF NOT EXISTS outcomes (
+ id INTEGER PRIMARY KEY, at TEXT NOT NULL, slug TEXT NOT NULL, phase TEXT NOT NULL, harness TEXT NOT NULL,
+ model TEXT, complexity TEXT, status TEXT NOT NULL, tokens INTEGER, cost REAL, run_id TEXT);
+'''
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS project (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -31,7 +36,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS single_running ON runs(status) WHERE status='r
 CREATE TABLE IF NOT EXISTS events (
  id INTEGER PRIMARY KEY, at TEXT NOT NULL, action TEXT NOT NULL, slug TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS migrations (slug TEXT PRIMARY KEY, old_revision TEXT NOT NULL, new_revision TEXT NOT NULL);
-'''
+''' + OUTCOMES
+SCHEMA_VERSION = 2
 
 
 def now():
@@ -105,10 +111,13 @@ def _connect(ctx, create, fresh):
         empty = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
         if create and (not existing or (fresh and empty)):
             db.executescript('BEGIN IMMEDIATE;\n' + SCHEMA)
-            db.execute('INSERT INTO project VALUES (?, 1)', (ident,))
+            db.execute('INSERT INTO project VALUES (?, ?)', (ident, SCHEMA_VERSION))
             db.execute('COMMIT')
         row = db.execute('SELECT * FROM project').fetchall()
-        if len(row) != 1 or row[0]['id'] != ident or row[0]['schema_version'] != 1:
+        if len(row) == 1 and row[0]['id'] == ident and row[0]['schema_version'] == 1:
+            db.executescript('BEGIN IMMEDIATE;\n' + OUTCOMES + 'UPDATE project SET schema_version=2;\nCOMMIT;')
+            row = db.execute('SELECT * FROM project').fetchall()
+        if len(row) != 1 or row[0]['id'] != ident or row[0]['schema_version'] != SCHEMA_VERSION:
             raise WorkflowError('Unsupported database version or mismatched project identity')
         return db
     except BaseException:
@@ -141,3 +150,10 @@ def remember(db, slug, phase, doc):
 def approved(db, slug, phase, doc):
     return bool(doc and db.execute('SELECT 1 FROM approvals WHERE slug=? AND phase=? AND revision=?',
                                   (slug, phase, doc['revision'])).fetchone())
+
+
+def record_outcome(db, slug, phase, harness, model, complexity, status, tokens, cost, run_id):
+    with transaction(db):
+        db.execute('INSERT INTO outcomes(at,slug,phase,harness,model,complexity,status,tokens,cost,run_id) '
+                   'VALUES (?,?,?,?,?,?,?,?,?,?)',
+                   (now(), slug, phase, harness, model, complexity, status, tokens, cost, run_id))
