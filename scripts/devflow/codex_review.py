@@ -1,16 +1,20 @@
 """Narrow, state-independent transport for the installed Codex review CLI."""
 import json
 import math
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
+from .documents import WorkflowError
+from .guard import git_output
 from .pi import _cleanup_process_group
 
 
-def run_review(ctx, *, base=None, commit=None, uncommitted=False, message_file=None,
+def run_review(ctx, *, repo=None, base=None, commit=None, uncommitted=False, message_file=None,
                title=None, timeout=600):
-    cwd = Path(ctx['cwd']).resolve()
+    project = Path(ctx['cwd']).resolve()
+    cwd = Path(repo if repo is not None else project).resolve()
     roots = [Path('/tmp').resolve(), Path('/var/tmp').resolve()]
     root = next((p for p in roots if p != cwd and not p.is_relative_to(cwd)), None)
     if root is None:
@@ -24,6 +28,13 @@ def run_review(ctx, *, base=None, commit=None, uncommitted=False, message_file=N
     try:
         Path(result['request']).write_text('', encoding='utf-8')
         with Path(result['stdout']).open('wb') as out, Path(result['stderr']).open('wb') as err:
+            if cwd != project and not cwd.is_relative_to(project):
+                raise ValueError(f'Repository {cwd} is outside project {project}')
+            if not (cwd / '.git').exists():
+                top = next((p for p in cwd.parents if (p / '.git').exists()), None)
+                if top is not None:
+                    raise ValueError(f'{cwd} is inside repository {top}, not its root; run from {top}')
+                raise ValueError(f'{cwd} is not a git repository; in a metarepo pass --repo <subdirectory>')
             if sum((base is not None, commit is not None, bool(uncommitted), message_file is not None)) != 1:
                 raise ValueError('Exactly one review mode is required')
             if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
@@ -72,3 +83,54 @@ def run_review(ctx, *, base=None, commit=None, uncommitted=False, message_file=N
         result['error'] = 'Empty Codex response; review incomplete'
     Path(result['manifest']).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     return result
+
+
+def _origin_head(path):
+    return git_output(path, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD').removeprefix('origin/') or None
+
+
+def _base_error(path, base):
+    if base is None:
+        return None
+    if git_output(path, 'rev-parse', '--verify', '--quiet', f'refs/heads/{base}'):
+        return None
+    return f'Base {base} has no local branch; run git -C {path} branch {base} origin/{base}'
+
+
+def review_repos(ctx, slug):
+    match = re.match(r'([a-z]+-\d+)(?:-|$)', slug.lower())
+    if not match:
+        raise WorkflowError(f'No task key in slug {slug!r}')
+    key = match.group(1).upper()
+    root = Path(ctx['cwd']).resolve()
+    if (root / '.git').exists():
+        agents = root / 'AGENTS.md'
+        text = agents.read_text(encoding='utf-8') if agents.is_file() else ''
+        found = re.search(r'^\s*-\s*Base branch:\s*`([^`]+)`', text, re.M)
+        base = found.group(1) if found else _origin_head(root)
+        repo = dict(repo='.', path=str(root), branch=git_output(root, 'branch', '--show-current') or None,
+                    base=base, head=git_output(root, 'rev-parse', 'HEAD') or None, error=None)
+        repo['error'] = 'No Base branch in AGENTS.md and no origin/HEAD' if base is None else _base_error(root, base)
+        return {'key': key, 'repos': [repo]}
+    token = re.compile(rf'(?<![a-z0-9]){re.escape(key.lower())}(?!\d)')
+    repos = []
+    for path in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith('.') and (p / '.git').exists()):
+        branches = [b for b in git_output(path, 'branch', '--format=%(refname:short)').splitlines()
+                    if token.search(b.lower())]
+        if not branches:
+            continue
+        current = git_output(path, 'branch', '--show-current')
+        repo = dict(repo=path.name, path=str(path), branch=None, base=_origin_head(path),
+                    head=git_output(path, 'rev-parse', 'HEAD') or None, error=None)
+        if current in branches:
+            repo['branch'] = current
+        elif len(branches) == 1:
+            repo.update(branch=branches[0], error=f'Task branch {branches[0]} is not checked out')
+        else:
+            repo['error'] = f'Several task branches, none checked out: {", ".join(branches)}'
+        if repo['base'] is None and repo['error'] is None:
+            repo['error'] = 'No origin/HEAD'
+        if repo['error'] is None:
+            repo['error'] = _base_error(path, repo['base'])
+        repos.append(repo)
+    return {'key': key, 'repos': repos}

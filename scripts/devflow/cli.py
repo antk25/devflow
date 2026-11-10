@@ -43,7 +43,8 @@ def parser():
     g = a.add_mutually_exclusive_group(required=True)
     g.add_argument('--base'); g.add_argument('--commit'); g.add_argument('--uncommitted', action='store_true')
     g.add_argument('--message-file', type=Path)
-    a.add_argument('--title')
+    a.add_argument('--title'); a.add_argument('--repo', type=Path)
+    a = commands.add_parser('review-repos'); a.add_argument('slug')
     a = commands.add_parser('active'); a.add_argument('--limit', type=int, default=5)
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
@@ -107,9 +108,13 @@ def execute(args):
     if args.command == 'handoff' and args.handoff_command == 'slug':
         return {'slug': compact.session_slug(ctx['vault'], args.session) or compact.branch_slug(ctx['vault'], ctx['cwd'])}
     if args.command == 'codex-review':
-        return codex_review.run_review(ctx, base=args.base, commit=args.commit,
+        root, here = Path(ctx['cwd']).resolve(), Path(args.cwd).resolve()
+        repo = root / args.repo if args.repo else here if here.is_relative_to(root) else root
+        return codex_review.run_review(ctx, repo=repo, base=args.base, commit=args.commit,
                                        uncommitted=args.uncommitted, message_file=args.message_file,
                                        title=args.title)
+    if args.command == 'review-repos':
+        return codex_review.review_repos(ctx, args.slug)
     if args.command == 'agent':
         return pi.run_agent(ctx, args.role, args.message_file.read_text(encoding='utf-8'),
                             model=args.model, timeout=args.timeout)

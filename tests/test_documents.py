@@ -123,6 +123,40 @@ def test_context_without_agents_md_is_human_readable(tmp_path, monkeypatch, caps
     assert 'Errno' not in err['error']
 
 
+def _project(root, vault, name='p'):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'AGENTS.md').write_text(f'---\nproject: {name}\nvault: {vault}\n---\n', encoding='utf-8')
+
+
+def test_context_found_from_nested_subdirectory(tmp_path):
+    vault = tmp_path / 'vault'
+    vault.mkdir()
+    _project(tmp_path / 'root', vault)
+    nested = tmp_path / 'root' / 'a' / 'b'
+    nested.mkdir(parents=True)
+    ctx = documents.context(nested)
+    assert ctx['cwd'] == (tmp_path / 'root').resolve()
+    assert ctx['vault'] == vault.resolve()
+
+
+def test_context_relative_vault_resolved_from_project_root(tmp_path):
+    (tmp_path / 'root' / 'notes').mkdir(parents=True)
+    _project(tmp_path / 'root', 'notes')
+    nested = tmp_path / 'root' / 'sub'
+    nested.mkdir()
+    assert documents.context(nested)['vault'] == (tmp_path / 'root' / 'notes').resolve()
+
+
+def test_context_nearest_agents_md_wins(tmp_path):
+    vault = tmp_path / 'vault'
+    vault.mkdir()
+    _project(tmp_path / 'root', vault, 'outer')
+    _project(tmp_path / 'root' / 'inner', vault, 'inner')
+    (tmp_path / 'root' / 'inner' / 'x').mkdir()
+    ctx = documents.context(tmp_path / 'root' / 'inner' / 'x')
+    assert ctx['project'] == 'inner' and ctx['cwd'] == (tmp_path / 'root' / 'inner').resolve()
+
+
 def test_tz_under_jira_key_found_by_full_slug(tmp_path):
     (tmp_path / 'tz').mkdir()
     (tmp_path / 'tz' / 'SE-2298.md').write_text('# SE-2298\n', encoding='utf-8')

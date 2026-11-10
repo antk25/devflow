@@ -51,10 +51,11 @@ def document(path):
 
 
 def context(cwd):
-    cwd = Path(cwd).resolve()
+    start = Path(cwd).resolve()
+    cwd = next((d for d in (start, *start.parents) if (d / 'AGENTS.md').is_file()), None)
+    if cwd is None:
+        raise WorkflowError(f'No AGENTS.md in {start}; connect the project with /project init')
     agents = cwd / 'AGENTS.md'
-    if not agents.is_file():
-        raise WorkflowError(f'No AGENTS.md in {cwd}; connect the project with /project init')
     meta = document(agents)['meta']
     for key in ('project', 'vault'):
         if not isinstance(meta.get(key), str) or not meta[key].strip():

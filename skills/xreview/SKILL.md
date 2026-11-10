@@ -48,6 +48,9 @@ devflow codex-review --commit <sha>
 devflow codex-review --uncommitted
 ```
 
+В метарепозитории (корень с `AGENTS.md` без своего `.git`) укажи подрепозиторий:
+`devflow codex-review --repo <repo> --base <base>`.
+
 Это альтернативы, не три последовательных ревью. Не сочетай позиционный prompt с
 `--base`/`--commit`/`--uncommitted`: некоторые версии CLI запрещают это.
 Для произвольной ветки, диапазона или focus подготовь `<tmp>/request.md` с точной целью,
