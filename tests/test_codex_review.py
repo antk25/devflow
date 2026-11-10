@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture
 def transport(tmp_path, monkeypatch):
     ctx = {'cwd': tmp_path / 'repo'}
-    ctx['cwd'].mkdir()
+    (ctx['cwd'] / '.git').mkdir(parents=True)
     calls = []
     children = []
     state = dict(code=0, stdout=b'codex\nNo actionable regressions\n' * 4096,
@@ -93,7 +93,7 @@ def test_modes_and_full_streams(transport, tmp_path, mode, monkeypatch):
     again = codex_review.run_review(ctx, uncommitted=True)
     assert again['manifest'] != result['manifest']
     assert Path(result['manifest']).read_bytes() == before
-    assert list(ctx['cwd'].iterdir()) == []
+    assert [p.name for p in ctx['cwd'].iterdir()] == ['.git']
 
 
 @pytest.mark.parametrize('kwargs', [dict(), dict(base='main', commit='abc'),
@@ -155,13 +155,47 @@ def test_cli_before_connect(transport, monkeypatch):
             cli.parser().parse_args(['codex-review', *args])
 
 
+def test_cli_repo_runs_in_subrepository(transport, monkeypatch):
+    ctx, calls, _, _ = transport
+    sub = ctx['cwd'] / 'sub'
+    (sub / '.git').mkdir(parents=True)
+    monkeypatch.setattr(cli, 'context', lambda cwd: ctx)
+    result = cli.execute(cli.parser().parse_args(
+        ['--cwd', str(ctx['cwd']), 'codex-review', '--repo', 'sub', '--base', 'main']))
+    assert calls[0][1]['cwd'] == sub.resolve() and result['cwd'] == str(sub.resolve())
+    assert calls[0][0] == ['codex', 'review', '--base', 'main'] and result['exit_code'] == 0
+    evidence(result, {'cwd': sub})
+
+
+def test_cli_without_repo_keeps_root_behaviour(transport, monkeypatch):
+    ctx, calls, _, _ = transport
+    monkeypatch.setattr(cli, 'context', lambda cwd: ctx)
+    result = cli.execute(cli.parser().parse_args(['--cwd', str(ctx['cwd']), 'codex-review', '--base', 'main']))
+    assert calls[0][0] == ['codex', 'review', '--base', 'main']
+    assert calls[0][1]['cwd'] == ctx['cwd'].resolve() and result['cwd'] == str(ctx['cwd'].resolve())
+
+
+@pytest.mark.parametrize('repo', ['../outside', 'plain', None])
+def test_bad_repository_refused_before_spawn(transport, monkeypatch, repo):
+    ctx, calls, _, _ = transport
+    meta = ctx['cwd'] / 'meta'
+    (meta / 'plain').mkdir(parents=True)
+    (ctx['cwd'] / 'outside' / '.git').mkdir(parents=True)
+    monkeypatch.setattr(cli, 'context', lambda cwd: {'cwd': meta})
+    result = cli.execute(cli.parser().parse_args(
+        ['--cwd', str(meta), 'codex-review', '--base', 'main'] + (['--repo', repo] if repo else [])))
+    assert calls == [] and result['exit_code'] == 1 and result['argv'] == []
+    assert ('outside project' if repo == '../outside' else '--repo') in result['error']
+    evidence(result, {'cwd': meta})
+
+
 def test_safe_fake_process_uses_existing_group_cleanup(tmp_path, monkeypatch):
     from devflow.pi import _cleanup_process_group
     fake = tmp_path / 'safe_fake.py'
     fake.write_text('import sys\nprint("codex\\nNo actionable regressions", flush=True)\n'
                     'print("fake diagnostic", file=sys.stderr, flush=True)\n')
     repo = tmp_path / 'repo'
-    repo.mkdir()
+    (repo / '.git').mkdir(parents=True)
     real_popen = subprocess.Popen
     children = []
 
@@ -199,7 +233,7 @@ def test_instructions_real_guard_and_failure_contract(tmp_path):
         commands = re.findall(r'(devflow codex-review[^`\n]*)', text)
         assert commands
         for command in commands:
-            command = (command.replace('<base>', 'main').replace('<sha>', 'abc123')
+            command = (command.replace('<base>', 'main').replace('<repo>', 'sub').replace('<sha>', 'abc123')
                        .replace('<slug>', 'task').replace('<tmp>', str(tmp_path)))
             args = shlex.split(command)
             assert args[:2] == ['devflow', 'codex-review']

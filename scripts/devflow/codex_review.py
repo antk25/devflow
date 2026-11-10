@@ -8,9 +8,10 @@ from pathlib import Path
 from .pi import _cleanup_process_group
 
 
-def run_review(ctx, *, base=None, commit=None, uncommitted=False, message_file=None,
+def run_review(ctx, *, repo=None, base=None, commit=None, uncommitted=False, message_file=None,
                title=None, timeout=600):
-    cwd = Path(ctx['cwd']).resolve()
+    project = Path(ctx['cwd']).resolve()
+    cwd = Path(repo if repo is not None else project).resolve()
     roots = [Path('/tmp').resolve(), Path('/var/tmp').resolve()]
     root = next((p for p in roots if p != cwd and not p.is_relative_to(cwd)), None)
     if root is None:
@@ -24,6 +25,10 @@ def run_review(ctx, *, base=None, commit=None, uncommitted=False, message_file=N
     try:
         Path(result['request']).write_text('', encoding='utf-8')
         with Path(result['stdout']).open('wb') as out, Path(result['stderr']).open('wb') as err:
+            if cwd != project and not cwd.is_relative_to(project):
+                raise ValueError(f'Repository {cwd} is outside project {project}')
+            if not (cwd / '.git').exists():
+                raise ValueError(f'{cwd} is not a git repository; in a metarepo pass --repo <subdirectory>')
             if sum((base is not None, commit is not None, bool(uncommitted), message_file is not None)) != 1:
                 raise ValueError('Exactly one review mode is required')
             if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
