@@ -309,3 +309,14 @@ def test_foreign_extension_fails_before_global_instructions_are_written(home):
     assert result.returncode != 0
     assert extension.read_text() == 'user extension'
     assert not (home / '.claude/devflow-instructions.md').exists()
+
+
+def test_non_claude_harness_columns_get_no_agent():
+    data = json.loads((ROOT / 'model-policy.example.json').read_text())
+    data['claude']['research']['default'] = {'harness': 'codex', 'model': 'gpt-6', 'effort': 'medium'}
+    data['claude']['plan']['high'] = {'harness': 'codex', 'model': 'gpt-6', 'effort': 'high'}
+    data['claude']['implement']['default'] = {'harness': 'codex', 'model': 'gpt-6', 'effort': 'low'}
+    names = policy.agent_names(data)
+    assert 'research' not in names and 'research-high' in names
+    assert 'plan' in names and 'plan-high' not in names
+    assert 'implement' not in names and 'implement-fallback' in names
