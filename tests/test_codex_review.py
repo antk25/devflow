@@ -255,3 +255,56 @@ def test_instructions_real_guard_and_failure_contract(tmp_path):
         verdict = permission_decision(dict(toolName='bash', input={'command': command},
                                            cwd=str(tmp_path)), [config])
         assert verdict['decision'] == 'deny' and verdict['rule'] == 'shell-uncertain'
+
+
+def git(path, *args):
+    subprocess.run(['git', '-C', str(path), *args], check=True, capture_output=True)
+
+
+def make_repo(path, default='main', branches=(), checkout=None):
+    path.mkdir(parents=True, exist_ok=True)
+    git(path, 'init', '-q', '-b', default)
+    git(path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
+    git(path, 'update-ref', f'refs/remotes/origin/{default}', 'HEAD')
+    git(path, 'symbolic-ref', 'refs/remotes/origin/HEAD', f'refs/remotes/origin/{default}')
+    for name in branches:
+        git(path, 'branch', name)
+    if checkout:
+        git(path, 'checkout', '-q', checkout)
+
+
+def test_review_repos_metarepo(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, 'connect', lambda *a, **k: pytest.fail('state opened'))
+    (tmp_path / 'v').mkdir()
+    (tmp_path / 'AGENTS.md').write_text('---\nproject: meta\nvault: v\n---\n')
+    make_repo(tmp_path / 'api', branches=['SE-7-x'], checkout='SE-7-x')
+    make_repo(tmp_path / 'shop', default='master', branches=['feature/se-7'], checkout='feature/se-7')
+    make_repo(tmp_path / 'idle', branches=['SE-7'])
+    make_repo(tmp_path / 'many', branches=['SE-7-a', 'SE-7-b'])
+    make_repo(tmp_path / 'other', branches=['SE-8'], checkout='SE-8')
+    make_repo(tmp_path / 'noorigin', branches=['SE-7'], checkout='SE-7')
+    git(tmp_path / 'noorigin', 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD')
+    make_repo(tmp_path / '.wt', branches=['SE-7'], checkout='SE-7')
+    result = cli.execute(cli.parser().parse_args(['--cwd', str(tmp_path), 'review-repos', 'se-7-faster']))
+    assert result['key'] == 'SE-7'
+    repos = {r['repo']: r for r in result['repos']}
+    assert list(repos) == ['api', 'idle', 'many', 'noorigin', 'shop']
+    assert (repos['api']['branch'], repos['api']['base'], repos['api']['error']) == ('SE-7-x', 'main', None)
+    assert (repos['shop']['branch'], repos['shop']['base'], repos['shop']['error']) == ('feature/se-7', 'master', None)
+    assert repos['api']['head'] and repos['api']['path'] == str(tmp_path / 'api')
+    assert 'not checked out' in repos['idle']['error']
+    assert 'Several' in repos['many']['error'] and repos['many']['branch'] is None
+    assert repos['noorigin']['error'] == 'No origin/HEAD'
+
+
+def test_review_repos_single_repository_root(tmp_path):
+    (tmp_path / 'AGENTS.md').write_text('---\nproject: one\nvault: v\n---\n- Base branch: `dev`\n')
+    make_repo(tmp_path, branches=['df-9-x'], checkout='df-9-x')
+    result = codex_review.review_repos({'cwd': tmp_path}, 'df-9-x')
+    assert [(r['repo'], r['branch'], r['base'], r['error']) for r in result['repos']] == [('.', 'df-9-x', 'dev', None)]
+
+
+def test_review_repos_empty_and_bad_slug(tmp_path):
+    assert codex_review.review_repos({'cwd': tmp_path}, 'se-1-x') == {'key': 'SE-1', 'repos': []}
+    with pytest.raises(codex_review.WorkflowError):
+        codex_review.review_repos({'cwd': tmp_path}, 'no-key-here')
