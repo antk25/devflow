@@ -220,6 +220,31 @@ environment. A project without `AGENTS.md` is not launched blind: the launcher p
 preflight leaves `active` unchanged; an immediate exec failure restores the previous selection.
 The hook obtains active documents from the same router used by `/devflow` and `/standup`.
 
+### Работа из bb
+
+[bb](https://getbb.app) — пульт над потоками Claude Code; devflow работает внутри без изменений.
+
+- **CLI `bb`** ставится штатно из bb: Settings → General → Command line → Install (ссылка
+  `~/.local/bin/bb` → `~/.bb/bin/bb`). Так CLI совпадает с версией сервера и обновляется вместе с
+  bb, не завися от nvm; `npm i -g bb-app` не нужен. «bb CLI skills» не ставить — они добавляют
+  преамбулу во все сессии. `bb` на `PATH` нужен для лимитов.
+- **Только окружение Project checkout** (`bb thread spawn --environment …`): поток работает в
+  каталоге проекта, где лежат `AGENTS.md`, база и ветка.
+- **Драйвер — поток bb**, фазы запускаются как обычно через `devflow phase run`.
+- **Гейт** в потоке bb задаётся только через `AskUserQuestion`; отвечает пользователь в интерфейсе bb.
+- **Плагин `waiting-on-you`** (очередь «ждут ответа») пользователь ставит сам: `install.sh`
+  сторонние плагины не ставит. `jev-please-proceed` не ставить — он отвечает на гейт вместо человека.
+- **guard** отклоняет `bb thread interactions answer|respond|approve|grant|deny` и `bb thread tell`
+  из Bash: агент не отвечает на вопросы потоков сам; чтение потоков разрешено.
+- **Лимиты подписки** при устаревшем `~/.claude/devflow/rate-limits.json` берутся из RPC bb
+  `provider-usage` — только в потоках bb (по `BB_THREAD_ID`); недельное окно Fable не учитывается.
+
+Граница: за devflow — состояние задачи, `outcomes`, маршрут, vault, model-policy и правило гейта;
+за bb — окно потоков, остановка, сжатие, уведомления, лимиты подписки.
+
+Известные ограничения: два потока в одном checkout мешают друг другу (общие рабочее дерево и
+ветка); остановка потока драйвера обрывает `phase run` — восстановление через `devflow route <slug>`.
+
 ### Ограничения инструментов pi
 
 Глобальное расширение проверяет каждый `tool_call` до исполнения через

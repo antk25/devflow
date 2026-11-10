@@ -1,0 +1,18 @@
+{
+  "accountKey": "anthropic:account:00000000-0000-0000-0000-000000000000",
+  "observedAt": 1794304692907,
+  "usage": {
+    "status": "ok",
+    "plan": {"id": "max", "multiplier": null},
+    "accountEmail": "user@example.com",
+    "planLabel": "Max",
+    "windows": [
+      {"kind": "five-hour", "id": "0:Current session", "label": "Current session", "usedPercent": 97,
+       "resetsAt": "2099-11-10T13:49:59.547Z", "model": null, "cost": null},
+      {"kind": "weekly", "id": "1:Weekly limit", "label": "Weekly limit", "usedPercent": 51,
+       "resetsAt": "2099-11-13T01:59:59.547Z", "model": null, "cost": null},
+      {"kind": "weekly", "id": "2:Fable", "label": "Fable", "usedPercent": 99,
+       "resetsAt": "2099-11-13T01:59:59.547Z", "model": "fable", "cost": null}
+    ]
+  }
+}
