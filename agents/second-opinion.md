@@ -38,4 +38,5 @@ Nothing found → `находок нет`.
 
 ## Rules
 - Read-only: no edits, commits, branches, push.
+- Не читать `<vault>/notes/*cross-review*` и `/tmp/devflow-crossreview/` — там чужое ревью этой ветки; независимость важнее контекста.
 - All prose Russian.

@@ -16,7 +16,7 @@ result in the vault. **You change nothing in the repository.**
 - The project cwd, the task slug, and the base branch — given to you by the driver.
 - Optionally `second-opinion:` with a findings list — the driver's second launch after
   `SECOND_OPINION_NEEDED`. Then do Step 1 (skip the `codex login status` check), take your own
-  list from `## Собственное ревью (host=… model=…)` (старый `## Claude (Opus 5.5)` также допустим) of the draft note instead of redoing Step 2, use the
+  list from `## Собственное ревью (host=… model=…)` (старый `## Claude (Opus 5.5)` также допустим) of the draft (`/tmp/devflow-crossreview/<slug>.md`) instead of redoing Step 2, use the
   given list in place of Codex and continue from Step 4.
 
 ## Step 1: Context
@@ -46,8 +46,10 @@ Write your findings down **now**, before Step 3, so Codex's list can't reshape y
 
 Nothing found → `находок нет`. An empty list is a real answer.
 
-Save the list right away as a draft of the note (Step 5 format, only the heading and the
-`## Собственное ревью (host=<host> model=<model>)` section и base/HEAD/diff hash) — a second launch picks it up from there.
+Save the list right away as a draft (Step 5 format, only the heading and the
+`## Собственное ревью (host=<host> model=<model>)` section и base/HEAD/diff hash) to
+`/tmp/devflow-crossreview/<slug>.md` — a second launch picks it up from there. Not in the vault and not in
+the repo: Codex reads both and would copy your list instead of giving its own.
 
 ## Step 3: Codex review
 Из cwd репозитория выполни один простой вызов без перенаправлений и подстановок:
@@ -101,7 +103,7 @@ result from a tool that crashed is not a zero** — check the exit code and the 
 line. For a confirmed finding, add the smallest fix that would close it, as a proposal only.
 
 ## Step 5: Write the note
-`<vault>/notes/<slug>-cross-review.md`, overwriting an earlier one (or your own draft) for the same slug:
+`<vault>/notes/<slug>-cross-review.md`, overwriting an earlier one for the same slug; the vault gets only this final note:
 
 ```markdown
 # <slug> — кросс-ревью <YYYY-MM-DD>

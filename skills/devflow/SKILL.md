@@ -128,7 +128,7 @@ summary and hold: the user decides whether to fix in session, `df reopen` a step
 finding. Run it once per task, not per step — Codex reads the branch against the base as a whole.
 If it replies `SECOND_OPINION_NEEDED <slug> base=<base> reason=…` (Codex unavailable), spawn a
 `second-opinion` agent with cwd, slug and base, then a fresh `crossreview` with the same inputs plus
-`second-opinion:` and its findings list verbatim. Its own review is already saved as a draft note, so
+`second-opinion:` and its findings list verbatim. Its own review is already saved as a draft in `/tmp/devflow-crossreview/<slug>.md`, so
 the second launch only verifies both lists and writes the note.
 В обоих хостах второе мнение получает только cwd/slug/base и base/HEAD/diff hash из черновика,
 никогда собственные находки первого обзора. Дословный ответ передаётся только новому crossreview.
