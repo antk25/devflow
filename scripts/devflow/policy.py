@@ -131,17 +131,19 @@ def agents_dir():
 
 
 def agent_names(policy):
-    """`<phase>` per phase, plus `<phase>-high` when that column differs and `<phase>-fallback` when its effort differs.
+    """Only columns run by harness claude get an agent: `<phase>` for default, plus `<phase>-high` when that column differs and `<phase>-fallback` when its effort differs.
 
     A fallback that changes only the model needs no agent: the driver passes the model alias at spawn time.
     """
     names = []
     for phase in PHASES:
-        columns = policy['claude'][phase]
-        names.append(phase)
-        if 'high' in columns and columns['high'] != columns['default']:
+        columns = {c: e for c, e in policy['claude'][phase].items() if e.get('harness', 'claude') == 'claude'}
+        default = columns.get('default')
+        if default:
+            names.append(phase)
+        if 'high' in columns and columns['high'] != default:
             names.append(phase + '-high')
-        if 'fallback' in columns and columns['fallback']['effort'] != columns['default']['effort']:
+        if 'fallback' in columns and (not default or columns['fallback']['effort'] != default['effort']):
             names.append(phase + '-fallback')
     return names
 

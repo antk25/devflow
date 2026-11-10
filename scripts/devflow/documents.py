@@ -93,6 +93,10 @@ def resolve_slug(vault, query):
 
 def artifact(vault, folder, slug):
     matches = [p for p in (vault / folder).glob('*.md') if p.stem.lower() == slug]
+    key = re.match(r'[a-z]+-\d+(?=-)', slug)
+    if not matches and folder == 'tz' and key:
+        # ТЗ из Jira лежит под ключом, а research и план — под полным слагом
+        matches = [p for p in (vault / folder).glob('*.md') if p.stem.lower() == key.group()]
     if len(matches) > 1:
         raise WorkflowError(f'Duplicate {folder} artifact for {slug}')
     return document(matches[0]) if matches else None
