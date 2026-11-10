@@ -78,3 +78,12 @@ def test_claude_session_is_pinned_to_task_for_tokens(proj, claude, isolated_ledg
     assert [task for _, task in transcripts.load_ledger()['s-1']] == ['X']
     transcripts.mark_session('s-2', 'df-31-multi-harness-orchestrator')
     assert transcripts.load_ledger()['s-2'][0][1] == 'DF-31'
+
+
+def test_hung_claude_is_killed_by_timeout_and_failed(proj, claude, tmp_path):
+    exe = tmp_path / 'bin' / 'claude'
+    exe.write_text('#!/bin/sh\nsleep 30\n')
+    env = {**claude['env'], 'DEVFLOW_PHASE_TIMEOUT': '1'}
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', model='m', env=env, host='claude')
+    assert (out['status'], out['exit_code']) == ('failed', 124)
+    assert 'timeout 1s' in out['stderr']

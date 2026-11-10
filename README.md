@@ -278,7 +278,8 @@ Where Claude Code spawns a phase through the `Agent` tool, pi runs
 separate `pi -p` process on `launch.pi.model` from the policy with the phase body (`agents/<phase>.md`) appended to
 the system prompt, and returns JSON (`exit_code`, `report`, `route`, `run_id`, `warning`); a non-zero
 `exit_code` is a pi process failure, the `devflow` return code only reports devflow's own refusal. Gate
-remarks go back as a repeated `phase run --note`. For `implement` the CLI calls `devflow start`
+remarks go back as a repeated `phase run --note`. A `claude -p` / `codex exec` phase is killed with its process group after
+`DEVFLOW_PHASE_TIMEOUT` seconds (default 5400) and comes back as `exit_code` 124. For `implement` the CLI calls `devflow start`
 itself before the process; if the step ends without `devflow finish`, `route` stays `running` and the
 result carries a `warning` — the driver then inspects (`git status`, changelog) and recovers through
 `finish`/`resume`/`interrupt`, never by relaunching the step. `claude` is never called from pi.

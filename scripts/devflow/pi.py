@@ -27,6 +27,7 @@ PRECONDITIONS = {'research': ('research',), 'plan': ('plan', 'plan_outdated'), '
 RUNNING_WARNING = ('phase did not record finish; run is still running — inspect git status and the changelog, then '
                    'devflow finish/resume/interrupt; do not run phase run implement again')
 HARNESSES = {'pi': harness_pi, 'claude': harness_claude, 'codex': harness_codex}
+PHASE_TIMEOUT = 5400
 REQUIRED_SECTIONS = {'research': ('## Problem', '## Recommendation'), 'plan': ('## Steps',), 'implement': ()}
 LIMITS_STALE = 'limits stale'
 TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': ('bash',),
@@ -383,6 +384,25 @@ def _pi_launch(ctx, phase, current, model, env):
     return chosen, source, lambda message: _run_process(ctx, phase, body, tools, chosen, message, env)
 
 
+def _run_bounded(argv, ctx, env):
+    timeout = int(env.get('DEVFLOW_PHASE_TIMEOUT') or PHASE_TIMEOUT)
+    with tempfile.TemporaryFile(mode='w+') as out, tempfile.TemporaryFile(mode='w+') as err:
+        child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env,
+                                 stdout=out, stderr=err, start_new_session=True)
+        expired = False
+        try:
+            child.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            expired = True
+        finally:
+            _cleanup_process_group(child)
+        out.seek(0); err.seek(0)
+        report, errors = out.read(), err.read()
+    if expired:
+        return subprocess.CompletedProcess(argv, 124, report, errors + f'\nphase run: timeout {timeout}s\n')
+    return subprocess.CompletedProcess(argv, child.returncode, report, errors)
+
+
 def _claude_launch(ctx, phase, current, model, env):
     spec = (current.get('launch') or {}).get('claude') or {}
     chosen = model or spec.get('id') or spec.get('model')
@@ -393,7 +413,7 @@ def _claude_launch(ctx, phase, current, model, env):
     def launch(message):
         argv = harness_claude.build_command(spec.get('agent') or phase, chosen, spec.get('effort'), tools, message,
                                             add_dirs=(ctx['vault'],))
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+        return _run_bounded(argv, ctx, env)
     return chosen, 'override' if model else 'policy', launch
 
 
@@ -413,7 +433,7 @@ def _codex_launch(ctx, phase, current, model, env):
     def launch(message):
         argv = harness_codex.build_command(chosen, spec.get('effort') if from_policy else None,
                                            harness_codex.prompt(body, message), ctx['cwd'], add_dirs=(ctx['vault'],))
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env, capture_output=True, text=True)
+        return _run_bounded(argv, ctx, env)
     return chosen, 'override' if model else 'policy', launch
 
 
