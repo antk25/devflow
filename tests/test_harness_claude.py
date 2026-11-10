@@ -36,6 +36,7 @@ def test_command_line():
     assert cmd[cmd.index('--agent') + 1] == 'research-high' and cmd[cmd.index('--effort') + 1] == 'high'
     assert cmd[cmd.index('--permission-mode') + 1] == 'acceptEdits'
     assert cmd[cmd.index('--allowedTools') + 1] == 'Read,Write' and cmd[cmd.index('--add-dir') + 1] == '/v'
+    assert cmd[cmd.index('--disallowedTools') + 1] == 'Bash(devflow approve:*)'
     assert cmd[cmd.index('--output-format') + 1] == 'json'
     assert '--setting-sources' not in cmd and '--effort' not in harness_claude.build_command('a', 'm', None, [], 'x')
 
