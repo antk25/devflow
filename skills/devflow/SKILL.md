@@ -39,6 +39,9 @@ pi rules: never call `claude` in any form (`claude`, `claude -p`, `claude --bg`,
 action on `/devflow <slug>` is `df route <slug>` — not `ls`, `find`, `--help` or reading the CLI
 source. Without `AskUserQuestion`, ask the gate question as plain text and wait for the reply.
 
+bb thread (`BB_THREAD_ID` set): ask the gate only through `AskUserQuestion`, never as plain text —
+otherwise `waiting-on-you` does not see it; the user answers the gate in the bb interface.
+
 ## Inputs
 - `/devflow` — start from the Jira standup.
 - `/devflow <slug>` — skip standup, route by the slug, resume at the right phase (this replaces the

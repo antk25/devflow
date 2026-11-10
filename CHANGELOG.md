@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-34: bb как пульт управления devflow
+- **guard:** `bb thread interactions answer|respond|approve|grant|deny` и `bb thread tell` из Bash отклоняются в обоих хостах; чтение потоков разрешено.
+- **Лимиты из bb:** в потоке bb (`BB_THREAD_ID`) при устаревшем `rate-limits.json` `route` берёт лимиты из RPC `provider-usage`; вне потоков bb RPC не вызывается.
+- **`/devflow`:** в потоке bb гейт задаётся только через `AskUserQuestion`, чтобы его видел плагин `waiting-on-you`.
+- **README «Работа из bb»:** штатная установка CLI из bb (не `npm i -g bb-app`, без bb CLI skills), только Project checkout, плагин `waiting-on-you` ставит пользователь, граница devflow/bb, известные ограничения.
+
 ### Added — DF-33: сжатие контекста как разрез сессии
 - **Ядро в CLI:** `devflow handoff auto` (дописывает блок к передаче своей сессии или создаёт минимальную с веткой и route, прежний текст не меняет; событие пишется в `~/.claude/devflow/compact-log.jsonl` с `tokens`), `handoff slug`, `context-level` — пороги 120K/180K в одном месте.
 - **Адаптеры:** хук Claude Code `PreCompact` (`pre-compact.sh`), `context-guard.sh` берёт уровни из CLI; в pi — обработчик `session_before_compact` и уровни из CLI. Codex — только запасное правило: передача после каждого шага, `handoff latest` при старте; его хуки `PreCompact`/`SessionStart` пока не подключены.
