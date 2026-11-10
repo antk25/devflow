@@ -30,7 +30,9 @@ def build_command(agent, model, effort, tools, message, add_dirs=()):
     cmd = ['claude', '-p', message, '--agent', agent, '--model', model]
     if effort:
         cmd += ['--effort', effort]
-    cmd += ['--output-format', 'json', '--permission-mode', 'acceptEdits', '--allowedTools', ','.join(tools)]
+    # The global allow for `devflow approve` is for the main session at the gate; a phase never approves itself.
+    cmd += ['--output-format', 'json', '--permission-mode', 'acceptEdits', '--allowedTools', ','.join(tools),
+            '--disallowedTools', 'Bash(devflow approve:*)']
     for path in add_dirs:
         cmd += ['--add-dir', str(path)]
     return cmd
