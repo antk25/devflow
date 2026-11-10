@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import harness_claude, harness_codex, harness_pi
+from . import harness_claude, harness_codex, harness_pi, transcripts
 from .documents import WorkflowError, artifact, document
 from .harness_pi import build_command
 from .policy import PHASES, limits_path, load, policy_path, resolve_pi_role
@@ -451,6 +451,8 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
     check = check_artifact(path, started_at, sections)
     status = 'ok' if parsed['status'] == 'ok' and check == 'ok' else 'failed'
     outcome(status, parsed)
+    if host == 'claude' and parsed.get('session_id'):
+        transcripts.mark_session(parsed['session_id'], current['slug'])
     after = route(ctx, db, current['slug'])
     result = {'phase': phase, 'slug': current['slug'], 'host': host, 'status': status,
               'artifact': str(path) if path else None, 'tokens': parsed['tokens'], 'cost': parsed['cost'],

@@ -644,3 +644,17 @@ def test_build_snapshot_has_chart_facts_and_limits(root):
     assert snap['facts'] == {'week_tokens': 30, 'prev_week_tokens': 0, 'no_task_pct': 50, 'week': 4.0} and snap['limits'] == []
     day = snap['chart']['days'].index('2026-10-01')
     assert [s['tokens'][day] for s in snap['chart']['series']] == [15, 15]
+
+
+def test_local_reads_only_df_and_vault(root, monkeypatch):
+    ctx = make_project(root, 'p', 'ab-1-task')
+    set_events(ctx, 'ab-1-task', stamp(timedelta(days=1)))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('внешний источник вызван')
+    for name in ('jira_statuses', 'jira_accounts', 'pull_requests', 'gh_accounts', 'messages', 'token_records', 'limits'):
+        monkeypatch.setattr(board, name, forbidden)
+    monkeypatch.setattr(board.subprocess, 'run', forbidden)
+    out = board.local({'projects': {'p': {'path': str(ctx['cwd'])}}}, NOW)
+    assert [t['key'] for t in out['tasks']] == ['AB-1'] and out['errors'] == []
+    assert not (root / 'board').exists()

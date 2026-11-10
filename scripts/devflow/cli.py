@@ -58,7 +58,7 @@ def parser():
     a = commands.add_parser('migrate'); a.add_argument('slug'); a.add_argument('--apply', metavar='PREVIEW_REVISION')
     a = commands.add_parser('artifact'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan', 'changelog']); a.add_argument('--revision', required=True)
     a = commands.add_parser('backup'); a.add_argument('destination')
-    a = commands.add_parser('board'); a.add_argument('--refresh', action='store_true')
+    a = commands.add_parser('board'); a.add_argument('--refresh', action='store_true'); a.add_argument('--local', action='store_true')
     bench_commands = commands.add_parser('bench').add_subparsers(dest='bench_command', required=True)
     a = bench_commands.add_parser('combos'); a.add_argument('names', nargs='*'); a.add_argument('--probe', action='store_true')
     a = bench_commands.add_parser('doctor'); a.add_argument('instance'); a.add_argument('--keep', action='store_true')
@@ -96,7 +96,7 @@ def execute(args):
             return project.sync(args.names, all_projects=args.all, dry_run=args.dry_run)
         return project.init(Path(args.path), args.name, draft=args.agents_draft, dry_run=args.dry_run)
     if args.command == 'board':
-        return board.snapshot(refresh=args.refresh)
+        return board.local() if args.local else board.snapshot(refresh=args.refresh)
     if args.command == 'bench':
         return bench.command(args)
     if args.command == 'context-level':

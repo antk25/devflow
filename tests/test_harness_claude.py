@@ -69,3 +69,12 @@ def test_claude_error_reply_is_failed(proj, claude):
 def test_claude_needs_a_model(proj, claude):
     with pytest.raises(WorkflowError, match='Модель claude'):
         pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', env=claude['env'], host='claude')
+
+
+def test_claude_session_is_pinned_to_task_for_tokens(proj, claude, isolated_ledger):
+    from devflow import transcripts
+    env = {**claude['env'], 'FAKE_WRITE': '# r\\n\\n## Problem\\nп\\n\\n## Recommendation\\nр\\n'}
+    pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', model='m', env=env, host='claude')
+    assert [task for _, task in transcripts.load_ledger()['s-1']] == ['X']
+    transcripts.mark_session('s-2', 'df-31-multi-harness-orchestrator')
+    assert transcripts.load_ledger()['s-2'][0][1] == 'DF-31'
