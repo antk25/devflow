@@ -21,6 +21,9 @@ not "just finish the next one while you're here".
   to running the plan end to end.
 
 ## Step 1: Project context
+Each command below is its own Bash call — no `;`/`&&` chains with `git branch` and friends: one
+failing link (exit 1/128) makes the whole chain look failed and invites retries. Start with
+`devflow route <slug>`: it already returns the paths and phase.
 1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
    Read the body of `AGENTS.md` for conventions, run commands and the commit format.
 2. Require the driver-provided **run ID, step ID and plan revision**. Run
@@ -201,6 +204,10 @@ claim the step closed. The command is idempotent for the same run section. Reuse
 when recovering; do not append a duplicate run marker.
 Changelog задачи общий для всех прогонов: правь только свою секцию (от своего
 `<!-- devflow-run: <run-id> -->` до следующего), через Edit с уникальной строкой. `sed` по файлу целиком запрещён.
+`cat > <changelog>`, `Write` поверх существующего файла и heredoc-перезапись тоже запрещены — только
+Edit своей секции (или Write, если файла ещё нет). Строка `**Status:**` в секции должна совпадать со
+`--status` у `finish` буква в букву: для partial — `**Status:** partial`, иначе `finish` отклонит
+(`Run section needs **Status:** partial`). Сначала поправь строку, потом повтори `finish`.
 
 ## Return to the driver
 Compact hand-off (goes to the driver, not the user):

@@ -95,6 +95,8 @@ df approve <slug> <research|plan> --revision <hash-that-was-shown>
 At the research gate, before `df approve`, ask the complexity by the research criterion — unclear TZ
 and/or many changes that risk breaking behaviour → `high`, otherwise `medium` / `low` — and record it:
 `df complexity <slug> --set <high|medium|low> --gate research`. Only then approve.
+Run `df --cwd <project> complexity …` and `df --cwd <project> approve …` as two separate Bash calls —
+no `cd … &&`, no `;`/`&&` chain: the permission rule matches only a bare command.
 If the CLI rejects a stale revision, show the changed artifact and ask again. This command records
 the user's decision; its availability is never permission for the agent to approve its own work.
 Then route again and launch through the launch layer. Existing files with no recorded approval go
