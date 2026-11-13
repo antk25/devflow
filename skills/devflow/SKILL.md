@@ -75,9 +75,10 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `plan` / `plan_outdated` | Spawn plan with the current `research_revision` |
 | `approval_required` | Show the named artifact and hold its phase gate |
 | `ready` | Name step `n` of `total`, start that step as below |
-| `completed` | Show changelog; run the final crossreview protocol below |
+| `crossreview_required` | All steps done, no `<slug>-cross-review.md` note and no recorded skip: run the final crossreview protocol below. With `crossreview_stale: true` say «заметка прежнего кросс-ревью старше последнего закрытия шага — нужно новое» and run the same protocol (the agent overwrites the note) |
+| `completed` | Show changelog and the `browser:` checks; if `crossreview` is `skipped`, say the review was skipped and why (reason from `history`); if `legacy`, say the task was closed before the review gate and offer a manual crossreview |
 | `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
-| `blocked` | Show reason; stop. Resume only after the user decides how to proceed. User accepts the step as is (e.g. «смоук перенесём на прод») → `df accept-step <slug> --reason "<их слова>"`, then route. Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |
+| `blocked` | Show reason; stop. Resume only after the user decides how to proceed. User accepts the step as is (e.g. «смоук перенесём на прод») → `df accept-step <slug> --reason "<их слова>"`, then route (after the last step that gives `crossreview_required`). Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |
 | `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
 | `migration_required` / `migration_pending` | Follow the migration flow below |
 | `legacy_review` / CLI error | Show the diagnostic; resolve the ambiguity before proceeding |
@@ -110,11 +111,11 @@ At the plan gate, show the plan agent's Jev остаток (требование
 For `ready`, run `df phase run <slug> implement` with the host's harness (it calls `start` itself
 and launches a fresh process for one step). Never launch implementation before start
 succeeds. Each run covers one step. On return, route again: continue only on `ready`; stop on
-`blocked`, `running`, errors or `completed`. The implement agent records its result with `df finish`.
+`blocked`, `running`, errors, `crossreview_required` or `completed`. The implement agent records its result with `df finish`.
 A prose claim of success (or a `phase run` exit 0 with `warning`) without a recorded result does not
 close a step. If the implement reply contains a `Browser:` block, show it to the user verbatim, then `route`.
 
-On `completed`, launch **one** `crossreview` with cwd and slug (it finds repos/base via `review-repos`):
+On `crossreview_required`, launch **one** `crossreview` with cwd and slug (it finds repos/base via `review-repos`):
 
 | Роль | Claude Code | pi |
 |---|---|---|
@@ -138,7 +139,18 @@ the second launch only verifies both lists and writes the note.
 В обоих хостах второе мнение получает только cwd/slug/repo/base и base/HEAD/diff hash из черновика,
 никогда собственные находки первого обзора. Дословный ответ передаётся только новому crossreview.
 При `REVIEW_STALE` начни независимый цикл заново: устаревшие списки не переиспользовать.
-Не вызывай `start/finish/approve`: ревью всей ветки не создаёт implement-run.
+Не вызывай `start/finish/approve/skip-review`: ревью всей ветки не создаёт implement-run.
+After the note is written, run `df route <slug>` again: it returns `completed` (`crossreview: note`).
+
+Manual review of a `legacy` task (closed before the review gate, `crossreview: legacy`): only on the
+user's explicit «да»/«проверь» (or «кросс-ревью <slug>»), run the same crossreview protocol (cwd +
+slug, `review-repos`, second opinion) without `start/finish/approve/skip-review`; once the note
+exists `route` returns `crossreview: note`. If `review-repos` finds no branches of the task, show
+that and do not launch the review.
+
+Skipping the review: `df skip-review <slug> --reason "<их слова>"` only after the user's explicit
+words to skip; pass their reason verbatim. Tasks without code close the same way, reason «нет кода».
+The command is in the `ask` rules; its availability is never permission for the agent to skip.
 On `completed` in both hosts also list the `browser:` items of the plan's `## Acceptance (overall)`
 as checks after deploy, each as a ready line `/smoke env: staging; slug: <slug>; save; <Дано …;
 Когда …; Тогда …>` — the user types it in the main session once the deploy is done; the driver

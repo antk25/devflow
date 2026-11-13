@@ -48,7 +48,8 @@ Use its JSON result; never infer approval or completion from files yourself.
 - `research`, `plan`, `plan_outdated`: recommend that phase; research `source: tz` starts from the TZ.
 - `approval_required`: recommend reviewing and approving the returned artifact, not the next phase.
 - `ready`: recommend implementation with returned step ID, `n` and `total`.
-- `completed`: task is complete.
+- `crossreview_required`: all steps done, cross-review pending — recommend `/devflow <slug>`.
+- `completed`: task is complete (`crossreview: legacy` — closed before the review gate, no review).
 - `running`, `blocked`, `review_required`: show the reason and recommend recovery through `/devflow`.
 - `migration_required`, `migration_pending`, `legacy_review`: recommend migration/reconciliation.
 - CLI error: show it. Ambiguous slugs require a selection; missing state requires initialization or

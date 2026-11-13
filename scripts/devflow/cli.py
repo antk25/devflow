@@ -11,7 +11,7 @@ from . import bench, board, codex_review, compact, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
-from .workflow import accept_step, approve, check, finish, interrupt, migrate, reopen, resume, route, start, task_state
+from .workflow import accept_step, approve, check, finish, interrupt, migrate, reopen, resume, route, skip_review, start, task_state
 
 
 def active(ctx, db, limit=5):
@@ -49,6 +49,7 @@ def parser():
     for name in ('route', 'status', 'validate', 'history'):
         a = commands.add_parser(name); a.add_argument('slug')
     a = commands.add_parser('approve'); a.add_argument('slug'); a.add_argument('phase', choices=['research', 'plan']); a.add_argument('--revision', required=True)
+    a = commands.add_parser('skip-review'); a.add_argument('slug'); a.add_argument('--reason', required=True)
     a = commands.add_parser('complexity'); a.add_argument('slug'); a.add_argument('--set', dest='value', choices=['high', 'medium', 'low']); a.add_argument('--gate', choices=['research', 'plan', 'backfill']); a.add_argument('--no-shadow', action='store_true')
     a = commands.add_parser('start'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True)
     a = commands.add_parser('finish'); a.add_argument('run_id'); a.add_argument('--status', choices=['done', 'blocked', 'partial'], required=True); a.add_argument('--changelog', required=True); a.add_argument('--reason')
@@ -152,6 +153,8 @@ def execute(args):
             return {'slug': slug, 'revision': plan['revision'], 'steps': [{k: v for k, v in st.items() if k != 'text'} for st in plan_steps(plan)]}
         if args.command == 'approve':
             return approve(ctx, db, args.slug, args.phase, args.revision)
+        if args.command == 'skip-review':
+            return skip_review(ctx, db, args.slug, args.reason)
         if args.command == 'complexity':
             if args.value and not args.gate:
                 raise WorkflowError('--set requires --gate')

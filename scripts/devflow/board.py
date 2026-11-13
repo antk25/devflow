@@ -36,7 +36,8 @@ PR_KEY_RE = re.compile(r'\b[A-Z][A-Z0-9]+-\d+\b')
 PR_FIELDS = 'number,title,state,repository,url,updatedAt'
 WAIT = {'approval_required': '⏸ гейт {phase}', 'review_required': '⏸ ревью плана', 'blocked': '⏸ blocked',
         'migration_required': '⏸ миграция плана', 'migration_pending': '⏸ миграция плана',
-        'plan_outdated': '⏸ план устарел', 'legacy_review': '⏸ legacy'}
+        'plan_outdated': '⏸ план устарел', 'legacy_review': '⏸ legacy',
+        'crossreview_required': '⏸ кросс-ревью'}
 GROUPS = ('wait', 'work', 'done')
 CHART_DAYS = 14
 LIMIT_WINDOWS = {'five_hour': '5 ч', 'seven_day': '7 дн'}

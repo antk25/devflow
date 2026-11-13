@@ -230,7 +230,8 @@ Compact hand-off (goes to the driver, not the user):
 ## Rules
 - **One step per run.** Autonomous inside it; the gate already happened. Never run ahead into the
   next step, however small it looks.
-- **The plan is read-only.** Record only your run result through the CLI.
+- **The plan is read-only.** Record only your run result through the CLI. Never call `approve` or
+  `skip-review`: approving and skipping the cross-review are the user's decisions.
 - **Git.** Commit the step's result in the `AGENTS.md` format; never push or open PRs from this agent.
 - **Don't edit tests to pass.** Fix the implementation. On red tests you can't fix within intent, stop.
 - **Команда раньше теории.** Never explain a failure you haven't reproduced with one shown command.
