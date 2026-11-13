@@ -146,6 +146,21 @@ def approve(ctx, db, query, phase, revision):
     return {'slug': slug, 'approved': phase, 'revision': revision}
 
 
+def skip_review(ctx, db, query, reason):
+    if not reason or not reason.strip():
+        raise WorkflowError('skip-review needs --reason with the user decision')
+    with transaction(db):
+        current = task_state(ctx, db, query)
+        slug, revision = current['slug'], current.get('revision')
+        if current['state'] == 'completed' and current.get('crossreview') == 'skipped':
+            return {'slug': slug, 'skipped': True, 'revision': revision, 'unchanged': True}
+        if current['state'] != 'crossreview_required':
+            raise WorkflowError('Task is not awaiting cross-review: ' + current['state'])
+        db.execute('INSERT OR IGNORE INTO approvals VALUES (?,?,?,?)', (slug, 'crossreview', revision, now()))
+        event(db, 'skip_review', slug, revision=revision, reason=reason)
+    return {'slug': slug, 'skipped': True, 'revision': revision, 'reason': reason}
+
+
 def start(ctx, db, query, step_id, revision):
     with transaction(db):
         current = task_state(ctx, db, query)
@@ -289,7 +304,7 @@ def reopen(ctx, db, query, step_id, revision, reason):
             affected = expanded
         for ident in affected:
             db.execute("UPDATE steps SET status='open' WHERE slug=? AND id=?", (slug, ident))
-        db.execute("DELETE FROM approvals WHERE slug=? AND phase='plan'", (slug,))
+        db.execute("DELETE FROM approvals WHERE slug=? AND phase IN ('plan','crossreview')", (slug,))
         event(db, 'reopen', slug, steps=sorted(affected), reason=reason)
     return {'slug': slug, 'reopened': sorted(affected), 'approval_required': True}
 

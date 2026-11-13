@@ -69,7 +69,11 @@
       "Bash(bash ~/.config/devflow/integrations/jira-create.sh * --yes*)",
       "Bash(bash ~/.config/devflow/integrations/jira-worklog.sh * --yes*)",
       "Bash(~/.claude/skills/timesheet/timesheet apply * --yes*)",
-      "Bash(~/.claude/skills/timesheet/timesheet mirror * --yes*)"
+      "Bash(~/.claude/skills/timesheet/timesheet mirror * --yes*)",
+      "Bash(devflow skip-review*)",
+      "Bash(df skip-review*)",
+      "Bash(~/.claude/skills/devflow/devflow skip-review*)",
+      "Bash(devflow * skip-review*)"
     ],
     "deny": [
       "Bash(gh api:*)",

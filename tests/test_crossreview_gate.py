@@ -1,3 +1,7 @@
+import pytest
+
+from devflow import documents, storage
+from devflow.documents import WorkflowError
 from devflow import cli, workflow
 
 from test_bb_audit import blocked_step
@@ -81,3 +85,68 @@ def test_active_lists_task_waiting_for_crossreview(proj):
     finished(proj)
     plans = cli.active(proj['ctx'], proj['db'])['plans']
     assert [(t['name'], t['status']) for t in plans] == [('x', 'crossreview_required')]
+
+
+def skip(p, reason='нет кода'):
+    return workflow.skip_review(p['ctx'], p['db'], 'x', reason)
+
+
+def test_skip_review_completes_with_reason_in_history(proj):
+    finished(proj)
+    out = skip(proj)
+    assert out['skipped'] is True and out['reason'] == 'нет кода'
+    state = route(proj)
+    assert state['state'] == 'completed' and state['crossreview'] == 'skipped'
+    rows = proj['db'].execute("SELECT json_extract(data,'$.reason') AS r FROM events WHERE action='skip_review'").fetchall()
+    assert [r['r'] for r in rows] == ['нет кода']
+
+
+def test_skip_review_repeat_and_refusals(proj):
+    rev = approve_plan(proj)
+    with pytest.raises(WorkflowError):
+        skip(proj)
+    done(proj, 'one', rev)
+    done(proj, 'two', rev)
+    with pytest.raises(WorkflowError):
+        skip(proj, '  ')
+    skip(proj)
+    assert skip(proj)['unchanged'] is True
+
+
+def test_skip_review_refused_on_completed_by_note(proj):
+    finished(proj)
+    (proj['vault'] / 'notes').mkdir()
+    (proj['vault'] / 'notes/x-cross-review.md').write_text('#\n')
+    with pytest.raises(WorkflowError):
+        skip(proj)
+
+
+def test_skip_does_not_survive_new_plan_revision(proj):
+    rev = finished(proj)
+    skip(proj)
+    path = proj['vault'] / 'plans/x.md'
+    text = path.read_text().replace('  - {id: two, n: 2, blocked_by: [one]}\n',
+                                    '  - {id: two, n: 2, blocked_by: [one]}\n  - {id: three, n: 3, blocked_by: [two]}\n')
+    path.write_text(text + '\n### three: Третий\n- **Acceptance:** критерий\n')
+    new = documents.document(path)['revision']
+    assert new != rev
+    workflow.approve(proj['ctx'], proj['db'], 'x', 'plan', new)
+    done(proj, 'three', new)
+    assert route(proj)['state'] == 'crossreview_required'
+
+
+def test_reopen_drops_skip(proj):
+    rev = finished(proj)
+    skip(proj)
+    workflow.reopen(proj['ctx'], proj['db'], 'x', 'two', rev, 'переделать')
+    assert not proj['db'].execute("SELECT 1 FROM approvals WHERE phase='crossreview'").fetchone()
+    workflow.approve(proj['ctx'], proj['db'], 'x', 'plan', rev)
+    done(proj, 'two', rev)
+    assert route(proj)['state'] == 'crossreview_required'
+
+
+def test_skip_is_not_plan_approval(proj):
+    finished(proj)
+    skip(proj)
+    plan = workflow.task_docs(proj['ctx'], 'x')[2]
+    assert storage.approved(proj['db'], 'x', 'plan', plan) is True
