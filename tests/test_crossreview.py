@@ -36,6 +36,8 @@ def test_independent_fallback_and_completed_only():
     assert 'не создаёт implement-run' in driver
     assert 'Run it once per task, not per step' in driver
     assert 'there is no `crossreview` launch yet' not in driver
+    assert 'On `crossreview_required`' in driver
+    assert 'skip-review' in driver and 'legacy' in driver
 
 
 def test_claude_models_and_agent_sequence_unchanged():

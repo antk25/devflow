@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — DF-36: `route` не отдаёт `completed` без кросс-ревью
+- **Состояние `crossreview_required`:** все шаги `done`, но нет `<vault>/notes/<slug>-cross-review.md` и пропуска; драйвер в обоих хостах запускает crossreview по нему, после заметки `route` отдаёт `completed` (`crossreview: note`).
+- **`df skip-review <slug> --reason …`:** пропуск ревью решением пользователя, в эталоне настроек — `ask`; привязан к ревизии плана, `reopen` снимает. Агентам команда запрещена.
+- **Legacy:** `finish done` и `accept-step` метят событие `crossreview_gate`; задачи, закрытые до DF-36, остаются `completed` (`crossreview: legacy`), драйвер предлагает ручное ревью. На доске — группа «ждёт», «⏸ кросс-ревью».
+
 ### Fixed — аудит работы в bb (2026-11-11…13)
 - **`accept-step`:** шаг после `blocked`/`partial` закрывается решением пользователя одной командой; драйвер больше не пишет changelog и не вызывает `start`/`finish` сам.
 - **Блокировка прогона:** на задачу, а не на проект; в метарепозитории параллельно, если подрепозитории задач известны и не пересекаются (схема БД v3, миграция автоматическая).

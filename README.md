@@ -574,7 +574,7 @@ The CLI emits JSON; errors go to stderr with a nonzero exit. From the project ro
 ```
 
 `route` distinguishes research, plan, approval-required, outdated-plan, ready, running, blocked,
-review-required and completed states. It also reports legacy migration/reconciliation cases.
+review-required, crossreview-required (`crossreview_required`) and completed states. It also reports legacy migration/reconciliation cases.
 A plan is complete only when every defined step is done at its current definition revision and
 its research/plan approvals are valid. Invalid plans are errors, not completed tasks.
 
@@ -586,7 +586,17 @@ Approval and execution commands (normally called by the driver):
 ~/.claude/skills/devflow/devflow approve <slug> plan --revision <hash>
 ~/.claude/skills/devflow/devflow start <slug> --step <id> --revision <plan-hash>
 ~/.claude/skills/devflow/devflow finish <run-id> --status done --changelog <path>
+# Only on the user's explicit decision to close without cross-review:
+~/.claude/skills/devflow/devflow skip-review <slug> --reason <text>
 ```
+
+When every step is `done`, `route` returns `crossreview_required` until
+`<vault>/notes/<slug>-cross-review.md` exists (`crossreview: note`) or the user recorded
+`skip-review` for the current plan revision (`crossreview: skipped`; `reopen` removes it).
+`finish done` and `accept-step` mark their event with `crossreview_gate: true`; a task whose last
+step closing has no such mark (closed before DF-36 or imported by `migrate`) stays `completed` with
+`crossreview: legacy`, and the driver offers a manual review. `skip-review` is in the `ask` rules
+of the reference settings; in pi the guard may treat it as a denial — then run it yourself in a terminal.
 
 Approvals store snapshots of the document text. Changing research requires its approval again and
 updating the plan's `research_revision`; changing a plan requires a new plan approval. Execution

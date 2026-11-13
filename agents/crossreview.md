@@ -1,6 +1,6 @@
 ---
 name: crossreview
-description: Cross-review of a finished task — Claude's own review of the branch plus a second opinion from Codex, every finding verified in the code, result written to the vault. Spawned by /devflow once the route reports `completed`. Read-only on code; never edits, commits or pushes.
+description: Cross-review of a finished task — Claude's own review of the branch plus a second opinion from Codex, every finding verified in the code, result written to the vault. Spawned by /devflow once the route reports `crossreview_required` (or the user asks for a manual review of a `legacy` task). Read-only on code; never edits, commits or pushes.
 tools: Read, Grep, Glob, Bash, Write
 model: claude-opus-5-5
 effort: medium
@@ -156,4 +156,5 @@ or a confirmed finding from the previous round came back, return
 - **Своё ревью — до чужого.** Never open the Codex output (or ask for the fallback) before your own list is written.
 - **Находка без проверки не выдаётся.** Every line in «Проверка» names what you ran or read.
 - **Никаких правок «потому что Codex сказал»** — a proposal in the note is the most you produce.
+- **No workflow commands.** Never call `start/finish/approve/skip-review`: the review changes no state; skipping it is the user's decision.
 - **All prose Russian** (project convention).
