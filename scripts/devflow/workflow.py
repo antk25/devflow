@@ -91,10 +91,38 @@ def task_state(ctx, db, query):
     done = {s['id'] for s in steps if s['id'] in saved and saved[s['id']]['status'] == 'done'}
     frontier = [s for s in steps if s['id'] not in done and set(s['blocked_by']) <= done]
     state = 'completed' if len(done) == len(steps) else 'ready' if frontier else 'blocked'
-    return dict(result, state=state, phase='implement' if frontier else None,
-                revision=plan['revision'], research_revision=research['revision'],
-                total=len(steps), done=sorted(done), frontier=[s['id'] for s in frontier],
-                step=frontier[0]['id'] if frontier else None, n=frontier[0]['n'] if frontier else None)
+    result = dict(result, state=state, phase='implement' if frontier else None,
+                  revision=plan['revision'], research_revision=research['revision'],
+                  total=len(steps), done=sorted(done), frontier=[s['id'] for s in frontier],
+                  step=frontier[0]['id'] if frontier else None, n=frontier[0]['n'] if frontier else None)
+    if state == 'completed':
+        review = crossreview_status(ctx, db, slug, plan)
+        result['crossreview_note'] = str(crossreview_note(ctx, slug))
+        if review:
+            result['crossreview'] = review
+        else:
+            result['state'] = 'crossreview_required'
+    return result
+
+
+def crossreview_note(ctx, slug):
+    return ctx['vault'] / 'notes' / (slug + '-cross-review.md')
+
+
+def crossreview_status(ctx, db, slug, plan):
+    note = crossreview_note(ctx, slug)
+    # Exact name only: glob/case-insensitive filesystems must not let a similar file pass.
+    if note.parent.is_dir() and note.name in os.listdir(note.parent):
+        return 'note'
+    if db.execute("SELECT 1 FROM approvals WHERE slug=? AND phase='crossreview' AND revision=?",
+                  (slug, plan['revision'])).fetchone():
+        return 'skipped'
+    last = db.execute("SELECT json_extract(data,'$.crossreview_gate') AS gate FROM events WHERE slug=? AND "
+                      "((action='finish' AND json_extract(data,'$.status')='done') OR action='accept_step') "
+                      'ORDER BY rowid DESC LIMIT 1', (slug,)).fetchone()
+    if not last or not last['gate']:
+        return 'legacy'
+    return None
 
 
 def approve(ctx, db, query, phase, revision):
@@ -178,7 +206,8 @@ def accept_step(ctx, db, query, reason):
         db.execute('INSERT INTO steps VALUES (?,?,?,?,?) ON CONFLICT(slug,id) DO UPDATE SET revision=excluded.revision,status=excluded.status,source=excluded.source',
                    (slug, run['step_id'], run['step_revision'], 'done', run['id']))
         db.execute("UPDATE runs SET status='resumed' WHERE slug=? AND status IN ('blocked','partial')", (slug,))
-        event(db, 'accept_step', slug, run_id=run['id'], step=run['step_id'], previous=run['status'], reason=reason)
+        event(db, 'accept_step', slug, run_id=run['id'], step=run['step_id'], previous=run['status'], reason=reason,
+              crossreview_gate=True)
     return dict(task_state(ctx, db, slug), accepted=run['step_id'])
 
 
@@ -215,7 +244,8 @@ def finish(ctx, db, run_id, status, changelog, reason):
         remember(db, run['slug'], 'changelog', doc)
         db.execute('UPDATE runs SET status=?,reason=?,changelog=?,changelog_revision=? WHERE id=?',
                    (status, reason, str(path), evidence, run_id))
-        event(db, 'finish', run['slug'], run_id=run_id, status=status, reason=reason, evidence=evidence)
+        gate = {'crossreview_gate': True} if status == 'done' else {}
+        event(db, 'finish', run['slug'], run_id=run_id, status=status, reason=reason, evidence=evidence, **gate)
     return {'run_id': run_id, 'status': status}
 
 

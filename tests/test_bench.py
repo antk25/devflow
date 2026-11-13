@@ -344,7 +344,7 @@ def test_drive_runs_the_pipeline_without_a_human(sandbox_env, tmp_path):
     assert 'run_id: ' in execute.calls[2][1] and 'step: one' in execute.calls[2][1] and 'tz: ' in execute.calls[0][1]
     lines = bench.read(journal)
     assert [l['type'] for l in lines] == ['phase'] * 3
-    assert [l['route_after'] for l in lines] == ['approval_required', 'approval_required', 'completed']
+    assert [l['route_after'] for l in lines] == ['approval_required', 'approval_required', 'crossreview_required']
     assert lines[2]['step'] == 'one' and lines[2]['runner'] == 'claude' and lines[2]['model_actual'] == 'claude-sonnet-5-5'
     assert lines[2]['input'] == 3 and lines[2]['cost_usd'] == 0.1 and lines[2]['duration_s'] == 1.0 and lines[2]['pair'] == sb['pair']
     assert lines[0]['model_req'] == 'claude-sonnet-5-5' and lines[0]['effort_req'] == 'low' and lines[0]['error'] is None

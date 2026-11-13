@@ -658,3 +658,8 @@ def test_local_reads_only_df_and_vault(root, monkeypatch):
     out = board.local({'projects': {'p': {'path': str(ctx['cwd'])}}}, NOW)
     assert [t['key'] for t in out['tasks']] == ['AB-1'] and out['errors'] == []
     assert not (root / 'board').exists()
+
+
+def test_crossreview_required_waits():
+    out = board.stage({'state': 'crossreview_required'}, None, NOW)
+    assert out['group'] == 'wait' and out['label'].startswith('⏸ кросс-ревью')

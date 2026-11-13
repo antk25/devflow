@@ -373,8 +373,8 @@ def drive(sb, combo, execute, journal, limits=None, attempt=1, phases=PHASES):
         while result['phases'] < limits.get('max_phases', MAX_PHASES):
             current = route(ctx, db, TASK_SLUG)
             state = current['state']
-            if state in ('completed', 'blocked'):
-                result['outcome'] = state
+            if state in ('completed', 'blocked', 'crossreview_required'):
+                result['outcome'] = 'blocked' if state == 'blocked' else 'completed'
                 return result
             if state == 'approval_required':
                 if current['phase'] == 'research':
