@@ -447,8 +447,8 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))
     harness = HARNESSES[host]
     at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
-    if replan and (phase != 'plan' or current['state'] != 'ready'):
-        raise WorkflowError('--replan requires phase plan in state ready')
+    if replan and (phase, current['state']) not in (('plan', 'ready'), ('research', 'completed')):
+        raise WorkflowError('--replan requires phase plan in state ready or phase research in state completed')
     if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
     if not shutil.which(host, path=env.get('PATH')):

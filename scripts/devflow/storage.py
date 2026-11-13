@@ -32,12 +32,14 @@ CREATE TABLE IF NOT EXISTS runs (
  plan_revision TEXT NOT NULL, research_revision TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('running','done','blocked','partial','resumed')),
  reason TEXT, changelog TEXT, changelog_revision TEXT);
-CREATE UNIQUE INDEX IF NOT EXISTS single_running ON runs(status) WHERE status='running';
+CREATE UNIQUE INDEX IF NOT EXISTS single_running_task ON runs(slug) WHERE status='running';
 CREATE TABLE IF NOT EXISTS events (
  id INTEGER PRIMARY KEY, at TEXT NOT NULL, action TEXT NOT NULL, slug TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS migrations (slug TEXT PRIMARY KEY, old_revision TEXT NOT NULL, new_revision TEXT NOT NULL);
 ''' + OUTCOMES
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# v3: one running step per task, not per project; workflow.start checks repo overlap.
+PER_TASK_RUNNING = "DROP INDEX IF EXISTS single_running;\nCREATE UNIQUE INDEX IF NOT EXISTS single_running_task ON runs(slug) WHERE status='running';\n"
 
 
 def now():
@@ -116,6 +118,9 @@ def _connect(ctx, create, fresh):
         row = db.execute('SELECT * FROM project').fetchall()
         if len(row) == 1 and row[0]['id'] == ident and row[0]['schema_version'] == 1:
             db.executescript('BEGIN IMMEDIATE;\n' + OUTCOMES + 'UPDATE project SET schema_version=2;\nCOMMIT;')
+            row = db.execute('SELECT * FROM project').fetchall()
+        if len(row) == 1 and row[0]['id'] == ident and row[0]['schema_version'] == 2:
+            db.executescript('BEGIN IMMEDIATE;\n' + PER_TASK_RUNNING + 'UPDATE project SET schema_version=3;\nCOMMIT;')
             row = db.execute('SELECT * FROM project').fetchall()
         if len(row) != 1 or row[0]['id'] != ident or row[0]['schema_version'] != SCHEMA_VERSION:
             raise WorkflowError('Unsupported database version or mismatched project identity')
