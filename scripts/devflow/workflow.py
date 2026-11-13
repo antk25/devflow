@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -117,8 +118,11 @@ def crossreview_status(ctx, db, slug, plan):
                       "((action='finish' AND json_extract(data,'$.status')='done') OR action='accept_step') "
                       'ORDER BY rowid DESC LIMIT 1', (slug,)).fetchone()
     legacy = not last or not last['gate']
-    if crossreview_note_exists(ctx, slug) and (legacy or crossreview_note(ctx, slug).stat().st_mtime
-                                               >= datetime.fromisoformat(last['at']).timestamp()):
+    # Gate written as `true` before sub-second close times; `at` keeps whole seconds only.
+    # 20 ms slack: file mtime comes from the kernel's coarse clock, which lags time.time().
+    closed = None if legacy else (last['gate'] if isinstance(last['gate'], float)
+                                  else datetime.fromisoformat(last['at']).timestamp())
+    if crossreview_note_exists(ctx, slug) and (legacy or crossreview_note(ctx, slug).stat().st_mtime >= closed - 0.02):
         return 'note'
     if db.execute("SELECT 1 FROM approvals WHERE slug=? AND phase='crossreview' AND revision=?",
                   (slug, plan['revision'])).fetchone():
@@ -229,7 +233,7 @@ def accept_step(ctx, db, query, reason):
                    (slug, run['step_id'], run['step_revision'], 'done', run['id']))
         db.execute("UPDATE runs SET status='resumed' WHERE slug=? AND status IN ('blocked','partial')", (slug,))
         event(db, 'accept_step', slug, run_id=run['id'], step=run['step_id'], previous=run['status'], reason=reason,
-              crossreview_gate=True)
+              crossreview_gate=time.time())
     return dict(task_state(ctx, db, slug), accepted=run['step_id'])
 
 
@@ -266,7 +270,7 @@ def finish(ctx, db, run_id, status, changelog, reason):
         remember(db, run['slug'], 'changelog', doc)
         db.execute('UPDATE runs SET status=?,reason=?,changelog=?,changelog_revision=? WHERE id=?',
                    (status, reason, str(path), evidence, run_id))
-        gate = {'crossreview_gate': True} if status == 'done' else {}
+        gate = {'crossreview_gate': time.time()} if status == 'done' else {}
         event(db, 'finish', run['slug'], run_id=run_id, status=status, reason=reason, evidence=evidence, **gate)
     return {'run_id': run_id, 'status': status}
 

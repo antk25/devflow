@@ -75,7 +75,9 @@
       "Bash(~/.claude/skills/devflow/devflow skip-review*)",
       "Bash(devflow * skip-review*)",
       "Bash(~/.claude/skills/devflow/devflow * skip-review*)",
-      "Bash(df * skip-review*)"
+      "Bash(df * skip-review*)",
+      "Bash(/home/*/.local/bin/devflow *skip-review*)",
+      "Bash(/home/*/.claude/skills/devflow/devflow *skip-review*)"
     ],
     "deny": [
       "Bash(gh api:*)",

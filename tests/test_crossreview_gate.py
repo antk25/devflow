@@ -78,7 +78,7 @@ def test_accept_step_on_last_step_waits_for_crossreview(proj):
     assert out['state'] == 'crossreview_required' and out['accepted'] == 'two'
     last = proj['db'].execute("SELECT json_extract(data,'$.crossreview_gate') AS g FROM events "
                               "WHERE action='accept_step'").fetchone()
-    assert last['g'] == 1
+    assert isinstance(last['g'], float) and last['g'] > 1
 
 
 def test_blocked_step_helper_still_ready(proj):
@@ -224,3 +224,11 @@ def test_research_replan_without_model_takes_policy(proj, claude, monkeypatch, w
 def test_required_without_note_has_no_stale_flag(proj):
     finished(proj)
     assert 'crossreview_stale' not in route(proj)
+
+
+def test_note_in_same_second_before_close_is_stale(proj):
+    note = reclosed_with_old_note(proj)
+    gate = proj['db'].execute("SELECT json_extract(data,'$.crossreview_gate') AS g FROM events "
+                              "WHERE action='finish' ORDER BY rowid DESC LIMIT 1").fetchone()['g']
+    os.utime(note, (gate - 0.5, gate - 0.5))
+    assert route(proj)['state'] == 'crossreview_required'
