@@ -75,7 +75,7 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `plan` / `plan_outdated` | Spawn plan with the current `research_revision` |
 | `approval_required` | Show the named artifact and hold its phase gate |
 | `ready` | Name step `n` of `total`, start that step as below |
-| `crossreview_required` | All steps done, no `<slug>-cross-review.md` note and no recorded skip: run the final crossreview protocol below |
+| `crossreview_required` | All steps done, no `<slug>-cross-review.md` note and no recorded skip: run the final crossreview protocol below. With `crossreview_stale: true` say «заметка прежнего кросс-ревью старше последнего закрытия шага — нужно новое» and run the same protocol (the agent overwrites the note) |
 | `completed` | Show changelog and the `browser:` checks; if `crossreview` is `skipped`, say the review was skipped and why (reason from `history`); if `legacy`, say the task was closed before the review gate and offer a manual crossreview |
 | `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
 | `blocked` | Show reason; stop. Resume only after the user decides how to proceed. User accepts the step as is (e.g. «смоук перенесём на прод») → `df accept-step <slug> --reason "<их слова>"`, then route (after the last step that gives `crossreview_required`). Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |

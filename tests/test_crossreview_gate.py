@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 import pytest
 
 from devflow import documents, storage
@@ -159,3 +162,50 @@ def test_research_replan_allowed_while_waiting_for_crossreview(proj, fake_pi):
     assert before['state'] == 'crossreview_required'
     out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', replan=True, env=fake_pi['env'])
     assert out['exit_code'] == 0 and out['route'] == before
+
+
+def reclosed_with_old_note(p):
+    rev = finished(p)
+    (p['vault'] / 'notes').mkdir()
+    note = p['vault'] / 'notes/x-cross-review.md'
+    note.write_text('# Ревью\n')
+    workflow.reopen(p['ctx'], p['db'], 'x', 'two', rev, 'переделать')
+    workflow.approve(p['ctx'], p['db'], 'x', 'plan', rev)
+    done(p, 'two', rev)
+    at = p['db'].execute("SELECT at FROM events WHERE action='finish' ORDER BY rowid DESC LIMIT 1").fetchone()['at']
+    old = datetime.fromisoformat(at).timestamp() - 60
+    os.utime(note, (old, old))
+    return note
+
+
+def test_note_older_than_last_close_is_stale(proj):
+    reclosed_with_old_note(proj)
+    out = route(proj)
+    assert out['state'] == 'crossreview_required' and out['crossreview_stale'] is True
+
+
+def test_rewritten_note_completes(proj):
+    note = reclosed_with_old_note(proj)
+    os.utime(note)
+    out = route(proj)
+    assert out['state'] == 'completed' and out['crossreview'] == 'note' and 'crossreview_stale' not in out
+
+
+def test_legacy_close_goes_before_freshness(proj):
+    reclosed_with_old_note(proj)
+    proj['db'].execute("UPDATE events SET data=json_remove(data,'$.crossreview_gate') WHERE rowid="
+                       "(SELECT max(rowid) FROM events WHERE action='finish')")
+    out = route(proj)
+    assert out['state'] == 'completed' and out['crossreview'] == 'note'
+
+
+def test_skip_with_stale_note(proj):
+    reclosed_with_old_note(proj)
+    skip(proj)
+    out = route(proj)
+    assert out['state'] == 'completed' and out['crossreview'] == 'skipped'
+
+
+def test_required_without_note_has_no_stale_flag(proj):
+    finished(proj)
+    assert 'crossreview_stale' not in route(proj)

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -102,6 +103,8 @@ def task_state(ctx, db, query):
             result['crossreview'] = review
         else:
             result['state'] = 'crossreview_required'
+            if crossreview_note_exists(ctx, slug):
+                result['crossreview_stale'] = True
     return result
 
 
@@ -110,19 +113,23 @@ def crossreview_note(ctx, slug):
 
 
 def crossreview_status(ctx, db, slug, plan):
-    note = crossreview_note(ctx, slug)
-    # Exact name only: glob/case-insensitive filesystems must not let a similar file pass.
-    if note.parent.is_dir() and note.name in os.listdir(note.parent):
+    last = db.execute("SELECT at, json_extract(data,'$.crossreview_gate') AS gate FROM events WHERE slug=? AND "
+                      "((action='finish' AND json_extract(data,'$.status')='done') OR action='accept_step') "
+                      'ORDER BY rowid DESC LIMIT 1', (slug,)).fetchone()
+    legacy = not last or not last['gate']
+    if crossreview_note_exists(ctx, slug) and (legacy or crossreview_note(ctx, slug).stat().st_mtime
+                                               >= datetime.fromisoformat(last['at']).timestamp()):
         return 'note'
     if db.execute("SELECT 1 FROM approvals WHERE slug=? AND phase='crossreview' AND revision=?",
                   (slug, plan['revision'])).fetchone():
         return 'skipped'
-    last = db.execute("SELECT json_extract(data,'$.crossreview_gate') AS gate FROM events WHERE slug=? AND "
-                      "((action='finish' AND json_extract(data,'$.status')='done') OR action='accept_step') "
-                      'ORDER BY rowid DESC LIMIT 1', (slug,)).fetchone()
-    if not last or not last['gate']:
-        return 'legacy'
-    return None
+    return 'legacy' if legacy else None
+
+
+def crossreview_note_exists(ctx, slug):
+    note = crossreview_note(ctx, slug)
+    # Exact name only: glob/case-insensitive filesystems must not let a similar file pass.
+    return note.parent.is_dir() and note.name in os.listdir(note.parent)
 
 
 def approve(ctx, db, query, phase, revision):
