@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — аудит работы в bb (2026-11-11…13)
+- **`accept-step`:** шаг после `blocked`/`partial` закрывается решением пользователя одной командой; драйвер больше не пишет changelog и не вызывает `start`/`finish` сам.
+- **Блокировка прогона:** на задачу, а не на проект; в метарепозитории параллельно, если подрепозитории задач известны и не пересекаются (схема БД v3, миграция автоматическая).
+- **research по `completed`:** `phase run research --replan` на том же slug вместо второго slug.
+- **Хуки:** HANDOFF не подаётся в дочерние процессы фаз (`DEVFLOW_PHASE_CHILD`); CONTEXT_CUT требует `/cut` первым действием хода.
+- **Правила:** драйвер не правит код и не коммитит после ревью (через implement); пуш и PR отдельными вызовами из подрепозитория; проект для треда bb из реестра; `browser:` в плане с URL, тенантом и способом входа; implement в метарепозитории — только `git -C`.
+
 ### Added — DF-34: bb как пульт управления devflow
 - **guard:** `bb thread interactions answer|respond|approve|grant|deny` и `bb thread tell` из Bash отклоняются в обоих хостах; чтение потоков разрешено.
 - **Лимиты из bb:** в потоке bb (`BB_THREAD_ID`) при устаревшем `rate-limits.json` `route` берёт лимиты из RPC `provider-usage`; вне потоков bb RPC не вызывается.

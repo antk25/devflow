@@ -50,6 +50,9 @@ otherwise `waiting-on-you` does not see it; the user answers the gate in the bb 
 ## Step 0: Project context
 Read `AGENTS.md` from cwd. The shared CLI is `devflow` (called `df` below
 for brevity; invoke the full path, not an assumed shell alias). Commands return JSON.
+No `AGENTS.md` in cwd (a bb thread starts in `~/.bb/…/thr_*`): do not `find ~`. Take the project
+from `devflow project list` by the task key's owner (`SE-*` → green, `DF-*` → devflow; ask if unclear)
+and pass `--cwd <path>` to every `df` call of this session.
 Run `df context`. A new project needs `df init` once; the launcher does this automatically.
 A missing database for an existing identity is an error: restore it, never silently reset progress.
 
@@ -74,7 +77,7 @@ Run `df route <slug>`. Never derive completion or approval from file existence y
 | `ready` | Name step `n` of `total`, start that step as below |
 | `completed` | Show changelog; run the final crossreview protocol below |
 | `running` | Show the run ID; inspect whether its agent is still working (both hosts: see Recovery). Never start a duplicate |
-| `blocked` | Show reason; stop. Resume only after the user decides how to proceed. Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |
+| `blocked` | Show reason; stop. Resume only after the user decides how to proceed. User accepts the step as is (e.g. «смоук перенесём на прод») → `df accept-step <slug> --reason "<их слова>"`, then route. Reason `вопрос: …` (D3 fork): ask it, append the user's answer to `<vault>/notes/decisions-<slug>.md`, then `df resume` and relaunch the step |
 | `review_required` | Done steps changed: show differences and ask whether to restore their definitions or reopen them |
 | `migration_required` / `migration_pending` | Follow the migration flow below |
 | `legacy_review` / CLI error | Show the diagnostic; resolve the ambiguity before proceeding |
@@ -165,6 +168,19 @@ Historical done marks are preserved; approvals are not inferred. Route and appro
 Plans without step statuses or with ambiguous history require manual reconciliation first.
 
 ## Rules
+- The driver never writes or edits the changelog, never calls `start`/`finish` and never commits:
+  closing a step is `phase run implement`, `df accept-step` or `df finish` on an already written run section (Recovery).
+- Fixes after crossreview or the user's review go through implement: `df reopen` the step or replan
+  with a new step (`phase run plan --replan --note "<находки>"`), approve, then `phase run implement`.
+  No `sed`/python edits of product code and no `--no-verify` commits from the driver.
+- A task already `completed` that needs more research: `phase run <slug> research --replan --note
+  "<что выяснить>"` on the same slug — never a second slug for the same key.
+- Diagnosis (adb, local server, logs) that grows beyond a few calls is a research run with `--note`,
+  not a driver session.
+- Read `phase run` output as is; no python one-liners over it (an error JSON has no `report`).
+  Temporary files go to the scratchpad, never `/tmp`.
+- `git push` and `gh pr create` are separate Bash calls with `git -C <repo>` / `--repo`, no `cd … &&`,
+  no pipes; in a metarepo push from each sub-repository, never from the root.
 - Explicit research/plan gates, including across sessions. No automatic approvals or state resets.
 - Only the CLI changes execution state. Markdown contains definitions, not completion flags.
 - Git: the assistant creates branches, commits, runs `git pull`, pushes the current feature branch and opens a PR into the base branch; pushes to the base/production branch and merges are the user's.

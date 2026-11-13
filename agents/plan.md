@@ -123,6 +123,10 @@ comes from the project's «Browser» section in `AGENTS.md` and must be reachabl
 (usually `local`) — the implement agent runs it itself. Checks that need a deploy (staging after the
 user deploys) go into `## Acceptance (overall)` as `browser: env: staging; …`; implement does not
 run those, the driver lists them on `completed`. The line never starts with `--`.
+Every `browser:` item names the page URL (path), the tenant/shop with the needed setting and the
+login method on that env (see the project's «Browser» section in `AGENTS.md`). Any of them unknown →
+the item goes to Risks as an open question, not into Acceptance: a check implement cannot run ends
+the step as `blocked`.
 
 On a re-run, preserve each surviving step's ID. Numbers only order the display; dependencies use
 IDs. Do not add status fields: execution state lives in SQLite. Keep completed step definitions
