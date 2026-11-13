@@ -6,7 +6,8 @@ from devflow import cli, workflow
 
 from test_bb_audit import blocked_step
 from test_host_parity import result
-from test_pi import approve_plan, proj, shared_rules  # noqa: F401
+from devflow import pi
+from test_pi import approve_plan, fake_pi, proj, shared_rules  # noqa: F401
 
 
 def done(p, step, rev):
@@ -150,3 +151,11 @@ def test_skip_is_not_plan_approval(proj):
     skip(proj)
     plan = workflow.task_docs(proj['ctx'], 'x')[2]
     assert storage.approved(proj['db'], 'x', 'plan', plan) is True
+
+
+def test_research_replan_allowed_while_waiting_for_crossreview(proj, fake_pi):
+    finished(proj)
+    before = route(proj)
+    assert before['state'] == 'crossreview_required'
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', replan=True, env=fake_pi['env'])
+    assert out['exit_code'] == 0 and out['route'] == before
