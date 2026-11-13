@@ -18,8 +18,9 @@ def context_level(tokens, window=None, session=None):
     k = tokens // 1000
     if tokens >= CUT_TOKENS:
         sid = f' (во frontmatter `session: {session}`)' if session else ''
-        text = (f'CONTEXT_CUT {k}K — доведи текущий шаг, без спроса запиши передачу по формату /cut '
-                f'в `notes/handoff-<slug>.md`{sid} и продолжай работу; новую большую работу не начинай.')
+        text = (f'CONTEXT_CUT {k}K — первое действие этого хода, без спроса: Skill cut в режиме CONTEXT_CUT (передача '
+                f'в `notes/handoff-<slug>.md`{sid}), если в этой сессии её ещё не писали; потом продолжай '
+                f'запрос. Новую большую работу не начинай: предложи /clear.')
         return {'level': 'cut', 'tokens': tokens, 'text': text}
     if tokens >= WARN_TOKENS or (window and tokens >= 0.75 * window):
         return {'level': 'warn', 'tokens': tokens,

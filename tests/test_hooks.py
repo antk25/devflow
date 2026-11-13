@@ -273,3 +273,17 @@ def test_bare_push_with_remote_push_config(tmp_path):
 
 def test_bare_push_from_feature_branch_allowed(tmp_path):
     assert bare_push(tmp_path) == ''
+
+
+def test_restore_skips_handoff_in_phase_child(tmp_path):
+    project = tmp_path / 'project'
+    project.mkdir()
+    notes = tmp_path / 'vault' / 'notes'
+    notes.mkdir(parents=True)
+    (project / 'AGENTS.md').write_text(f'---\nproject: x\nvault: {tmp_path / "vault"}\n---\n')
+    (notes / 'handoff-df-1.md').write_text('---\ntype: handoff\ntask: df-1\n---\n# Передача\n')
+    env = {'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path), 'XDG_RUNTIME_DIR': str(tmp_path), 'DEVFLOW_PHASE_CHILD': '1'}
+    result = subprocess.run([str(RESTORE)], input=json.dumps({'source': 'startup'}), capture_output=True,
+                            text=True, cwd=project, env=env)
+    assert result.returncode == 0, result.stderr
+    assert 'PROJECT_RESTORE' in result.stdout and 'HANDOFF' not in result.stdout
