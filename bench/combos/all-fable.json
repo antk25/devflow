@@ -1,0 +1,18 @@
+{
+  "name": "all-fable",
+  "research": {
+    "runner": "claude",
+    "model": "claude-fable-5-1",
+    "effort": "medium"
+  },
+  "plan": {
+    "runner": "claude",
+    "model": "claude-fable-5-1",
+    "effort": "medium"
+  },
+  "implement": {
+    "runner": "claude",
+    "model": "claude-fable-5-1",
+    "effort": "low"
+  }
+}

@@ -19,7 +19,7 @@ printf 'PROJECT_RESTORE\n'
 printf 'OBSIDIAN_CONTEXT\n'
 "$DEVFLOW_DIR/scripts/devflow-cli.sh" active
 # A fresh, unambiguous handoff can also come from pi, not only from /clear.
-if [[ "$source" = clear || "$source" = startup || "$source" = resume || "$source" = compact ]]; then
+if [ -z "${DEVFLOW_PHASE_CHILD:-}" ] && [[ "$source" = clear || "$source" = startup || "$source" = resume || "$source" = compact ]]; then
     latest=(handoff latest --fresh-minutes 30)
     if [ -n "$session_id" ]; then
         task="$("$DEVFLOW_DIR/scripts/devflow-cli.sh" handoff slug --session "$session_id" 2>/dev/null \

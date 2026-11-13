@@ -92,3 +92,18 @@ def test_version_one_database_is_migrated(proj):
         assert len(outcomes(db)) == 1
     finally:
         db.close()
+
+
+def test_version_two_database_gets_per_task_running_index(proj):
+    proj['db'].execute('DROP INDEX single_running_task')
+    proj['db'].execute("CREATE UNIQUE INDEX single_running ON runs(status) WHERE status='running'")
+    proj['db'].execute('UPDATE project SET schema_version=2')
+    db = connect(proj['ctx'])
+    try:
+        names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert 'single_running_task' in names and 'single_running' not in names
+        for slug in ('a-1', 'b-2'):
+            db.execute("INSERT INTO runs(id,slug,step_id,step_revision,plan_revision,research_revision,status) "
+                       "VALUES (?,?,'s','r','p','q','running')", (slug, slug))
+    finally:
+        db.close()

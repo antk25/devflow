@@ -11,7 +11,7 @@ from . import bench, board, codex_review, compact, pi, project
 from .complexity import complexity
 from .documents import WorkflowError, artifact, context, document, handoff_latest, plan_steps, resolve_slug, title
 from .storage import connect, db_path, identity
-from .workflow import approve, check, finish, interrupt, migrate, reopen, resume, route, start, task_state
+from .workflow import accept_step, approve, check, finish, interrupt, migrate, reopen, resume, route, start, task_state
 
 
 def active(ctx, db, limit=5):
@@ -54,6 +54,7 @@ def parser():
     a = commands.add_parser('finish'); a.add_argument('run_id'); a.add_argument('--status', choices=['done', 'blocked', 'partial'], required=True); a.add_argument('--changelog', required=True); a.add_argument('--reason')
     a = commands.add_parser('check'); a.add_argument('slug'); g = a.add_mutually_exclusive_group(required=True); g.add_argument('--run'); g.add_argument('--all', action='store_true'); g.add_argument('--plan', action='store_true')
     a = commands.add_parser('interrupt'); a.add_argument('run_id'); a.add_argument('--reason', required=True)
+    a = commands.add_parser('accept-step'); a.add_argument('slug'); a.add_argument('--reason', required=True)
     a = commands.add_parser('resume'); a.add_argument('slug'); a.add_argument('--reason', required=True)
     a = commands.add_parser('reopen'); a.add_argument('slug'); a.add_argument('--step', required=True); a.add_argument('--revision', required=True); a.add_argument('--reason', required=True)
     a = commands.add_parser('migrate'); a.add_argument('slug'); a.add_argument('--apply', metavar='PREVIEW_REVISION')
@@ -167,6 +168,8 @@ def execute(args):
             return check(ctx, db, args.slug, args.run, args.all, args.plan)
         if args.command == 'interrupt':
             return interrupt(db, args.run_id, args.reason)
+        if args.command == 'accept-step':
+            return accept_step(ctx, db, args.slug, args.reason)
         if args.command == 'resume':
             return resume(ctx, db, args.slug, args.reason)
         if args.command == 'reopen':

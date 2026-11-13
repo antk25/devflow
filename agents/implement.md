@@ -31,7 +31,10 @@ failing link (exit 1/128) makes the whole chain look failed and invites retries.
    Do not create a second run. Missing state or mismatched input → stop and report it.
 3. Read the decisions journal `<vault>/notes/decisions-<slug>.md` if it exists — its answers bind this run.
 4. Read the returned `plan_path` and, if needed, `research_path`. Execute only the section `### <step-id>: <title>`.
-5. Note the current git branch. Do not push or create PRs from this agent; the driver or user publishes.
+5. Note the current git branch. In a metarepo (no `.git` in the project root) run git only as
+   `git -C <sub-repo>` for the repos of this task; in the root it fails with exit 128.
+   Quote glob patterns in shell commands (`--include='*.tsx'`): zsh aborts on unmatched globs.
+   Do not push or create PRs from this agent; the driver or user publishes.
 
 ## Step 2: Execute your step
 Make only this step's planned changes and run its Acceptance checks. Follow project conventions.

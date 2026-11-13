@@ -387,6 +387,8 @@ def _pi_launch(ctx, phase, current, model, env):
 def _run_bounded(argv, ctx, env):
     timeout = int(env.get('DEVFLOW_PHASE_TIMEOUT') or PHASE_TIMEOUT)
     with tempfile.TemporaryFile(mode='w+') as out, tempfile.TemporaryFile(mode='w+') as err:
+        # The restore hook must not hand a phase child the interactive session's handoff.
+        env = {**env, 'DEVFLOW_PHASE_CHILD': '1'}
         child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, cwd=ctx['cwd'], env=env,
                                  stdout=out, stderr=err, start_new_session=True)
         expired = False
@@ -447,8 +449,8 @@ def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, 
         raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))
     harness = HARNESSES[host]
     at_own_gate = current['state'] == 'approval_required' and current.get('phase') == phase
-    if replan and (phase != 'plan' or current['state'] != 'ready'):
-        raise WorkflowError('--replan requires phase plan in state ready')
+    if replan and (phase, current['state']) not in (('plan', 'ready'), ('research', 'completed')):
+        raise WorkflowError('--replan requires phase plan in state ready or phase research in state completed')
     if current['state'] not in PRECONDITIONS.get(phase, ()) and not at_own_gate and not replan:
         raise WorkflowError(f"Phase {phase} cannot run from state {current['state']}")
     if not shutil.which(host, path=env.get('PATH')):

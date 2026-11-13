@@ -125,7 +125,8 @@ def start(ctx, db, query, step_id, revision):
             raise WorkflowError('Task is not ready at the requested plan revision: ' + current['state'])
         if step_id not in current['frontier']:
             raise WorkflowError('Step is not on the frontier')
-        if db.execute("SELECT 1 FROM runs WHERE status='running'").fetchone():
+        busy = [r['slug'] for r in db.execute("SELECT slug FROM runs WHERE status='running'")]
+        if busy and not _separate_repos(ctx, current['slug'], busy):
             raise WorkflowError('Another step is running in this project; finish or interrupt it first')
         slug, research, plan = task_docs(ctx, query)
         if plan['revision'] != revision or research['revision'] != current['research_revision']:
@@ -136,6 +137,49 @@ def start(ctx, db, query, step_id, revision):
                    (run, slug, step_id, step['revision'], revision, research['revision'], 'running'))
         event(db, 'start', slug, run_id=run, step=step_id, revision=revision)
     return {'run_id': run, 'slug': slug, 'step': step_id, 'revision': revision}
+
+
+def _task_repos(ctx, slug):
+    from .codex_review import review_repos
+    try:
+        return {r['path'] for r in review_repos(ctx, slug)['repos']}
+    except WorkflowError:
+        return set()
+
+
+def _separate_repos(ctx, slug, busy):
+    # A metarepo checkout lets tasks run in parallel only when their sub-repositories are known and disjoint;
+    # a plain repo has one working tree, so a second run would switch branches under the first.
+    if (Path(ctx['cwd']) / '.git').exists():
+        return False
+    mine = _task_repos(ctx, slug)
+    if not mine:
+        return False
+    for other in busy:
+        theirs = _task_repos(ctx, other)
+        if not theirs or mine & theirs:
+            return False
+    return True
+
+
+def accept_step(ctx, db, query, reason):
+    if not reason.strip():
+        raise WorkflowError('accept-step needs --reason with the user decision')
+    slug = resolve_slug(ctx['vault'], query)
+    with transaction(db):
+        run = db.execute("SELECT * FROM runs WHERE slug=? AND status IN ('blocked','partial') ORDER BY rowid DESC LIMIT 1", (slug,)).fetchone()
+        if not run:
+            raise WorkflowError('Task has no blocked/partial attempt to accept')
+        _, research, plan = task_docs(ctx, slug)
+        if not plan or not research or plan['revision'] != run['plan_revision'] or research['revision'] != run['research_revision']:
+            raise WorkflowError('Documents changed since the attempt; review the plan instead of accepting')
+        if not approved(db, slug, 'plan', plan) or not approved(db, slug, 'research', research):
+            raise WorkflowError('Current documents are not approved')
+        db.execute('INSERT INTO steps VALUES (?,?,?,?,?) ON CONFLICT(slug,id) DO UPDATE SET revision=excluded.revision,status=excluded.status,source=excluded.source',
+                   (slug, run['step_id'], run['step_revision'], 'done', run['id']))
+        db.execute("UPDATE runs SET status='resumed' WHERE slug=? AND status IN ('blocked','partial')", (slug,))
+        event(db, 'accept_step', slug, run_id=run['id'], step=run['step_id'], previous=run['status'], reason=reason)
+    return dict(task_state(ctx, db, slug), accepted=run['step_id'])
 
 
 def finish(ctx, db, run_id, status, changelog, reason):

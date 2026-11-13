@@ -605,11 +605,17 @@ Recovery commands require inspecting the work and the user's decision:
 ```bash
 ~/.claude/skills/devflow/devflow interrupt <run-id> --reason <why>
 ~/.claude/skills/devflow/devflow resume <slug> --reason <decision>
+~/.claude/skills/devflow/devflow accept-step <slug> --reason <decision>
 ~/.claude/skills/devflow/devflow reopen <slug> --step <id> --revision <hash> --reason <decision>
 ~/.claude/skills/devflow/devflow artifact <slug> plan --revision <saved-hash>
 ```
 
 `reopen` also reopens dependent steps and invalidates plan approvals. It does not undo code changes.
+`accept-step` marks the step of the last blocked/partial attempt done by the user's decision
+(e.g. the smoke moves to production), records the reason as an event and needs unchanged approved
+documents. A `completed` task returns to research with `phase run <slug> research --replan --note …`.
+Runs are exclusive per task; in a metarepo two tasks run in parallel only when their sub-repositories
+are known and disjoint (schema v3), a plain repository keeps one running step.
 A stale `running` attempt is never automatically retried; first determine whether its agent still
 runs and inspect its code/changelog. Stop it explicitly if no result can be recovered.
 
