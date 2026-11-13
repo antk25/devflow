@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import shutil
 
@@ -117,6 +118,29 @@ def test_missing_skip_review_ask_reported(tmp_path):
     actual = tmp_path / 'settings.json'
     data = json.loads(EXAMPLE.read_text())
     rule = 'Bash(devflow skip-review*)'
+    data['permissions']['ask'].remove(rule)
+    actual.write_text(json.dumps(data))
+    assert settings_drift(actual, EXAMPLE)['ask'] == [rule]
+
+
+def test_skip_review_ask_covers_every_call_form():
+    patterns = [r[5:-1] for r in json.loads(EXAMPLE.read_text())['permissions']['ask']
+                if r.startswith('Bash(')]
+    for command in [
+        'devflow skip-review x --reason r',
+        'df skip-review x --reason r',
+        '~/.claude/skills/devflow/devflow skip-review x --reason r',
+        'devflow --cwd /p skip-review x --reason r',
+        'df --cwd /p skip-review x --reason r',
+        '~/.claude/skills/devflow/devflow --cwd /p skip-review x --reason r',
+    ]:
+        assert any(fnmatch.fnmatchcase(command, p) for p in patterns), command
+
+
+def test_missing_full_path_skip_review_ask_reported(tmp_path):
+    actual = tmp_path / 'settings.json'
+    data = json.loads(EXAMPLE.read_text())
+    rule = 'Bash(~/.claude/skills/devflow/devflow * skip-review*)'
     data['permissions']['ask'].remove(rule)
     actual.write_text(json.dumps(data))
     assert settings_drift(actual, EXAMPLE)['ask'] == [rule]

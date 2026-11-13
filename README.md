@@ -596,7 +596,8 @@ When every step is `done`, `route` returns `crossreview_required` until
 `finish done` and `accept-step` mark their event with `crossreview_gate: true`; a task whose last
 step closing has no such mark (closed before DF-36 or imported by `migrate`) stays `completed` with
 `crossreview: legacy`, and the driver offers a manual review. `skip-review` is in the `ask` rules
-of the reference settings; in pi the guard may treat it as a denial — then run it yourself in a terminal.
+of the reference settings for `devflow`, `df` and `~/.claude/skills/devflow/devflow`, with or without
+options such as `--cwd` before the subcommand; in pi the guard may treat it as a denial — then run it yourself in a terminal.
 The note counts only if its mtime is not older than the last marked step closing; an older note
 after `reopen` gives `crossreview_required` with `crossreview_stale: true` and needs a new review.
 Legacy goes before freshness: with an unmarked last closing any existing note still gives `note`.
