@@ -442,8 +442,10 @@ def _codex_launch(ctx, phase, current, model, env):
 def run_phase(ctx, db, slug, phase, step=None, note=None, model=None, env=None, replan=False, host=None):
     env = dict(os.environ if env is None else env)
     current = route(ctx, db, slug)
-    if current.get('phase') not in (None, phase) and current.get('policy'):
-        current = {**current, **launch_for(phase, (current.get('complexity') or {}).get('value'))}
+    if current.get('phase') != phase:
+        chosen = launch_for(phase, (current.get('complexity') or {}).get('value'))
+        if chosen.get('launch'):
+            current = {**current, **chosen}
     host = host or ((current.get('launch') or {}).get('pi') or {}).get('harness') or 'pi'
     if host not in HARNESSES:
         raise WorkflowError(f'Харнес {host} не подключён к phase run; доступны: ' + ', '.join(HARNESSES))

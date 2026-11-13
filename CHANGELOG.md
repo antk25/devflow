@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`df skip-review <slug> --reason …`:** пропуск ревью решением пользователя, в эталоне настроек — `ask`; привязан к ревизии плана, `reopen` снимает. Агентам команда запрещена.
 - **Legacy:** `finish done` и `accept-step` метят событие `crossreview_gate`; задачи, закрытые до DF-36, остаются `completed` (`crossreview: legacy`), драйвер предлагает ручное ревью. На доске — группа «ждёт», «⏸ кросс-ревью».
 - **Свежесть заметки:** заметка старше последнего меченого закрытия шага (mtime против `at`) не закрывает задачу — `crossreview_required` с `crossreview_stale: true`; legacy проверяется раньше свежести.
+- **`phase run research --replan` без `--model`:** из `completed`/`crossreview_required` модель берётся из model-policy, а не падает с «Модель … не задана».
 
 ### Fixed — аудит работы в bb (2026-11-11…13)
 - **`accept-step`:** шаг после `blocked`/`partial` закрывается решением пользователя одной командой; драйвер больше не пишет changelog и не вызывает `start`/`finish` сам.

@@ -10,7 +10,8 @@ from devflow import cli, workflow
 from test_bb_audit import blocked_step
 from test_host_parity import result
 from devflow import pi
-from test_pi import approve_plan, fake_pi, proj, shared_rules  # noqa: F401
+from test_pi import EXAMPLE_POLICY, approve_plan, fake_pi, proj, shared_rules  # noqa: F401
+from test_harness_claude import claude  # noqa: F401
 
 
 def done(p, step, rev):
@@ -204,6 +205,20 @@ def test_skip_with_stale_note(proj):
     skip(proj)
     out = route(proj)
     assert out['state'] == 'completed' and out['crossreview'] == 'skipped'
+
+
+@pytest.mark.parametrize('with_note', [False, True])
+def test_research_replan_without_model_takes_policy(proj, claude, monkeypatch, with_note):
+    monkeypatch.setenv('DEVFLOW_MODEL_POLICY', str(EXAMPLE_POLICY))
+    monkeypatch.setenv('DEVFLOW_RATE_LIMITS', str(proj['cwd'] / 'no-limits.json'))
+    finished(proj)
+    if with_note:
+        (proj['vault'] / 'notes').mkdir()
+        (proj['vault'] / 'notes/x-cross-review.md').write_text('# Ревью\n')
+    assert route(proj)['state'] == ('completed' if with_note else 'crossreview_required')
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'research', replan=True, env=claude['env'], host='claude')
+    expected = pi.launch_for('research', None)['launch']['claude']['id']
+    assert out['model_source'] == 'policy' and out['model'] == expected
 
 
 def test_required_without_note_has_no_stale_flag(proj):
