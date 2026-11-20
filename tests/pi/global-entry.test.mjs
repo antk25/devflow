@@ -56,26 +56,19 @@ test('драйвер и фаза читают одну редакцию; пов�
   assert.deepEqual(h.counts(), { aborted: 0, shutdown: 0 });
 });
 
-test('bridge на старте останавливает сессию, прямой Anthropic разрешён', async t => {
-  const h = harness(t, 'claude-bridge');
-  await h.handlers.session_start({}, h.ctx);
-  await h.handlers.before_agent_start({ systemPromptOptions: { sections: {} } }, h.ctx);
-  assert.deepEqual(h.counts(), { aborted: 2, shutdown: 2 });
-  assert.match(h.notices[0], /claude-bridge/);
-  h.ctx.model = { provider: 'anthropic' };
-  await h.handlers.session_start({}, h.ctx);
-  assert.deepEqual(h.counts(), { aborted: 2, shutdown: 2 });
-});
-
-test('смена модели на bridge отменяет работу и возвращает предыдущую модель', async t => {
-  const h = harness(t, 'claude-bridge');
-  await h.handlers.model_select({ model: h.ctx.model, previousModel: { provider: 'openai-codex' } }, h.ctx);
-  assert.equal(h.ctx.model.provider, 'openai-codex');
-  assert.deepEqual(h.counts(), { aborted: 1, shutdown: 0 });
-  h.pi.setModel = async () => false;
-  await h.handlers.model_select({ model: { provider: 'claude-bridge' }, previousModel: { provider: 'anthropic' } }, h.ctx);
-  assert.equal(h.counts().shutdown, 1);
-});
+for (const provider of ['claude-bridge', 'anthropic']) {
+  test(`провайдер ${provider} не отключает сессию и guard`, async t => {
+    const h = harness(t, provider);
+    await h.handlers.session_start({}, h.ctx);
+    const event = { systemPromptOptions: { sections: {} } };
+    await h.handlers.before_agent_start(event, h.ctx);
+    assert.deepEqual(h.counts(), { aborted: 0, shutdown: 0 });
+    assert.ok(event.systemPromptOptions.sections.devflow_shared);
+    assert.equal(typeof h.handlers.tool_call, 'function');
+    await h.handlers.model_select({ model: h.ctx.model }, h.ctx);
+    assert.deepEqual(h.counts(), { aborted: 0, shutdown: 0 });
+  });
+}
 
 test('отсутствующие или пустые правила не дают тихо продолжить', async t => {
   const h = harness(t);

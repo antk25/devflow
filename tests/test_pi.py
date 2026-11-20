@@ -61,21 +61,6 @@ def test_model_arg():
     assert pi.model_arg(env, 'anthropic/x') == 'anthropic/x'
 
 
-@pytest.mark.parametrize('model,settings,expected', [
-    ('claude-bridge/claude-opus-5-5', None, True),
-    ('openai-codex/gpt-6-astra', '{"defaultProvider": "claude-bridge"}', False),
-    (None, '{"defaultProvider": "claude-bridge"}', True),
-    (None, '{"defaultProvider": "openai-codex"}', False),
-    (None, None, False),
-    (None, '{not json', False),
-])
-def test_warns_claude_bridge(tmp_path, model, settings, expected):
-    path = tmp_path / 'settings.json'
-    if settings is not None:
-        path.write_text(settings)
-    assert pi.warns_claude_bridge(model, path) is expected
-
-
 FAKE_PI = '''#!/usr/bin/env bash
 printf '%s\\n' "$@" > "$FAKE_PI_LOG"
 [ "$(readlink /proc/$$/fd/0)" = /dev/null ] && echo closed > "$FAKE_PI_STDIN" || echo open > "$FAKE_PI_STDIN"
@@ -231,21 +216,6 @@ def test_run_phase_model_override_beats_policy(proj, fake_pi, monkeypatch, tmp_p
     argv = fake_pi['argv']()
     assert argv[argv.index('--model') + 1] == 'x/y:z'
     assert out['model'] == 'x/y:z' and out['model_source'] == 'override'
-
-
-@pytest.mark.parametrize('env_model,settings', [
-    ({'PI_PROVIDER': 'claude-bridge', 'PI_MODEL': 'claude-opus-5-5'}, None),
-    ({}, '{"defaultProvider": "claude-bridge"}'),
-])
-def test_run_phase_refuses_claude_bridge(proj, fake_pi, tmp_path, monkeypatch, env_model, settings):
-    approve_research(proj)
-    settings_path = tmp_path / 'settings.json'
-    if settings:
-        settings_path.write_text(settings)
-    monkeypatch.setattr(pi, 'PI_SETTINGS', settings_path)
-    with pytest.raises(WorkflowError, match='claude-bridge'):
-        pi.run_phase(proj['ctx'], proj['db'], 'x', 'plan', env={**fake_pi['env'], **env_model})
-    assert not fake_pi['log'].exists()
 
 
 def test_cli_phase_run_exit_code_only_in_json(proj, fake_pi, monkeypatch, capsys):
@@ -406,7 +376,7 @@ def test_implement_launch_failure_interrupts_the_run(proj, fake_pi, monkeypatch)
 
 
 @pytest.mark.parametrize('selection', ['override', 'env', 'default'])
-def test_bridge_refused_before_start(proj, fake_pi, tmp_path, monkeypatch, selection):
+def test_implement_accepts_bridge_model(proj, fake_pi, tmp_path, monkeypatch, selection):
     approve_plan(proj)
     settings = tmp_path / 'pi-settings.json'
     settings.write_text(json.dumps({'defaultProvider': 'claude-bridge'} if selection == 'default' else {}))
@@ -414,11 +384,15 @@ def test_bridge_refused_before_start(proj, fake_pi, tmp_path, monkeypatch, selec
     env = dict(fake_pi['env'])
     if selection == 'env':
         env.update(PI_PROVIDER='claude-bridge', PI_MODEL='test')
-    with pytest.raises(WorkflowError, match='claude-bridge'):
-        pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
-                     model='claude-bridge/test' if selection == 'override' else None, env=env)
-    assert runs(proj) == [] and not fake_pi['log'].exists()
-    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'ready'
+    out = pi.run_phase(proj['ctx'], proj['db'], 'x', 'implement',
+                       model='claude-bridge/test' if selection == 'override' else None, env=env)
+    assert out['exit_code'] == 0
+    argv = fake_pi['argv']()
+    if selection == 'default':
+        assert '--model' not in argv
+    else:
+        assert argv[argv.index('--model') + 1] == 'claude-bridge/test'
+    assert workflow.route(proj['ctx'], proj['db'], 'x')['state'] == 'running'
 
 
 def test_missing_shared_rules_refused_before_start(proj, fake_pi):
@@ -438,13 +412,12 @@ def test_anthropic_override_allowed_over_bridge_default(proj, fake_pi, tmp_path,
     assert str(pi.extension_path(fake_pi['env'])) in fake_pi['argv']()
 
 
-def test_launcher_refuses_bridge_and_loads_extension(proj, fake_pi, monkeypatch):
+def test_launcher_accepts_bridge_and_loads_extension(proj, fake_pi, monkeypatch):
     import launch
     for key, value in fake_pi['env'].items():
         monkeypatch.setenv(key, value)
-    with pytest.raises(WorkflowError, match='claude-bridge'):
-        launch.pi_command(proj['cwd'], 'claude-bridge/test')
-    _, argv = launch.pi_command(proj['cwd'], 'anthropic/test')
+    _, argv = launch.pi_command(proj['cwd'], 'claude-bridge/test')
+    assert argv[argv.index('--model') + 1] == 'claude-bridge/test'
     assert str(pi.extension_path(os.environ)) in argv
     text = Path(argv[argv.index('--append-system-prompt') + 1]).read_text()
     assert 'DEVFLOW_RULES' not in text
@@ -461,8 +434,8 @@ def test_extension_uses_discovered_symlink_path(tmp_path):
         pi.extension_path({'PI_CODING_AGENT_DIR': str(tmp_path)})
 
 
-@pytest.mark.parametrize('model', ['opus', '*/opus', 'claude-bridge/test'])
-def test_ambiguous_or_bridge_model_refused(tmp_path, model):
+@pytest.mark.parametrize('model', ['opus', '*/opus'])
+def test_ambiguous_model_refused(tmp_path, model):
     with pytest.raises(WorkflowError):
         pi.ensure_pi_model(model, tmp_path / 'settings.json')
 

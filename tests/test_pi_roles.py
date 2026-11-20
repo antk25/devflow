@@ -232,8 +232,12 @@ def test_review_skill_commands_guarded(runner, popen):
     assert len(reports) == 2
 
 
-def test_bridge_before_process(runner, monkeypatch):
-    monkeypatch.setattr(pi.subprocess, 'run', lambda *a, **k: pytest.fail('process started'))
-    monkeypatch.setattr(pi.subprocess, 'Popen', lambda *a, **k: pytest.fail('process started'))
-    with pytest.raises(WorkflowError, match='claude-bridge'):
-        pi.run_agent(runner, 'crossreview', 'task', model='claude-bridge/x')
+def test_role_accepts_bridge_model(runner, monkeypatch):
+    def fake_process(ctx, name, body, tools, chosen, message, env, timeout):
+        assert chosen == 'claude-bridge/x'
+        return subprocess.CompletedProcess([], 0, 'report', '')
+
+    monkeypatch.setattr(pi, '_run_process', fake_process)
+    result = pi.run_agent(runner, 'crossreview', 'task', model='claude-bridge/x')
+    assert result['executor'] == 'claude-bridge/x'
+    assert result['exit_code'] == 0

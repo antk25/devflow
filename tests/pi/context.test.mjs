@@ -18,11 +18,12 @@ function harness(t, options) {
     else process.env.DEVFLOW_INSTRUCTIONS = previous;
     rmSync(dir, { recursive: true });
   });
-  const handlers = {}, notices = [], messages = [], calls = [], cli = [];
+  const handlers = {}, notices = [], messages = [], calls = [], cli = [], statuses = new Map();
   let usage = { tokens: 0, contextWindow: 1000000 };
   let result = { code: 0, stdout: 'HANDOFF /v/notes/handoff-df-pi-workflow-parity.md\nroute; recovery явно', stderr: '' };
   const ctx = { cwd: dir, hasUI: true, model: { provider: 'openai-codex' },
-    ui: { notify: text => notices.push(text) }, getContextUsage: () => usage,
+    ui: { notify: text => notices.push(text), setStatus: (key, text) => statuses.set(key, text),
+      theme: { fg: (color, text) => `${color}: ${text}` } }, getContextUsage: () => usage,
     sessionManager: { getSessionId: () => 'pi-sess-1' } };
   const handoff = JSON.stringify({ path: '/v/notes/handoff-x.md', instructions: 'Передача задачи: /v/notes/handoff-x.md' });
   const api = { on: (name, handler) => { handlers[name] = handler; },
@@ -41,6 +42,7 @@ function harness(t, options) {
     return event.systemPromptOptions.sections;
   };
   return { handlers, ctx, notices, messages, calls, cli, api, before,
+    status: () => statuses.get('devflow-context'),
     usage: value => { usage = value; }, result: value => { result = value; } };
 }
 
@@ -48,12 +50,16 @@ test('WARN/CUT видны пользователю и модели; повтор
   const h = harness(t);
   h.usage({ tokens: 120000, contextWindow: 1000000 });
   await h.before();
+  assert.equal(h.status(), 'warning: ⚠ Заверши шаг · Контекст 120K · 12%');
+  h.usage({ tokens: 124000, contextWindow: 1000000 });
   for (let i = 0; i < 3; i++) await h.handlers.turn_end({}, h.ctx);
+  assert.equal(h.status(), 'warning: ⚠ Заверши шаг · Контекст 124K · 12%');
   assert.equal(h.messages.length, 1);
   assert.match(h.messages[0].content, /CONTEXT_WARN/);
   h.usage({ tokens: 180000, contextWindow: 1000000 });
   await h.handlers.turn_end({}, h.ctx);
   await h.before();
+  assert.equal(h.status(), 'error: ✂ РЕЗАТЬ · Контекст 180K · 18%');
   assert.equal(h.messages.length, 2);
   assert.match(h.messages[1].content, /CONTEXT_CUT/);
   assert.deepEqual(h.notices, h.messages.map(m => m.content));
@@ -65,14 +71,46 @@ test('unknown не считается нулём; compaction сбрасывае�
     h.usage(usage); await h.before();
   }
   assert.equal(h.messages.length, 1);
+  assert.equal(h.status(), 'dim: Контекст ?');
   assert.match(h.messages[0].content, /CONTEXT_UNKNOWN/);
   h.usage({ tokens: 96000, contextWindow: 128000 }); await h.before();
+  assert.equal(h.status(), 'warning: ⚠ Заверши шаг · Контекст 96K · 75%');
   assert.match(h.messages.at(-1).content, /CONTEXT_WARN/);
+  h.usage({ tokens: null, contextWindow: 128000 });
   await h.handlers.session_compact({}, h.ctx);
-  h.usage({ tokens: null, contextWindow: 128000 }); await h.before();
+  assert.equal(h.status(), 'dim: Контекст ?');
+  await h.before();
   assert.match(h.messages.at(-1).content, /CONTEXT_UNKNOWN/);
   h.usage({ tokens: 96000, contextWindow: 128000 }); await h.before();
   assert.match(h.messages.at(-1).content, /CONTEXT_WARN/);
+});
+
+test('строка обновляется при возобновлении и смене модели или ветки истории без уведомлений о пороге', async t => {
+  const h = harness(t);
+  h.usage({ tokens: 96000, contextWindow: 128000 });
+  await h.handlers.session_start({ reason: 'resume' }, h.ctx);
+  assert.equal(h.status(), 'warning: ⚠ Заверши шаг · Контекст 96K · 75%');
+  h.usage({ tokens: 96000, contextWindow: 1000000 });
+  await h.handlers.model_select({}, h.ctx);
+  assert.equal(h.status(), 'dim: Контекст 96K · 9%');
+  h.usage({ tokens: 180000, contextWindow: 1000000 });
+  await h.handlers.session_tree({}, h.ctx);
+  assert.equal(h.status(), 'error: ✂ РЕЗАТЬ · Контекст 180K · 18%');
+  assert.deepEqual(h.messages, []);
+  await h.before();
+  assert.match(h.messages[0].content, /CONTEXT_CUT/);
+});
+
+test('ошибка проверки порога видна в строке, а без UI строка не обновляется', async t => {
+  const h = harness(t);
+  h.usage({ tokens: 124000, contextWindow: 1000000 });
+  h.api.exec = async () => ({ code: 1, stderr: 'cli unavailable' });
+  await h.handlers.turn_end({}, h.ctx);
+  assert.equal(h.status(), 'error: ⚠ Порог не проверен · Контекст 124K · 12%');
+  h.ctx.hasUI = false;
+  h.ctx.ui.setStatus = () => assert.fail('нет UI');
+  await h.handlers.model_select({}, h.ctx);
+  await h.handlers.turn_end({}, h.ctx);
 });
 
 test('при 185000 текст совпадает с context-level', async t => {
