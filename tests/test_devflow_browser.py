@@ -19,6 +19,7 @@ def browser(tmp_path):
         f'printf "%s\\n" "$@" >> "{argv_log}"\n'
         'printf "%s" "${FAKE_NPX_STDOUT:-}"\n'
         'printf "%s" "${FAKE_NPX_STDERR:-}" >&2\n'
+        'if [[ "$5" == start ]]; then exit "${FAKE_NPX_START_RC:-${FAKE_NPX_RC:-0}}"; fi\n'
         'exit "${FAKE_NPX_RC:-0}"\n'
     )
     npx.chmod(0o755)
@@ -74,10 +75,19 @@ def test_start_insecure_accepts_insecure_certs(browser):
 
 
 def test_start_failure_leaves_no_session(browser):
-    result = browser("start", rc=1, stderr="Could not launch Chrome")
+    result = browser("start", start_rc=1, stderr="Could not launch Chrome")
     assert result.returncode == 1
     assert "Could not launch Chrome" in result.stderr
     assert not (browser.smoke_dir / ".sessions").exists() or not list((browser.smoke_dir / ".sessions").iterdir())
+
+
+def test_failed_start_and_cleanup_report_retry_command(browser):
+    result = browser("start", start_rc=7, rc=9)
+    assert result.returncode == 7 and not result.stdout
+    marker, = (browser.smoke_dir / ".sessions").iterdir()
+    assert f"retry: devflow-browser {marker.name} stop" in result.stderr
+    assert browser(marker.name, "stop").returncode == 0
+    assert not marker.exists()
 
 
 def test_pinned_version_in_argv(browser):

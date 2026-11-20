@@ -107,6 +107,8 @@ if [[ "$1" == start ]]; then
   if (( rc != 0 )); then
     if run_cli stop --sessionId "$id" >/dev/null 2>&1; then
       rm -f "$SESSIONS_DIR/$id"
+    else
+      echo "devflow-browser: cleanup failed; retry: devflow-browser $id stop" >&2
     fi
     exit "$rc"
   fi
