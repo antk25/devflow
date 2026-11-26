@@ -25,7 +25,9 @@ result in the vault. **You change nothing in the repository.**
 1. Run `devflow context` (cwd = project). Exit ≠ 0 → stop and return its error to the driver verbatim. Otherwise take `project`, `vault` from its JSON.
    Read the body of `AGENTS.md` for run/test/typecheck commands.
 2. `devflow review-repos <slug>` — JSON `repos`: `repo`, `path`, `branch`, `base`, `error` на каждый
-   репозиторий задачи (в однорепозиторном проекте один элемент `repo` = `.`). Пустой список или
+   репозиторий задачи (в однорепозиторном проекте один элемент `repo` = `.`). Запущенный из worktree или
+   вложенного репозитория, вернёт только его: `repo` — путь от корня проекта (`.wt/<repo>/<branch>`), `base` —
+   ближайшая к HEAD из `Base branch` / `Production branch`, считая по `origin/*`. Пустой список или
    элемент с `error` → верни драйверу `blocked: вопрос: <repo и error>`. Target каждого — `<base>...HEAD`
    против **локальной** base (`git fetch` is blocked).
 3. Для каждого репозитория запиши `git -C <path> rev-parse <base> HEAD` и

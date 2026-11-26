@@ -116,7 +116,7 @@ def execute(args):
                                        uncommitted=args.uncommitted, message_file=args.message_file,
                                        title=args.title)
     if args.command == 'review-repos':
-        return codex_review.review_repos(ctx, args.slug)
+        return codex_review.review_repos(ctx, args.slug, args.cwd)
     if args.command == 'agent':
         return pi.run_agent(ctx, args.role, args.message_file.read_text(encoding='utf-8'),
                             model=args.model, timeout=args.timeout)
