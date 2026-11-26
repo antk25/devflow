@@ -34,7 +34,6 @@ TOOLS = {'Read': ('read',), 'Grep': ('grep',), 'Glob': ('find', 'ls'), 'Bash': (
          'Write': ('write',), 'Edit': ('edit',)}
 CODEX_WARNING = 'Модели openai-codex в pi не запускаются — только в Codex'
 PHASE_NOT_IN_PI = 'Фаза {} в pi не запускается по model-policy: research/plan — в Claude Code, при исчерпанных лимитах — в Codex'
-BRIDGE_WARNING = ('claude-bridge запрещён в pi; выберите --model provider/id или прямой anthropic/*')
 SHARED_INSTRUCTIONS = Path.home() / '.claude/devflow-instructions.md'
 EXTENSION = Path(__file__).resolve().parents[2] / 'pi/extensions/devflow.ts'
 
@@ -65,8 +64,6 @@ def ensure_pi_model(model, settings_path):
             provider = None
         except (OSError, ValueError) as exc:
             raise WorkflowError(f'Cannot read pi settings {path}: {exc}')
-    if isinstance(provider, str) and provider.lower() == 'claude-bridge':
-        raise WorkflowError(BRIDGE_WARNING)
     if isinstance(provider, str) and provider.lower() == 'openai-codex':
         raise WorkflowError(CODEX_WARNING)
 
@@ -135,15 +132,6 @@ def model_env(model):
     if level:
         env['PI_REASONING_LEVEL'] = level
     return env
-
-
-def warns_claude_bridge(model_arg, settings_path=PI_SETTINGS):
-    if model_arg:
-        return model_arg.startswith('claude-bridge/')
-    try:
-        return json.loads(Path(settings_path).read_text(encoding='utf-8')).get('defaultProvider') == 'claude-bridge'
-    except (OSError, ValueError, AttributeError):
-        return False
 
 
 def agent_body(phase):

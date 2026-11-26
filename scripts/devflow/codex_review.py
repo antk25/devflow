@@ -92,26 +92,59 @@ def _origin_head(path):
 def _base_error(path, base):
     if base is None:
         return None
-    if git_output(path, 'rev-parse', '--verify', '--quiet', f'refs/heads/{base}'):
-        return None
-    return f'Base {base} has no local branch; run git -C {path} branch {base} origin/{base}'
+    if not git_output(path, 'rev-parse', '--verify', '--quiet', f'refs/heads/{base}'):
+        return f'Base {base} has no local branch; run git -C {path} branch {base} origin/{base}'
+    remote = f'refs/remotes/origin/{base}'
+    if git_output(path, 'rev-parse', '--verify', '--quiet', remote) and \
+            git_output(path, 'rev-list', '--count', f'{base}..{remote}') not in ('', '0'):
+        return f'Base {base} is behind origin/{base}; run git -C {path} branch -f {base} origin/{base}'
+    return None
 
 
-def review_repos(ctx, slug):
+def _declared_branches(root):
+    agents = root / 'AGENTS.md'
+    text = agents.read_text(encoding='utf-8') if agents.is_file() else ''
+    return [found.group(1) for kind in ('Base', 'Production')
+            if (found := re.search(rf'^\s*-\s*{kind} branch:\s*`([^`]+)`', text, re.M))]
+
+
+def _nearest_base(path, candidates):
+    candidates = list(dict.fromkeys(c for c in candidates if c))
+    local = [c for c in candidates if git_output(path, 'rev-parse', '--verify', '--quiet', f'refs/heads/{c}')]
+    if len(local) < 2:
+        return local[0] if local else candidates[0] if candidates else None
+
+    # A hotfix branch cut from production must be reviewed against production, not the base branch.
+    def distance(base):
+        remote = f'refs/remotes/origin/{base}'
+        ref = remote if git_output(path, 'rev-parse', '--verify', '--quiet', remote) else base
+        counts = git_output(path, 'rev-list', '--count', '--left-right', f'{ref}...HEAD').split()
+        return (int(counts[1]), int(counts[0])) if len(counts) == 2 else (float('inf'),) * 2
+    return min(local, key=distance)
+
+
+def _single_repo(root, path, name):
+    base = _nearest_base(path, [*_declared_branches(root), _origin_head(path)])
+    repo = dict(repo=name, path=str(path), branch=git_output(path, 'branch', '--show-current') or None,
+                base=base, head=git_output(path, 'rev-parse', 'HEAD') or None, error=None)
+    repo['error'] = 'No Base branch in AGENTS.md and no origin/HEAD' if base is None else _base_error(path, base)
+    return repo
+
+
+def review_repos(ctx, slug, here=None):
     match = re.match(r'([a-z]+-\d+)(?:-|$)', slug.lower())
     if not match:
         raise WorkflowError(f'No task key in slug {slug!r}')
     key = match.group(1).upper()
     root = Path(ctx['cwd']).resolve()
+    here = Path(here).resolve() if here is not None else root
+    if here != root and here.is_relative_to(root):
+        top = git_output(here, 'rev-parse', '--show-toplevel')
+        if top and Path(top).resolve() != root and Path(top).resolve().is_relative_to(root):
+            top = Path(top).resolve()
+            return {'key': key, 'repos': [_single_repo(root, top, str(top.relative_to(root)))]}
     if (root / '.git').exists():
-        agents = root / 'AGENTS.md'
-        text = agents.read_text(encoding='utf-8') if agents.is_file() else ''
-        found = re.search(r'^\s*-\s*Base branch:\s*`([^`]+)`', text, re.M)
-        base = found.group(1) if found else _origin_head(root)
-        repo = dict(repo='.', path=str(root), branch=git_output(root, 'branch', '--show-current') or None,
-                    base=base, head=git_output(root, 'rev-parse', 'HEAD') or None, error=None)
-        repo['error'] = 'No Base branch in AGENTS.md and no origin/HEAD' if base is None else _base_error(root, base)
-        return {'key': key, 'repos': [repo]}
+        return {'key': key, 'repos': [_single_repo(root, root, '.')]}
     token = re.compile(rf'(?<![a-z0-9]){re.escape(key.lower())}(?!\d)')
     repos = []
     for path in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith('.') and (p / '.git').exists()):

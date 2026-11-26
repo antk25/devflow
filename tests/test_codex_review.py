@@ -321,3 +321,39 @@ def test_review_repos_empty_and_bad_slug(tmp_path):
     assert codex_review.review_repos({'cwd': tmp_path}, 'se-1-x') == {'key': 'SE-1', 'repos': []}
     with pytest.raises(codex_review.WorkflowError):
         codex_review.review_repos({'cwd': tmp_path}, 'no-key-here')
+
+
+def test_review_repos_from_worktree_of_subrepository(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, 'connect', lambda *a, **k: pytest.fail('state opened'))
+    (tmp_path / 'v').mkdir()
+    (tmp_path / 'AGENTS.md').write_text(
+        '---\nproject: meta\nvault: v\n---\n- Base branch: `main`\n- Production branch: `production`\n')
+    make_repo(tmp_path, branches=[])
+    api = tmp_path / 'api'
+    make_repo(api, branches=['production', 'SE-7'])
+    git(api, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'main only')
+    git(api, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+    worktree = tmp_path / '.wt' / 'api' / 'SE-7-2'
+    git(api, 'worktree', 'add', '-q', '-b', 'SE-7-2', str(worktree), 'production')
+    git(worktree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'fix')
+    result = cli.execute(cli.parser().parse_args(['--cwd', str(worktree), 'review-repos', 'se-7-x']))
+    assert [(r['repo'], r['path'], r['branch'], r['base'], r['error']) for r in result['repos']] == [
+        ('.wt/api/SE-7-2', str(worktree), 'SE-7-2', 'production', None)]
+
+
+def test_review_repos_prefers_base_branch_when_equally_near(tmp_path):
+    (tmp_path / 'AGENTS.md').write_text('- Base branch: `dev`\n- Production branch: `main`\n')
+    make_repo(tmp_path, branches=['dev', 'df-9-x'], checkout='df-9-x')
+    result = codex_review.review_repos({'cwd': tmp_path}, 'df-9-x')
+    assert result['repos'][0]['base'] == 'dev'
+
+
+def test_review_repos_flags_local_base_behind_origin(tmp_path):
+    (tmp_path / 'AGENTS.md').write_text('- Base branch: `main`\n')
+    make_repo(tmp_path, branches=['df-9-x'])
+    git(tmp_path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'merged')
+    git(tmp_path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+    git(tmp_path, 'reset', '-q', '--hard', 'HEAD~1')
+    git(tmp_path, 'checkout', '-q', 'df-9-x')
+    repo = codex_review.review_repos({'cwd': tmp_path}, 'df-9-x')['repos'][0]
+    assert repo['base'] == 'main' and 'behind origin/main' in repo['error'] and 'branch -f main' in repo['error']

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `review-repos` в worktree
+- Запущенный из worktree или вложенного репозитория внутри проекта, `review-repos` возвращает его, а не корень проекта; `repo` — путь от корня, его же принимает `codex-review --repo`.
+- База — ближайшая к HEAD из `Base branch`, `Production branch` и `origin/HEAD` (меньше своих коммитов, затем меньше отставания; считается по `origin/<base>`): ветка от продовой ревьюится против продовой.
+- Локальная база позади `origin/<base>` — ошибка с командой `git branch -f`: иначе в diff попадают чужие коммиты.
+
 ### Added — DF-36: `route` не отдаёт `completed` без кросс-ревью
 - **Состояние `crossreview_required`:** все шаги `done`, но нет `<vault>/notes/<slug>-cross-review.md` и пропуска; драйвер в обоих хостах запускает crossreview по нему, после заметки `route` отдаёт `completed` (`crossreview: note`).
 - **`df skip-review <slug> --reason …`:** пропуск ревью решением пользователя, в эталоне настроек — `ask`; привязан к ревизии плана, `reopen` снимает. Агентам команда запрещена.

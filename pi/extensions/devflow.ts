@@ -5,8 +5,6 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const reason = "DevFlow: claude-bridge запрещён; выберите прямого провайдера, например anthropic/*.";
-
 export function checkTool(event: unknown, cwd: string, launch = spawn): Promise<any> {
 	return new Promise((accept, reject) => {
 		const root = resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
@@ -72,7 +70,7 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 		return typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0
 			? { tokens, window: usage!.contextWindow } : undefined;
 	}
-	async function contextWarning(ctx: ExtensionContext) {
+	async function contextWarning(ctx: ExtensionContext, notify = true) {
 		const usage = knownTokens(ctx);
 		let next = "unknown";
 		let text = "CONTEXT_UNKNOWN: размер контекста неизвестен; это не нулевой контекст. Перед большой работой проверьте /session.";
@@ -90,12 +88,26 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 				text = `DevFlow: devflow context-level недоступен (${error}); порог контекста не проверен.`;
 			}
 		}
-		if (next === level) return;
+		if (ctx.hasUI) {
+			const tokens = usage?.tokens;
+			const count = tokens === undefined ? "?" : tokens < 1000 ? String(tokens) : `${Math.floor(tokens / 1000)}K`;
+			const percent = usage && usage.window > 0 ? ` · ${Math.floor(usage.tokens / usage.window * 100)}%` : "";
+			const label = next === "cut" ? "✂ РЕЗАТЬ · " : next === "warn" ? "⚠ Заверши шаг · " :
+				next === "error" ? "⚠ Порог не проверен · " : "";
+			const color = next === "cut" || next === "error" ? "error" : next === "warn" ? "warning" : "dim";
+			ctx.ui.setStatus("devflow-context", ctx.ui.theme.fg(color, `${label}Контекст ${count}${percent}`));
+		}
+		if (!notify || next === level) return;
 		level = next;
 		if (next === "ok") return;
 		tell(ctx, text, next === "error" ? "error" : "warning");
 	}
+	function refreshContextStatus(ctx: ExtensionContext) {
+		if (ctx.hasUI && ctx.getContextUsage) return contextWarning(ctx, false);
+	}
 	pi.on("turn_end", (_event, ctx) => contextWarning(ctx));
+	pi.on("model_select", (_event, ctx) => refreshContextStatus(ctx));
+	pi.on("session_tree", (_event, ctx) => refreshContextStatus(ctx));
 	pi.on("session_before_compact", async (event, ctx) => {
 		if (options.restoreContext === false || !ctx.cwd || !existsSync(join(ctx.cwd, "AGENTS.md"))) return;
 		const session = sessionId(ctx);
@@ -116,6 +128,7 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 	});
 	pi.on("session_compact", async (_event, ctx) => {
 		level = "";
+		await refreshContextStatus(ctx);
 		if (options.restoreContext === false || !pi.exec || !ctx.cwd) return;
 		const result = await pi.exec("python3", [join(devflowRoot(), "scripts/launch.py"), "--restore-context"],
 			{ cwd: ctx.cwd, timeout: 10000 });
@@ -143,7 +156,7 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 		restored = "";
 		try {
 			instructions();
-			if (ctx.model?.provider === "claude-bridge") { stop(ctx, reason); return; }
+			await refreshContextStatus(ctx);
 			if (options.restoreContext !== false && pi.exec && ctx.cwd) {
 				const result = await pi.exec("python3", [join(devflowRoot(), "scripts/launch.py"), "--restore-context"],
 					{ cwd: ctx.cwd, timeout: 10000 });
@@ -157,17 +170,13 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		if (ctx.model?.provider === "claude-bridge") {
-			stop(ctx, reason);
-			return;
-		}
 		if (ctx.getContextUsage) await contextWarning(ctx);
 		if (restored) event.systemPromptOptions.sections.devflow_restore =
 			"Актуальное восстановление (заменяет снимок launcher):\n" + restored;
 		try {
 			event.systemPromptOptions.sections.devflow_shared = instructions();
 			event.systemPromptOptions.sections.devflow_host =
-				"Хост: pi. Не вызывать claude/claude-bridge. Прямой anthropic/* разрешён. " +
+				"Хост: pi. Не запускать команды claude/claude-bridge напрямую из оболочки. " +
 				"Фазы запускаются через devflow phase run, не Agent/SendMessage. " +
 				"Implement выполняет ровно один шаг в свежем контексте и не публикует результат. " +
 				"Для новой сессии пользователь использует /new, не /clear.";
@@ -176,17 +185,6 @@ export function registerDevflow(pi: ExtensionAPI, options: { restoreContext?: bo
 		}
 	});
 
-	pi.on("model_select", async (event, ctx) => {
-		if (event.model.provider !== "claude-bridge") return;
-		ctx.abort();
-		if (event.previousModel && event.previousModel.provider !== "claude-bridge" &&
-			await pi.setModel(event.previousModel)) {
-			if (ctx.hasUI) ctx.ui.notify(reason, "error");
-			else console.error(reason);
-			return;
-		}
-		stop(ctx, reason);
-	});
 }
 
 export default function devflow(pi: ExtensionAPI) {
